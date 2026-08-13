@@ -2,6 +2,8 @@
 
 **Bootstrap the smallest AI software team that can ship safely — with explicit ownership, independent validation, version-bound evidence, and recovery built in.**
 
+![More agents does not equal a team: approval-gated AI-native delivery](docs/images/ai-native-dev-team-hero.png)
+
 [中文说明](#中文说明) · [Install](#install) · [How it works](#how-it-works) · [Why this is different](#why-this-is-different)
 
 ## The problem
@@ -60,6 +62,8 @@ The default mode is `proposal`: no agents, branches, worktrees, or governance fi
 
 ## How it works
 
+![Inspect, classify, propose, approve, execute, and verify the exact commit](docs/images/bootstrap-workflow.png)
+
 ```text
 inspect primary evidence
         ↓
@@ -104,7 +108,11 @@ skills/bootstrap-ai-native-dev-team/
     └── evidence-manifest.yaml
 ```
 
+`docs/images/social-preview.png` is the candidate asset for this repository's GitHub Social Preview; committing it does not change the repository setting.
+
 ## Validation
+
+![Version 0.1.0 verification evidence](docs/images/verification-evidence.svg)
 
 ```bash
 python tests/validate_skill.py
