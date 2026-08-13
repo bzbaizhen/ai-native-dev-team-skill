@@ -1,10 +1,12 @@
 # AI-Native Dev Team Skill
 
+[English](README.md) | [简体中文](README.zh-CN.md)
+
 **Bootstrap the smallest AI software team that can ship safely — with explicit ownership, independent validation, version-bound evidence, and recovery built in.**
 
 ![More agents does not equal a team: approval-gated AI-native delivery](docs/images/ai-native-dev-team-hero.png)
 
-[中文说明](#中文说明) · [Install](#install) · [How it works](#how-it-works) · [Why this is different](#why-this-is-different)
+[Install](#install) · [How it works](#how-it-works) · [Why this is different](#why-this-is-different)
 
 ## The problem
 
@@ -119,18 +121,6 @@ python tests/validate_skill.py
 ```
 
 The repository includes a GitHub Actions workflow for the same structural checks.
-
-## 中文说明
-
-这个 Skill 用于为软件项目组建、调整或审核一支 **按任务启用、权限受限、证据可追溯** 的 AI Native 开发团队。
-
-它不是简单地“多开几个 Agent”，而是先检查项目事实，分别评估复杂度和风险，再决定是否需要主线程单独完成、单开发者、独立 QA，或多个隔离执行者。默认先生成待审核方案，得到授权后才创建 Agent、分支、Worktree 或项目治理文件。
-
-核心目标只有三个：
-
-1. 更快地产出通过验收的用户价值；
-2. 准确知道每个结论对应哪份代码和证据；
-3. 出错或环境中断时能够安全回退并恢复。
 
 ## Status
 
