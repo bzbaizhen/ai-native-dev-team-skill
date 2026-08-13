@@ -1,0 +1,7 @@
+interface:
+  display_name: "AI-Native Dev Team Bootstrap"
+  short_description: "Build a proportional, auditable AI software team"
+  default_prompt: "Use $bootstrap-ai-native-dev-team to propose the smallest safe AI-native development team for this project."
+policy:
+  allow_implicit_invocation: true
+
