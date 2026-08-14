@@ -169,8 +169,19 @@ except json.JSONDecodeError as exc:
     fail(f"release trial example is invalid JSON: {exc}")
 if example_manifest.get("required_comparable_tasks") != 5:
     fail("release trial example must preserve the preregistered five-task gate")
-if example_manifest.get("candidate_version") != "v2.0.0-rc.4":
-    fail("release trial example must name the current RC.4 candidate")
+if example_manifest.get("candidate_version") != "v2.0.0-rc.5":
+    fail("release trial example must name the current RC.5 candidate")
+example_trials = example_manifest.get("trials")
+if not isinstance(example_trials, list) or not example_trials:
+    fail("release trial example must contain an accepted trial")
+example_proof = example_trials[0].get("integration_proof")
+if not isinstance(example_proof, dict) or example_proof.get("mode") != "same_tree":
+    fail("release trial example must demonstrate same_tree integration proof")
+if example_proof.get("tree_scope") != {
+    "history_sensitive": False,
+    "non_tree_dependencies": [],
+}:
+    fail("same_tree example tree_scope must be explicitly empty and history-insensitive")
 
 example_dir = ROOT / "benchmarks" / "v2-prospective"
 

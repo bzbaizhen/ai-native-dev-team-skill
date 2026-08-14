@@ -1,6 +1,6 @@
 {
   "schema_version": "2.0",
-  "candidate_version": "v2.0.0-rc.4",
+  "candidate_version": "v2.0.0-rc.5",
   "candidate_commit": "1111111111111111111111111111111111111111",
   "candidate_frozen_at": "2026-08-15T00:00:00Z",
   "registry_closed_at": "2026-08-31T23:59:59Z",
@@ -37,6 +37,16 @@
       "synthetic": false,
       "candidate_commit": "2222222222222222222222222222222222222222",
       "stable_commit": "3333333333333333333333333333333333333333",
+      "integration_proof": {
+        "mode": "same_tree",
+        "candidate_ref": "refs/heads/feature/TASK-001",
+        "candidate_tree": "4444444444444444444444444444444444444444",
+        "stable_tree": "4444444444444444444444444444444444444444",
+        "tree_scope": {
+          "history_sensitive": false,
+          "non_tree_dependencies": []
+        }
+      },
       "acceptance_evidence": "../../private-evidence/task-001-acceptance.json",
       "acceptance_evidence_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
       "critical_defect_escape": false,

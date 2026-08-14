@@ -16,6 +16,58 @@
     "sources",
     "trials"
   ],
+  "$defs": {
+    "tree_scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["history_sensitive", "non_tree_dependencies"],
+      "properties": {
+        "history_sensitive": {"const": false},
+        "non_tree_dependencies": {
+          "type": "array",
+          "maxItems": 0,
+          "items": {"type": "string"}
+        }
+      }
+    },
+    "integration_proof": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode"],
+          "properties": {"mode": {"const": "same_commit"}}
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "mode",
+            "candidate_ref",
+            "candidate_tree",
+            "stable_tree",
+            "tree_scope"
+          ],
+          "properties": {
+            "mode": {"const": "same_tree"},
+            "candidate_ref": {
+              "type": "string",
+              "pattern": "^refs/(heads|tags)/.+$"
+            },
+            "candidate_tree": {
+              "type": "string",
+              "pattern": "^[0-9a-fA-F]{40}$"
+            },
+            "stable_tree": {
+              "type": "string",
+              "pattern": "^[0-9a-fA-F]{40}$"
+            },
+            "tree_scope": {"$ref": "#/$defs/tree_scope"}
+          }
+        }
+      ]
+    }
+  },
   "properties": {
     "schema_version": {"const": "2.0"},
     "candidate_version": {"type": "string", "minLength": 1},
@@ -109,6 +161,7 @@
             "type": "string",
             "pattern": "^[0-9a-fA-F]{40}$"
           },
+          "integration_proof": {"$ref": "#/$defs/integration_proof"},
           "request_evidence": {"type": "string", "minLength": 1},
           "request_evidence_sha256": {
             "type": "string",
@@ -177,7 +230,8 @@
                 "candidate_commit",
                 "stable_commit",
                 "acceptance_evidence",
-                "acceptance_evidence_sha256"
+                "acceptance_evidence_sha256",
+                "integration_proof"
               ]
             }
           }

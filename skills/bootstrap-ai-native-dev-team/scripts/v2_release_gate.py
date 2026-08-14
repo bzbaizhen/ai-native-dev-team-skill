@@ -23,6 +23,7 @@ import team_metrics  # noqa: E402
 FULL_SHA = re.compile(r"^[0-9a-fA-F]{40}$")
 SHA256 = re.compile(r"^[0-9a-fA-F]{64}$")
 SAFE_REF = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]*$")
+FULL_CANDIDATE_REF = re.compile(r"^refs/(?:heads|tags)/.+$")
 STRATUM = re.compile(
     r"^(C[0-3])\|(R[0-3])\|(no-delegation|single-worker|task-cell|team-required)$"
 )
@@ -144,6 +145,7 @@ ACCEPTED_ONLY_FIELDS = {
     "stable_commit",
     "acceptance_evidence",
     "acceptance_evidence_sha256",
+    "integration_proof",
 }
 TRIAL_FIELDS = REQUIRED_TRIAL_FIELDS | ACCEPTED_ONLY_FIELDS | {
     "exclusion_reason",
@@ -157,15 +159,95 @@ QUALITY_FIELDS = {
     "write_conflict",
     "recovery_executable",
 }
+SAME_COMMIT_PROOF_FIELDS = {"mode"}
+SAME_TREE_PROOF_FIELDS = {
+    "mode",
+    "candidate_ref",
+    "candidate_tree",
+    "stable_tree",
+    "tree_scope",
+}
+TREE_SCOPE_FIELDS = {"history_sensitive", "non_tree_dependencies"}
+INTEGRATION_MODES = {"same_commit", "same_tree"}
 
 
 class ReleaseGateError(ValueError):
     pass
 
 
-def require_non_empty(value: Any, label: str) -> None:
+def require_non_empty(value: Any, label: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ReleaseGateError(f"{label} must be a non-empty string")
+    return value
+
+
+def require_full_sha(value: Any, label: str) -> str:
+    value = require_non_empty(value, label)
+    if not FULL_SHA.fullmatch(value):
+        raise ReleaseGateError(f"{label} must be a full 40-character SHA")
+    return value
+
+
+def require_sha256(value: Any, label: str) -> str:
+    value = require_non_empty(value, label)
+    if not SHA256.fullmatch(value):
+        raise ReleaseGateError(f"{label} must be a SHA-256 digest")
+    return value
+
+
+def require_candidate_ref_shape(value: Any, label: str) -> str:
+    value = require_non_empty(value, label)
+    if not FULL_CANDIDATE_REF.fullmatch(value) or any(
+        token in value for token in ("^", "~", "@{")
+    ):
+        raise ReleaseGateError(
+            f"{label} must be a full refs/heads/* or refs/tags/* ref"
+        )
+    return value
+
+
+def validate_tree_scope(value: Any, label: str) -> dict[str, Any]:
+    if not isinstance(value, dict) or set(value) != TREE_SCOPE_FIELDS:
+        raise ReleaseGateError(f"{label} fields differ from the contract")
+    if not isinstance(value["history_sensitive"], bool):
+        raise ReleaseGateError(f"{label}.history_sensitive must be boolean")
+    if value["history_sensitive"]:
+        raise ReleaseGateError(
+            f"{label}.history_sensitive must be false for same_tree"
+        )
+    dependencies = value["non_tree_dependencies"]
+    if not isinstance(dependencies, list) or any(
+        not isinstance(item, str) for item in dependencies
+    ):
+        raise ReleaseGateError(
+            f"{label}.non_tree_dependencies must be a string array"
+        )
+    if dependencies:
+        raise ReleaseGateError(
+            f"{label}.non_tree_dependencies must be empty for same_tree"
+        )
+    return value
+
+
+def validate_integration_proof(value: Any, label: str) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise ReleaseGateError(f"{label} must be an object")
+    mode = value.get("mode")
+    if not isinstance(mode, str) or mode not in INTEGRATION_MODES:
+        raise ReleaseGateError(f"{label}.mode is invalid")
+    if mode == "same_commit":
+        if set(value) != SAME_COMMIT_PROOF_FIELDS:
+            raise ReleaseGateError(
+                f"{label} same_commit fields must contain only mode"
+            )
+        return value
+    if set(value) != SAME_TREE_PROOF_FIELDS:
+        raise ReleaseGateError(f"{label} same_tree fields differ from the contract")
+    require_candidate_ref_shape(value.get("candidate_ref"), f"{label}.candidate_ref")
+    require_full_sha(value.get("candidate_tree"), f"{label}.candidate_tree")
+    require_full_sha(value.get("stable_tree"), f"{label}.stable_tree")
+    validate_tree_scope(value.get("tree_scope"), f"{label}.tree_scope")
+    return value
 
 
 def manifest_time(value: Any, label: str) -> datetime:
@@ -192,15 +274,13 @@ def load_manifest(path: Path) -> dict[str, Any]:
     if data["schema_version"] != "2.0":
         raise ReleaseGateError("manifest schema_version must be 2.0")
     require_non_empty(data["candidate_version"], "candidate_version")
-    if not FULL_SHA.fullmatch(str(data["candidate_commit"])):
-        raise ReleaseGateError("candidate_commit must be a full 40-character SHA")
+    require_full_sha(data["candidate_commit"], "candidate_commit")
     if manifest_time(data["registry_closed_at"], "registry_closed_at") <= manifest_time(
         data["candidate_frozen_at"], "candidate_frozen_at"
     ):
         raise ReleaseGateError("registry_closed_at must be after candidate_frozen_at")
     require_non_empty(data["source_registry"], "source_registry")
-    if not SHA256.fullmatch(str(data["source_registry_sha256"])):
-        raise ReleaseGateError("source_registry_sha256 must be SHA-256")
+    require_sha256(data["source_registry_sha256"], "source_registry_sha256")
     required_count = data["required_comparable_tasks"]
     if isinstance(required_count, bool) or not isinstance(required_count, int) or required_count < 5:
         raise ReleaseGateError("required_comparable_tasks must be an integer of at least 5")
@@ -236,7 +316,10 @@ def load_manifest(path: Path) -> dict[str, Any]:
                 f"duplicate project_evidence_id: {source['project_evidence_id']}"
             )
         project_ids.add(source["project_evidence_id"])
-        if not SAFE_REF.fullmatch(source["stable_branch"]):
+        stable_branch = require_non_empty(
+            source["stable_branch"], f"{label}.stable_branch"
+        )
+        if not SAFE_REF.fullmatch(stable_branch):
             raise ReleaseGateError(f"{label}.stable_branch is not a safe Git ref")
         prefix_bytes = source["ledger_prefix_bytes"]
         if (
@@ -245,10 +328,8 @@ def load_manifest(path: Path) -> dict[str, Any]:
             or prefix_bytes < 0
         ):
             raise ReleaseGateError(f"{label}.ledger_prefix_bytes must be non-negative")
-        if not SHA256.fullmatch(str(source["ledger_prefix_sha256"])):
-            raise ReleaseGateError(f"{label}.ledger_prefix_sha256 must be SHA-256")
-        if not SHA256.fullmatch(str(source["ledger_sha256"])):
-            raise ReleaseGateError(f"{label}.ledger_sha256 must be a SHA-256 digest")
+        require_sha256(source["ledger_prefix_sha256"], f"{label}.ledger_prefix_sha256")
+        require_sha256(source["ledger_sha256"], f"{label}.ledger_sha256")
 
     source_project_ids = {
         source["source_id"]: source["project_evidence_id"] for source in data["sources"]
@@ -300,10 +381,12 @@ def load_manifest(path: Path) -> dict[str, Any]:
         if sequence in sequences:
             raise ReleaseGateError(f"duplicate registration_sequence: {sequence}")
         sequences.add(sequence)
-        if not FULL_SHA.fullmatch(str(trial["skill_candidate_commit"])):
-            raise ReleaseGateError(f"{label}.skill_candidate_commit must be a full SHA")
-        if not SHA256.fullmatch(str(trial["request_evidence_sha256"])):
-            raise ReleaseGateError(f"{label}.request_evidence_sha256 must be SHA-256")
+        require_full_sha(
+            trial["skill_candidate_commit"], f"{label}.skill_candidate_commit"
+        )
+        require_sha256(
+            trial["request_evidence_sha256"], f"{label}.request_evidence_sha256"
+        )
         request_digest = trial["request_evidence_sha256"].casefold()
         if request_digest in request_digests:
             raise ReleaseGateError(f"duplicate request evidence digest: {request_digest}")
@@ -333,11 +416,15 @@ def load_manifest(path: Path) -> dict[str, Any]:
                     f"{label} accepted disposition missing {sorted(missing_accepted)}"
                 )
             for field in ("candidate_commit", "stable_commit"):
-                if not FULL_SHA.fullmatch(str(trial[field])):
-                    raise ReleaseGateError(f"{label}.{field} must be a full SHA")
+                require_full_sha(trial[field], f"{label}.{field}")
             require_non_empty(trial["acceptance_evidence"], f"{label}.acceptance_evidence")
-            if not SHA256.fullmatch(str(trial["acceptance_evidence_sha256"])):
-                raise ReleaseGateError(f"{label}.acceptance_evidence_sha256 must be SHA-256")
+            require_sha256(
+                trial["acceptance_evidence_sha256"],
+                f"{label}.acceptance_evidence_sha256",
+            )
+            validate_integration_proof(
+                trial["integration_proof"], f"{label}.integration_proof"
+            )
             acceptance_digest = trial["acceptance_evidence_sha256"].casefold()
             if acceptance_digest in acceptance_digests:
                 raise ReleaseGateError(
@@ -383,7 +470,60 @@ def run_git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
 
 
 def git_commit_exists(repo: Path, commit: str) -> bool:
+    if not isinstance(commit, str) or not FULL_SHA.fullmatch(commit):
+        return False
     return run_git(repo, "cat-file", "-e", f"{commit}^{{commit}}").returncode == 0
+
+
+def git_object_id(repo: Path, revision: str, object_type: str, label: str) -> str:
+    if not isinstance(revision, str) or not FULL_SHA.fullmatch(revision):
+        raise ReleaseGateError(f"{label} must be a full 40-character SHA")
+    result = run_git(repo, "rev-parse", "--verify", f"{revision}^{{{object_type}}}")
+    value = result.stdout.strip()
+    if result.returncode != 0 or not FULL_SHA.fullmatch(value):
+        detail = result.stderr.strip() or result.stdout.strip() or "Git object is absent"
+        raise ReleaseGateError(f"{label} cannot be resolved: {detail}")
+    return value.casefold()
+
+
+def resolve_candidate_ref(
+    repo: Path, raw_ref: Any, expected_commit: str, label: str
+) -> str:
+    ref = require_candidate_ref_shape(raw_ref, label)
+    check = run_git(repo, "check-ref-format", ref)
+    if check.returncode != 0:
+        raise ReleaseGateError(f"{label} is not a valid Git ref")
+    result = run_git(repo, "rev-parse", "--verify", f"{ref}^{{commit}}")
+    target = result.stdout.strip()
+    if result.returncode != 0 or not FULL_SHA.fullmatch(target):
+        raise ReleaseGateError(f"{label} is missing or does not resolve to a Commit")
+    if target.casefold() != expected_commit.casefold():
+        raise ReleaseGateError(f"{label} does not resolve to candidate_commit")
+    return target.casefold()
+
+
+def resolve_stable_branch(repo: Path, raw_branch: Any, label: str) -> str:
+    branch = require_non_empty(raw_branch, label)
+    if branch == "HEAD" or FULL_SHA.fullmatch(branch):
+        raise ReleaseGateError(f"{label} must identify a stable branch")
+    if branch.startswith("refs/"):
+        if not branch.startswith("refs/heads/"):
+            raise ReleaseGateError(f"{label} must use the refs/heads namespace")
+        ref = branch
+        branch_name = branch.removeprefix("refs/heads/")
+    else:
+        ref = f"refs/heads/{branch}"
+        branch_name = branch
+    if not branch_name or any(token in branch_name for token in ("^", "~", "@{")):
+        raise ReleaseGateError(f"{label} must identify a stable branch")
+    check = run_git(repo, "check-ref-format", "--branch", branch_name)
+    if check.returncode != 0:
+        raise ReleaseGateError(f"{label} is not a valid Git branch")
+    result = run_git(repo, "rev-parse", "--verify", f"{ref}^{{commit}}")
+    target = result.stdout.strip()
+    if result.returncode != 0 or not FULL_SHA.fullmatch(target):
+        raise ReleaseGateError(f"{label} is missing or does not resolve to a Commit")
+    return target.casefold()
 
 
 def git_text(repo: Path, *args: str) -> str:
@@ -563,8 +703,7 @@ def validate_anchor_registry(data: dict[str, Any]) -> dict[str, Any]:
         raise ReleaseGateError("anchor source registry fields differ from the contract")
     if data.get("schema_version") != "2.0":
         raise ReleaseGateError("anchor source registry schema_version must be 2.0")
-    if not FULL_SHA.fullmatch(str(data.get("candidate_commit", ""))):
-        raise ReleaseGateError("anchor candidate_commit must be a full SHA")
+    require_full_sha(data.get("candidate_commit"), "anchor candidate_commit")
     manifest_time(data.get("candidate_frozen_at"), "anchor candidate_frozen_at")
     required = data.get("required_comparable_tasks")
     if isinstance(required, bool) or not isinstance(required, int) or required < 5:
@@ -589,8 +728,7 @@ def validate_anchor_registry(data: dict[str, Any]) -> dict[str, Any]:
         if path in evidence_paths:
             raise ReleaseGateError(f"duplicate anchor baseline evidence_path: {path}")
         evidence_paths.add(path)
-        if not SHA256.fullmatch(str(baseline["evidence_sha256"])):
-            raise ReleaseGateError(f"{label}.evidence_sha256 must be SHA-256")
+        require_sha256(baseline["evidence_sha256"], f"{label}.evidence_sha256")
         for field in ("stable_release_comparable", "formal_efficiency_comparable"):
             if not isinstance(baseline[field], bool):
                 raise ReleaseGateError(f"{label}.{field} must be boolean")
@@ -620,7 +758,10 @@ def validate_anchor_registry(data: dict[str, Any]) -> dict[str, Any]:
             raise ReleaseGateError(f"duplicate anchor project_evidence_id: {project_id}")
         source_ids.add(source_id)
         project_ids.add(project_id)
-        if not SAFE_REF.fullmatch(source["stable_branch"]):
+        stable_branch = require_non_empty(
+            source["stable_branch"], f"{label}.stable_branch"
+        )
+        if not SAFE_REF.fullmatch(stable_branch):
             raise ReleaseGateError(f"{label}.stable_branch is not a safe Git ref")
         prefix_bytes = source["ledger_prefix_bytes"]
         if (
@@ -629,8 +770,9 @@ def validate_anchor_registry(data: dict[str, Any]) -> dict[str, Any]:
             or prefix_bytes < 0
         ):
             raise ReleaseGateError(f"{label}.ledger_prefix_bytes must be non-negative")
-        if not SHA256.fullmatch(str(source["ledger_prefix_sha256"])):
-            raise ReleaseGateError(f"{label}.ledger_prefix_sha256 must be SHA-256")
+        require_sha256(
+            source["ledger_prefix_sha256"], f"{label}.ledger_prefix_sha256"
+        )
     return data
 
 
@@ -671,10 +813,16 @@ def validate_anchor_receipt(
         raise ReleaseGateError(f"registration {expected_sequence} source is not frozen")
     if data["project_evidence_id"] != source["project_evidence_id"]:
         raise ReleaseGateError(f"registration {expected_sequence} project identity differs")
-    if data["skill_candidate_commit"].casefold() != candidate_commit.casefold():
+    skill_candidate_commit = require_full_sha(
+        data["skill_candidate_commit"],
+        f"registration {expected_sequence}.skill_candidate_commit",
+    )
+    if skill_candidate_commit.casefold() != candidate_commit.casefold():
         raise ReleaseGateError(f"registration {expected_sequence} candidate differs")
-    if not SHA256.fullmatch(str(data["request_evidence_sha256"])):
-        raise ReleaseGateError(f"registration {expected_sequence} request digest is invalid")
+    require_sha256(
+        data["request_evidence_sha256"],
+        f"registration {expected_sequence}.request_evidence_sha256",
+    )
     if data["complexity"] not in team_metrics.COMPLEXITIES:
         raise ReleaseGateError(f"registration {expected_sequence} complexity is invalid")
     if data["risk"] not in team_metrics.RISKS:
@@ -733,12 +881,8 @@ def validate_anchor_receipt(
 
 def load_anchor(repo: Path, freeze_commit: str, head_commit: str) -> dict[str, Any]:
     repo = repo.resolve()
-    for value, label in (
-        (freeze_commit, "anchor_freeze_commit"),
-        (head_commit, "anchor_head_commit"),
-    ):
-        if not FULL_SHA.fullmatch(str(value)):
-            raise ReleaseGateError(f"{label} must be a full 40-character SHA")
+    require_full_sha(freeze_commit, "anchor_freeze_commit")
+    require_full_sha(head_commit, "anchor_head_commit")
     root = git_text(repo, "rev-parse", "--show-toplevel").strip()
     if Path(root).resolve() != repo:
         raise ReleaseGateError("anchor_repo must be the Git root")
@@ -815,9 +959,15 @@ def load_anchor(repo: Path, freeze_commit: str, head_commit: str) -> dict[str, A
         "registration_window_closed"
     ):
         raise ReleaseGateError("anchor closure type is invalid")
-    if str(closure.get("candidate_commit", "")).casefold() != candidate_commit.casefold():
+    closure_candidate = require_full_sha(
+        closure.get("candidate_commit"), "anchor closure candidate_commit"
+    )
+    if closure_candidate.casefold() != candidate_commit.casefold():
         raise ReleaseGateError("anchor closure candidate differs")
-    if str(closure.get("anchor_freeze_commit", "")).casefold() != freeze_commit:
+    closure_freeze = require_full_sha(
+        closure.get("anchor_freeze_commit"), "anchor closure anchor_freeze_commit"
+    )
+    if closure_freeze.casefold() != freeze_commit:
         raise ReleaseGateError("anchor closure freeze Commit differs")
     closed = manifest_time(closure.get("closed_at"), "anchor closed_at")
     if closed <= frozen:
@@ -825,15 +975,21 @@ def load_anchor(repo: Path, freeze_commit: str, head_commit: str) -> dict[str, A
 
     registration_commits = first_parent[:-1]
     expected_final = registration_commits[-1] if registration_commits else freeze_commit
-    if str(closure.get("final_registration_commit", "")).casefold() != expected_final:
+    final_registration = require_full_sha(
+        closure.get("final_registration_commit"),
+        "anchor closure final_registration_commit",
+    )
+    if final_registration.casefold() != expected_final:
         raise ReleaseGateError("anchor closure final registration Commit differs")
     count = closure.get("registration_count")
     if isinstance(count, bool) or not isinstance(count, int) or count != len(
         registration_commits
     ):
         raise ReleaseGateError("anchor closure registration_count differs")
-    if not SHA256.fullmatch(str(closure.get("trial_manifest_sha256", ""))):
-        raise ReleaseGateError("anchor closure trial_manifest_sha256 is invalid")
+    require_sha256(
+        closure.get("trial_manifest_sha256"),
+        "anchor closure trial_manifest_sha256",
+    )
 
     sources = {source["source_id"]: source for source in registry["sources"]}
     baselines = {
@@ -933,15 +1089,12 @@ def load_source(source: dict[str, Any], manifest_path: Path) -> dict[str, Any]:
         repo_root = Path(root_result.stdout.strip()).resolve()
         if repo_root != repo:
             issues.append(issue("project_repo_not_root", "project_repo must be the Git root"))
-        branch_result = run_git(
-            repo, "rev-parse", "--verify", f"{source['stable_branch']}^{{commit}}"
-        )
-        if branch_result.returncode != 0 or not FULL_SHA.fullmatch(
-            branch_result.stdout.strip()
-        ):
-            issues.append(issue("stable_branch_error", "stable_branch is not a Commit"))
-        else:
-            branch_commit = branch_result.stdout.strip().casefold()
+        try:
+            branch_commit = resolve_stable_branch(
+                repo, source["stable_branch"], "stable_branch"
+            )
+        except ReleaseGateError as exc:
+            issues.append(issue("stable_branch_error", str(exc)))
     return {
         "source_id": source["source_id"],
         "project_alias": source["project_alias"],
@@ -1065,8 +1218,13 @@ def validate_evidence(
     accepted_time: datetime | None,
 ) -> list[dict[str, str]]:
     issues: list[dict[str, str]] = []
+    registered_hash: str | None = None
     try:
-        if file_sha256(path).casefold() != expected_hash.casefold():
+        registered_hash = require_sha256(expected_hash, f"{evidence_type} evidence digest")
+    except ReleaseGateError as exc:
+        issues.append(issue(f"{evidence_type}_evidence_digest_invalid", str(exc)))
+    try:
+        if registered_hash and file_sha256(path).casefold() != registered_hash.casefold():
             issues.append(
                 issue(
                     f"{evidence_type}_evidence_digest_mismatch",
@@ -1100,6 +1258,7 @@ def validate_evidence(
             "scope_violation",
             "write_conflict",
             "recovery_executable",
+            "integration_proof",
         }
     )
     unknown_fields = set(evidence) - allowed_fields
@@ -1136,7 +1295,7 @@ def validate_evidence(
             )
     try:
         occurred_at = team_metrics.parse_time(evidence.get("occurred_at", ""))
-    except team_metrics.LedgerError:
+    except (team_metrics.LedgerError, AttributeError, TypeError):
         issues.append(
             issue(f"{evidence_type}_evidence_time_invalid", "occurred_at is invalid")
         )
@@ -1154,11 +1313,34 @@ def validate_evidence(
         if evidence.get("accepted") is not True:
             issues.append(issue("acceptance_not_confirmed", "acceptance is not confirmed"))
         for field in ("candidate_commit", "stable_commit"):
-            if str(evidence.get(field, "")).casefold() != trial[field].casefold():
+            actual = evidence.get(field)
+            if not isinstance(actual, str) or not FULL_SHA.fullmatch(actual):
+                issues.append(
+                    issue(
+                        f"acceptance_evidence_{field}_invalid",
+                        f"evidence {field} must be a full 40-character SHA",
+                    )
+                )
+            elif actual.casefold() != trial[field].casefold():
                 issues.append(
                     issue(
                         f"acceptance_evidence_{field}_mismatch",
                         f"evidence {field} does not match the trial",
+                    )
+                )
+        try:
+            evidence_proof = validate_integration_proof(
+                evidence.get("integration_proof"),
+                "acceptance evidence integration_proof",
+            )
+        except ReleaseGateError as exc:
+            issues.append(issue("acceptance_evidence_integration_proof_invalid", str(exc)))
+        else:
+            if evidence_proof != trial["integration_proof"]:
+                issues.append(
+                    issue(
+                        "acceptance_evidence_integration_proof_mismatch",
+                        "evidence integration_proof does not match the trial",
                     )
                 )
         for field in QUALITY_FIELDS:
@@ -1182,6 +1364,76 @@ def validate_evidence(
     return issues
 
 
+def evaluate_integration_proof(
+    repo: Path, trial: dict[str, Any], issues: list[dict[str, str]]
+) -> None:
+    try:
+        proof = validate_integration_proof(
+            trial.get("integration_proof"), "trial integration_proof"
+        )
+    except ReleaseGateError as exc:
+        issues.append(issue("integration_proof_invalid", str(exc)))
+        return
+
+    candidate = trial["candidate_commit"]
+    stable = trial["stable_commit"]
+    if proof["mode"] == "same_commit":
+        if candidate.casefold() != stable.casefold():
+            issues.append(
+                issue(
+                    "same_commit_mismatch",
+                    "same_commit requires candidate_commit and stable_commit to be equal",
+                )
+            )
+        return
+
+    try:
+        resolve_candidate_ref(
+            repo,
+            proof["candidate_ref"],
+            candidate,
+            "integration_proof.candidate_ref",
+        )
+    except ReleaseGateError as exc:
+        issues.append(issue("candidate_ref_invalid", str(exc)))
+    try:
+        candidate_tree = git_object_id(
+            repo, candidate, "tree", "candidate_commit tree"
+        )
+    except ReleaseGateError as exc:
+        issues.append(issue("candidate_tree_missing", str(exc)))
+        candidate_tree = None
+    try:
+        stable_tree = git_object_id(repo, stable, "tree", "stable_commit tree")
+    except ReleaseGateError as exc:
+        issues.append(issue("stable_tree_missing", str(exc)))
+        stable_tree = None
+
+    declared_candidate_tree = proof["candidate_tree"]
+    declared_stable_tree = proof["stable_tree"]
+    if candidate_tree and candidate_tree != declared_candidate_tree.casefold():
+        issues.append(
+            issue(
+                "candidate_tree_mismatch",
+                "integration proof candidate_tree differs from Git",
+            )
+        )
+    if stable_tree and stable_tree != declared_stable_tree.casefold():
+        issues.append(
+            issue(
+                "stable_tree_mismatch",
+                "integration proof stable_tree differs from Git",
+            )
+        )
+    if candidate_tree and stable_tree and candidate_tree != stable_tree:
+        issues.append(
+            issue(
+                "integration_tree_mismatch",
+                "candidate and stable Git trees differ",
+            )
+        )
+
+
 def evaluate_trial(
     trial: dict[str, Any],
     manifest: dict[str, Any],
@@ -1195,6 +1447,9 @@ def evaluate_trial(
         event for event in source["events"] if event["task_id"] == trial["task_id"]
     ]
     ready_events = [event for event in task_events if event["event"] == "task_ready"]
+    dev_complete_events = [
+        event for event in task_events if event["event"] == "dev_complete"
+    ]
     accepted_events = [event for event in task_events if event["event"] == "accepted"]
     ready = ready_events[0] if len(ready_events) == 1 else None
     accepted = accepted_events[0] if len(accepted_events) == 1 else None
@@ -1225,7 +1480,9 @@ def evaluate_trial(
             actual = trial.get(trial_field)
             expected = receipt.get(receipt_field)
             matches = (
-                str(actual).casefold() == str(expected).casefold()
+                isinstance(actual, str)
+                and isinstance(expected, str)
+                and actual.casefold() == expected.casefold()
                 if trial_field in {"skill_candidate_commit", "request_evidence_sha256"}
                 else actual == expected
             )
@@ -1271,8 +1528,10 @@ def evaluate_trial(
         for field, expected in ready_checks.items():
             actual = ready.get(field)
             matches = (
-                actual.casefold() == str(expected).casefold()
-                if field == "skill_candidate_commit" and isinstance(actual, str)
+                isinstance(actual, str)
+                and isinstance(expected, str)
+                and actual.casefold() == expected.casefold()
+                if field == "skill_candidate_commit"
                 else actual == expected
             )
             if not matches:
@@ -1294,35 +1553,59 @@ def evaluate_trial(
                 issue("accepted_count", f"expected 1 accepted, found {len(accepted_events)}")
             )
         if accepted:
-            if accepted.get("commit", "").casefold() != trial["candidate_commit"].casefold():
+            accepted_commit = accepted.get("commit")
+            if not isinstance(accepted_commit, str) or not FULL_SHA.fullmatch(
+                accepted_commit
+            ):
+                issues.append(
+                    issue(
+                        "candidate_commit_mismatch",
+                        "accepted candidate Commit is not a full SHA",
+                    )
+                )
+            elif accepted_commit.casefold() != trial["candidate_commit"].casefold():
                 issues.append(
                     issue("candidate_commit_mismatch", "accepted candidate Commit differs")
                 )
-            if accepted.get("stable_commit", "").casefold() != trial[
-                "stable_commit"
-            ].casefold():
+            accepted_stable = accepted.get("stable_commit")
+            if not isinstance(accepted_stable, str) or not FULL_SHA.fullmatch(
+                accepted_stable
+            ):
+                issues.append(
+                    issue(
+                        "stable_commit_mismatch",
+                        "accepted stable Commit is not a full SHA",
+                    )
+                )
+            elif accepted_stable.casefold() != trial["stable_commit"].casefold():
                 issues.append(
                     issue("stable_commit_mismatch", "accepted stable Commit differs")
                 )
-        repo = Path(source["project_repo"])
-        if not git_commit_exists(repo, trial["candidate_commit"]):
-            issues.append(issue("candidate_commit_missing", "candidate Commit is absent"))
-        if not git_commit_exists(repo, trial["stable_commit"]):
-            issues.append(issue("stable_commit_missing", "stable Commit is absent"))
-        else:
-            if git_commit_exists(repo, trial["candidate_commit"]) and run_git(
-                repo,
-                "merge-base",
-                "--is-ancestor",
-                trial["candidate_commit"],
-                trial["stable_commit"],
-            ).returncode != 0:
+        if len(dev_complete_events) == 1:
+            dev_commit = dev_complete_events[0].get("commit")
+            if not isinstance(dev_commit, str) or not FULL_SHA.fullmatch(dev_commit):
                 issues.append(
                     issue(
-                        "candidate_commit_not_in_stable_commit",
-                        "candidate Commit is not an ancestor of stable Commit",
+                        "dev_complete_commit_mismatch",
+                        "dev_complete candidate Commit is not a full SHA",
                     )
                 )
+            elif dev_commit.casefold() != trial["candidate_commit"].casefold():
+                issues.append(
+                    issue(
+                        "dev_complete_commit_mismatch",
+                        "dev_complete candidate Commit differs",
+                    )
+                )
+        repo = Path(source["project_repo"])
+        candidate_exists = git_commit_exists(repo, trial["candidate_commit"])
+        stable_exists = git_commit_exists(repo, trial["stable_commit"])
+        if not candidate_exists:
+            issues.append(issue("candidate_commit_missing", "candidate Commit is absent"))
+        if not stable_exists:
+            issues.append(issue("stable_commit_missing", "stable Commit is absent"))
+        evaluate_integration_proof(repo, trial, issues)
+        if stable_exists:
             if source["stable_branch_commit"] and run_git(
                 repo,
                 "merge-base",
@@ -1428,7 +1711,9 @@ def evaluate_manifest(
     for field, expected in expected_manifest_values.items():
         actual = manifest[field]
         matches = (
-            str(actual).casefold() == str(expected).casefold()
+            isinstance(actual, str)
+            and isinstance(expected, str)
+            and actual.casefold() == expected.casefold()
             if field == "candidate_commit"
             else actual == expected
         )

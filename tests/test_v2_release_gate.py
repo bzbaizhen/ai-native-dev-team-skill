@@ -45,6 +45,7 @@ class V2ReleaseGateTests(unittest.TestCase):
         omit_baseline_source_blob: bool = False,
         metrics_source_kind: str = "metrics_record",
         historical_backlog: bool = False,
+        integration_mode: str = "same_commit",
     ) -> Path:
         repo = root / "project"
         repo.mkdir()
@@ -113,7 +114,52 @@ class V2ReleaseGateTests(unittest.TestCase):
                 capture_output=True,
                 text=True,
             ).stdout.strip()
-            candidate = stable
+            if integration_mode == "same_tree":
+                stable_tree = subprocess.run(
+                    ["git", "-C", str(repo), "rev-parse", f"{stable}^{{tree}}"],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                ).stdout.strip()
+                candidate = subprocess.run(
+                    [
+                        "git",
+                        "-C",
+                        str(repo),
+                        "commit-tree",
+                        stable_tree,
+                        "-m",
+                        f"squash candidate {task}",
+                    ],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                ).stdout.strip()
+                subprocess.run(
+                    [
+                        "git",
+                        "-C",
+                        str(repo),
+                        "update-ref",
+                        f"refs/heads/feature/{task}",
+                        candidate,
+                    ],
+                    check=True,
+                    capture_output=True,
+                )
+                integration_proof = {
+                    "mode": "same_tree",
+                    "candidate_ref": f"refs/heads/feature/{task}",
+                    "candidate_tree": stable_tree,
+                    "stable_tree": stable_tree,
+                    "tree_scope": {
+                        "history_sensitive": False,
+                        "non_tree_dependencies": [],
+                    },
+                }
+            else:
+                candidate = stable
+                integration_proof = {"mode": "same_commit"}
             ready_timestamp = f"2026-08-14T00:{index:02d}:00Z"
             accepted_timestamp = f"2026-08-14T02:{index:02d}:00Z"
             events.extend(
@@ -185,6 +231,7 @@ class V2ReleaseGateTests(unittest.TestCase):
                         "accepted_by_role": "business-owner",
                         "candidate_commit": candidate,
                         "stable_commit": stable,
+                        "integration_proof": integration_proof,
                         "critical_defect_escape": False,
                         "material_quality_regression": index == failing_index,
                         "scope_violation": False,
@@ -214,6 +261,7 @@ class V2ReleaseGateTests(unittest.TestCase):
                     "synthetic": False,
                     "candidate_commit": candidate,
                     "stable_commit": stable,
+                    "integration_proof": integration_proof,
                     "acceptance_evidence": str(acceptance_evidence.relative_to(root)),
                     "acceptance_evidence_sha256": hashlib.sha256(
                         acceptance_evidence.read_bytes()
@@ -743,7 +791,7 @@ class V2ReleaseGateTests(unittest.TestCase):
         self.assertIn("ledger_prefix_digest_mismatch", source_codes)
         self.assertFalse(prefix_result["stable_v2_ready"])
 
-    def test_candidate_commit_must_reach_stable_commit(self) -> None:
+    def test_same_commit_requires_candidate_and_stable_equality(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
             manifest_path = self.build_trial_files(root, 5)
@@ -788,8 +836,168 @@ class V2ReleaseGateTests(unittest.TestCase):
             result = self.evaluate(manifest_path)
 
         codes = {item["code"] for item in result["trials"][0]["issues"]}
-        self.assertIn("candidate_commit_not_in_stable_commit", codes)
+        self.assertIn("same_commit_mismatch", codes)
         self.assertFalse(result["stable_v2_ready"])
+
+    def test_non_ancestor_same_tree_candidate_is_accepted(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            manifest_path = self.build_trial_files(
+                Path(raw), 5, integration_mode="same_tree"
+            )
+            result = self.evaluate(manifest_path)
+
+        self.assertTrue(result["stable_v2_ready"])
+        self.assertFalse(
+            any(
+                item["code"] == "candidate_commit_not_in_stable_commit"
+                for trial in result["trials"]
+                for item in trial["issues"]
+            )
+        )
+
+    def test_same_tree_tree_label_and_ref_are_recomputed(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            manifest_path = self.build_trial_files(
+                root, 5, integration_mode="same_tree"
+            )
+            data = json.loads(manifest_path.read_text(encoding="utf-8"))
+            trial = data["trials"][0]
+            trial["integration_proof"]["candidate_tree"] = "0" * 40
+            acceptance_path = root / trial["acceptance_evidence"]
+            acceptance = json.loads(acceptance_path.read_text(encoding="utf-8"))
+            acceptance["integration_proof"] = trial["integration_proof"]
+            acceptance_path.write_text(
+                json.dumps(acceptance, sort_keys=True), encoding="utf-8"
+            )
+            trial["acceptance_evidence_sha256"] = hashlib.sha256(
+                acceptance_path.read_bytes()
+            ).hexdigest()
+            manifest_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+            result = self.evaluate(manifest_path)
+
+        codes = {item["code"] for item in result["trials"][0]["issues"]}
+        self.assertIn("candidate_tree_mismatch", codes)
+        self.assertFalse(result["stable_v2_ready"])
+
+    def test_same_tree_rejects_moved_candidate_ref(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            manifest_path = self.build_trial_files(
+                root, 5, integration_mode="same_tree"
+            )
+            repo = root / "project"
+            moved = subprocess.run(
+                ["git", "-C", str(repo), "rev-parse", "main"],
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+            subprocess.run(
+                ["git", "-C", str(repo), "update-ref", "refs/heads/feature/T-01", moved],
+                check=True,
+                capture_output=True,
+            )
+            result = self.evaluate(manifest_path)
+
+        codes = {item["code"] for item in result["trials"][0]["issues"]}
+        self.assertIn("candidate_ref_invalid", codes)
+        self.assertFalse(result["stable_v2_ready"])
+
+    def test_integration_proof_rejects_non_string_and_non_tree_scope_values(self) -> None:
+        cases = [
+            {"mode": 1},
+            {
+                "mode": "same_tree",
+                "candidate_ref": "refs/heads/feature/T-01",
+                "candidate_tree": 1,
+                "stable_tree": "a" * 40,
+                "tree_scope": {
+                    "history_sensitive": False,
+                    "non_tree_dependencies": [],
+                },
+            },
+            {
+                "mode": "same_tree",
+                "candidate_ref": "refs/heads/feature/T-01",
+                "candidate_tree": "a" * 40,
+                "stable_tree": "b" * 40,
+                "tree_scope": {
+                    "history_sensitive": True,
+                    "non_tree_dependencies": [],
+                },
+            },
+            {
+                "mode": "same_tree",
+                "candidate_ref": "refs/heads/feature/T-01",
+                "candidate_tree": "a" * 40,
+                "stable_tree": "b" * 40,
+                "tree_scope": {
+                    "history_sensitive": False,
+                    "non_tree_dependencies": ["generated-output"],
+                },
+            },
+        ]
+        for proof in cases:
+            with self.subTest(proof=proof):
+                with self.assertRaises(v2_release_gate.ReleaseGateError):
+                    v2_release_gate.validate_integration_proof(proof, "proof")
+
+    def test_candidate_ref_shape_rejects_short_pseudo_and_other_namespaces(self) -> None:
+        for raw_ref in (
+            "feature/T-01",
+            "a" * 40,
+            "HEAD",
+            "refs/remotes/origin/main",
+            "refs/pull/1/head",
+            "refs/heads/feature/T-01^",
+            "refs/heads/feature/T-01~1",
+            "refs/heads/feature/T-01@{1}",
+        ):
+            with self.subTest(ref=raw_ref):
+                with self.assertRaises(v2_release_gate.ReleaseGateError):
+                    v2_release_gate.validate_integration_proof(
+                        {
+                            "mode": "same_tree",
+                            "candidate_ref": raw_ref,
+                            "candidate_tree": "a" * 40,
+                            "stable_tree": "a" * 40,
+                            "tree_scope": {
+                                "history_sensitive": False,
+                                "non_tree_dependencies": [],
+                            },
+                        },
+                        "proof",
+                    )
+
+    def test_manifest_proof_bound_scalars_require_string_types(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            manifest_path = self.build_trial_files(root, 5)
+            original = json.loads(manifest_path.read_text(encoding="utf-8"))
+            cases = [
+                ("candidate_commit", 1),
+                ("source_registry_sha256", 1),
+                ("sources[0].ledger_prefix_sha256", 1),
+                ("sources[0].ledger_sha256", 1),
+                ("trials[0].skill_candidate_commit", 1),
+                ("trials[0].request_evidence_sha256", 1),
+                ("trials[0].candidate_commit", 1),
+                ("trials[0].stable_commit", 1),
+                ("trials[0].acceptance_evidence_sha256", 1),
+            ]
+            for field, value in cases:
+                data = json.loads(json.dumps(original))
+                if field.startswith("sources"):
+                    data["sources"][0][field.split(".", 1)[1]] = value
+                elif field.startswith("trials"):
+                    data["trials"][0][field.split(".", 1)[1]] = value
+                else:
+                    data[field] = value
+                manifest_path.write_text(json.dumps(data), encoding="utf-8")
+                with self.subTest(field=field):
+                    with self.assertRaises(v2_release_gate.ReleaseGateError):
+                        v2_release_gate.load_manifest(manifest_path)
 
     def test_unregistered_writer_violation_is_a_source_level_blocker(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
