@@ -46,6 +46,8 @@ class V2ReleaseGateTests(unittest.TestCase):
         metrics_source_kind: str = "metrics_record",
         historical_backlog: bool = False,
         integration_mode: str = "same_commit",
+        anchor_closure_overrides: dict[str, object] | None = None,
+        stable_branch: str = "main",
     ) -> Path:
         repo = root / "project"
         repo.mkdir()
@@ -286,7 +288,7 @@ class V2ReleaseGateTests(unittest.TestCase):
             "project_alias": "project-a",
             "project_evidence_id": "project-a-evidence",
             "project_repo": "project",
-            "stable_branch": "main",
+            "stable_branch": stable_branch,
             "ledger": "events.jsonl",
             "ledger_prefix_bytes": len(prefix_bytes),
             "ledger_prefix_sha256": hashlib.sha256(prefix_bytes).hexdigest(),
@@ -496,23 +498,20 @@ class V2ReleaseGateTests(unittest.TestCase):
             )
             registration_commits.append(anchor_commit(f"register task {index:06d}"))
         final_registration = registration_commits[-1] if registration_commits else freeze_commit
+        closure = {
+            "schema_version": "2.0",
+            "closure_type": "registration_window_closed",
+            "candidate_commit": SKILL_COMMIT,
+            "anchor_freeze_commit": freeze_commit,
+            "final_registration_commit": final_registration,
+            "closed_at": "2026-08-14T23:59:59Z",
+            "registration_count": count,
+            "trial_manifest_sha256": hashlib.sha256(manifest.read_bytes()).hexdigest(),
+        }
+        if anchor_closure_overrides:
+            closure.update(anchor_closure_overrides)
         (anchor_repo / v2_release_gate.ANCHOR_CLOSURE_PATH).write_text(
-            json.dumps(
-                {
-                    "schema_version": "2.0",
-                    "closure_type": "registration_window_closed",
-                    "candidate_commit": SKILL_COMMIT,
-                    "anchor_freeze_commit": freeze_commit,
-                    "final_registration_commit": final_registration,
-                    "closed_at": "2026-08-14T23:59:59Z",
-                    "registration_count": count,
-                    "trial_manifest_sha256": hashlib.sha256(
-                        manifest.read_bytes()
-                    ).hexdigest(),
-                },
-                sort_keys=True,
-            ),
-            encoding="utf-8",
+            json.dumps(closure, sort_keys=True), encoding="utf-8"
         )
         head_commit = anchor_commit("close registration window")
         (root / "_anchor-test.json").write_text(
@@ -565,6 +564,125 @@ class V2ReleaseGateTests(unittest.TestCase):
         ).hexdigest()
         manifest_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
         return data
+
+    def git(
+        self, repo: Path, *args: str, input_text: str | None = None
+    ) -> str:
+        result = subprocess.run(
+            ["git", "-C", str(repo), *args],
+            input=input_text,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        return result.stdout.strip()
+
+    def git_blob(self, repo: Path, content: str) -> str:
+        return self.git(repo, "hash-object", "-w", "--stdin", input_text=content)
+
+    def make_tree(self, repo: Path, entries: list[str]) -> str:
+        input_text = "\n".join(entries) + ("\n" if entries else "")
+        return self.git(repo, "mktree", input_text=input_text)
+
+    def build_real_tree_mismatch(
+        self, root: Path, variant: str
+    ) -> tuple[Path, dict[str, str]]:
+        manifest_path = self.build_trial_files(root, 5, integration_mode="same_tree")
+        repo = root / "project"
+        data = json.loads(manifest_path.read_text(encoding="utf-8"))
+        trial = data["trials"][0]
+        branch_tip = self.git(repo, "rev-parse", "refs/heads/main")
+        stable_blob = self.git_blob(repo, "stable-byte\n")
+        candidate_blob = self.git_blob(repo, "candidate-byte\n")
+
+        if variant == "tracked_content":
+            stable_entries = [f"100644 blob {stable_blob}\ttracked.txt"]
+            candidate_entries = [f"100644 blob {candidate_blob}\ttracked.txt"]
+        elif variant == "mode_bit":
+            stable_entries = [f"100644 blob {stable_blob}\tmode.txt"]
+            candidate_entries = [f"100755 blob {stable_blob}\tmode.txt"]
+        elif variant == "deletion":
+            stable_entries = [
+                f"100644 blob {stable_blob}\tkeep.txt",
+                f"100644 blob {candidate_blob}\tdeleted.txt",
+            ]
+            candidate_entries = [f"100644 blob {stable_blob}\tkeep.txt"]
+        elif variant == "path_rename":
+            stable_entries = [f"100644 blob {stable_blob}\told-name.txt"]
+            candidate_entries = [f"100644 blob {stable_blob}\tnew-name.txt"]
+        elif variant == "symlink_target":
+            stable_target = self.git_blob(repo, "target-a")
+            candidate_target = self.git_blob(repo, "target-b")
+            stable_entries = [f"120000 blob {stable_target}\tlink"]
+            candidate_entries = [f"120000 blob {candidate_target}\tlink"]
+        elif variant == "gitlink_pointer":
+            empty_tree = self.make_tree(repo, [])
+            pointer_a = self.git(repo, "commit-tree", empty_tree, "-m", "submodule A")
+            pointer_b = self.git(repo, "commit-tree", empty_tree, "-m", "submodule B")
+            stable_entries = [f"160000 commit {pointer_a}\tsubmodule"]
+            candidate_entries = [f"160000 commit {pointer_b}\tsubmodule"]
+        else:
+            raise AssertionError(f"unknown tree mismatch variant: {variant}")
+
+        stable_tree = self.make_tree(repo, stable_entries)
+        stable = self.git(
+            repo,
+            "commit-tree",
+            stable_tree,
+            "-p",
+            branch_tip,
+            "-m",
+            f"stable {variant}",
+        )
+        self.git(repo, "update-ref", "refs/heads/main", stable)
+        candidate_tree = self.make_tree(repo, candidate_entries)
+        candidate = self.git(
+            repo,
+            "commit-tree",
+            candidate_tree,
+            "-p",
+            stable,
+            "-m",
+            f"candidate {variant}",
+        )
+        self.git(repo, "update-ref", "refs/heads/feature/T-01", candidate)
+
+        trial["candidate_commit"] = candidate
+        trial["stable_commit"] = stable
+        trial["integration_proof"]["candidate_tree"] = candidate_tree
+        trial["integration_proof"]["stable_tree"] = stable_tree
+        acceptance_path = root / trial["acceptance_evidence"]
+        acceptance = json.loads(acceptance_path.read_text(encoding="utf-8"))
+        acceptance["candidate_commit"] = candidate
+        acceptance["stable_commit"] = stable
+        acceptance["integration_proof"] = trial["integration_proof"]
+        acceptance_path.write_text(
+            json.dumps(acceptance, sort_keys=True), encoding="utf-8"
+        )
+        trial["acceptance_evidence_sha256"] = hashlib.sha256(
+            acceptance_path.read_bytes()
+        ).hexdigest()
+        ledger = root / "events.jsonl"
+        events = [json.loads(line) for line in ledger.read_text().splitlines()]
+        for event in events:
+            if event["task_id"] == "T-01" and event["event"] == "dev_complete":
+                event["commit"] = candidate
+            if event["task_id"] == "T-01" and event["event"] == "accepted":
+                event["commit"] = candidate
+                event["stable_commit"] = stable
+        ledger.write_text(
+            "".join(json.dumps(event, sort_keys=True) + "\n" for event in events),
+            encoding="utf-8",
+            newline="\n",
+        )
+        manifest_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        self.refresh_ledger_digest(manifest_path)
+        return manifest_path, {
+            "candidate": candidate,
+            "stable": stable,
+            "candidate_tree": candidate_tree,
+            "stable_tree": stable_tree,
+        }
 
     def test_first_five_passing_trials_open_stable_gate(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
@@ -839,6 +957,122 @@ class V2ReleaseGateTests(unittest.TestCase):
         self.assertIn("same_commit_mismatch", codes)
         self.assertFalse(result["stable_v2_ready"])
 
+    def test_ledger_candidate_and_stable_commit_mismatches_are_reported(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            manifest_path = self.build_trial_files(root, 5)
+            ledger = root / "events.jsonl"
+            events = [json.loads(line) for line in ledger.read_text().splitlines()]
+            for event in events:
+                if event["task_id"] == "T-01" and event["event"] == "accepted":
+                    event["commit"] = "1" * 40
+                    event["stable_commit"] = "2" * 40
+            ledger.write_text(
+                "".join(json.dumps(event, sort_keys=True) + "\n" for event in events),
+                encoding="utf-8",
+                newline="\n",
+            )
+            self.refresh_ledger_digest(manifest_path)
+            result = self.evaluate(manifest_path)
+
+        codes = {item["code"] for item in result["trials"][0]["issues"]}
+        self.assertIn("candidate_commit_mismatch", codes)
+        self.assertIn("stable_commit_mismatch", codes)
+        self.assertFalse(result["stable_v2_ready"])
+
+    def test_missing_candidate_and_stable_commits_fail_closed_for_both_modes(self) -> None:
+        for mode in ("same_commit", "same_tree"):
+            for field in ("candidate_commit", "stable_commit"):
+                with self.subTest(mode=mode, field=field), tempfile.TemporaryDirectory() as raw:
+                    root = Path(raw)
+                    manifest_path = self.build_trial_files(
+                        root, 5, integration_mode=mode
+                    )
+                    data = json.loads(manifest_path.read_text(encoding="utf-8"))
+                    trial = data["trials"][0]
+                    missing = "f" * 40
+                    trial[field] = missing
+                    acceptance_path = root / trial["acceptance_evidence"]
+                    acceptance = json.loads(acceptance_path.read_text(encoding="utf-8"))
+                    acceptance[field] = missing
+                    acceptance_path.write_text(
+                        json.dumps(acceptance, sort_keys=True), encoding="utf-8"
+                    )
+                    trial["acceptance_evidence_sha256"] = hashlib.sha256(
+                        acceptance_path.read_bytes()
+                    ).hexdigest()
+                    ledger = root / "events.jsonl"
+                    events = [
+                        json.loads(line) for line in ledger.read_text().splitlines()
+                    ]
+                    for event in events:
+                        if event["task_id"] == "T-01":
+                            if field == "candidate_commit" and event["event"] in {
+                                "dev_complete",
+                                "accepted",
+                            }:
+                                event["commit"] = missing
+                            if field == "stable_commit" and event["event"] == "accepted":
+                                event["stable_commit"] = missing
+                    ledger.write_text(
+                        "".join(
+                            json.dumps(event, sort_keys=True) + "\n"
+                            for event in events
+                        ),
+                        encoding="utf-8",
+                        newline="\n",
+                    )
+                    manifest_path.write_text(
+                        json.dumps(data, indent=2), encoding="utf-8"
+                    )
+                    self.refresh_ledger_digest(manifest_path)
+                    try:
+                        result = self.evaluate(manifest_path)
+                    except (TypeError, AttributeError) as exc:
+                        self.fail(f"missing {field} raised incidental {type(exc).__name__}: {exc}")
+
+                codes = {item["code"] for item in result["trials"][0]["issues"]}
+                self.assertIn(f"{field}_missing", codes)
+                self.assertFalse(result["stable_v2_ready"])
+
+    def test_stable_commit_not_on_branch_is_reported(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            manifest_path = self.build_trial_files(root, 5)
+            repo = root / "project"
+            orphan = self.git(
+                repo, "commit-tree", self.make_tree(repo, []), "-m", "off branch"
+            )
+            data = json.loads(manifest_path.read_text(encoding="utf-8"))
+            trial = data["trials"][0]
+            trial["stable_commit"] = orphan
+            acceptance_path = root / trial["acceptance_evidence"]
+            acceptance = json.loads(acceptance_path.read_text(encoding="utf-8"))
+            acceptance["stable_commit"] = orphan
+            acceptance_path.write_text(
+                json.dumps(acceptance, sort_keys=True), encoding="utf-8"
+            )
+            trial["acceptance_evidence_sha256"] = hashlib.sha256(
+                acceptance_path.read_bytes()
+            ).hexdigest()
+            ledger = root / "events.jsonl"
+            events = [json.loads(line) for line in ledger.read_text().splitlines()]
+            for event in events:
+                if event["task_id"] == "T-01" and event["event"] == "accepted":
+                    event["stable_commit"] = orphan
+            ledger.write_text(
+                "".join(json.dumps(event, sort_keys=True) + "\n" for event in events),
+                encoding="utf-8",
+                newline="\n",
+            )
+            manifest_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+            self.refresh_ledger_digest(manifest_path)
+            result = self.evaluate(manifest_path)
+
+        codes = {item["code"] for item in result["trials"][0]["issues"]}
+        self.assertIn("stable_commit_not_on_branch", codes)
+        self.assertFalse(result["stable_v2_ready"])
+
     def test_non_ancestor_same_tree_candidate_is_accepted(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             manifest_path = self.build_trial_files(
@@ -854,6 +1088,137 @@ class V2ReleaseGateTests(unittest.TestCase):
                 for item in trial["issues"]
             )
         )
+
+    def test_real_git_tree_differences_fail_same_tree_acceptance(self) -> None:
+        variants = (
+            "tracked_content",
+            "mode_bit",
+            "deletion",
+            "path_rename",
+            "symlink_target",
+            "gitlink_pointer",
+        )
+        for variant in variants:
+            with self.subTest(variant=variant), tempfile.TemporaryDirectory() as raw:
+                manifest_path, labels = self.build_real_tree_mismatch(
+                    Path(raw), variant
+                )
+                data = json.loads(manifest_path.read_text(encoding="utf-8"))
+                trial = data["trials"][0]
+                repo = Path(raw) / "project"
+                self.assertEqual(trial["candidate_commit"], labels["candidate"])
+                self.assertEqual(trial["stable_commit"], labels["stable"])
+                self.assertEqual(
+                    trial["integration_proof"]["candidate_tree"],
+                    self.git(repo, "rev-parse", f"{labels['candidate']}^{{tree}}"),
+                )
+                self.assertEqual(
+                    trial["integration_proof"]["stable_tree"],
+                    self.git(repo, "rev-parse", f"{labels['stable']}^{{tree}}"),
+                )
+                result = self.evaluate(manifest_path)
+
+            codes = {item["code"] for item in result["trials"][0]["issues"]}
+            self.assertIn("integration_tree_mismatch", codes)
+            self.assertFalse(result["stable_v2_ready"])
+
+    def test_candidate_ref_resolver_peels_tags_and_rejects_non_refs(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            manifest_path = self.build_trial_files(
+                root, 5, integration_mode="same_tree"
+            )
+            data = json.loads(manifest_path.read_text(encoding="utf-8"))
+            expected = data["trials"][0]["candidate_commit"]
+            repo = root / "project"
+            self.git(repo, "tag", "-a", "annotated-candidate", expected, "-m", "candidate")
+            resolved = v2_release_gate.resolve_candidate_ref(
+                repo,
+                "refs/tags/annotated-candidate",
+                expected,
+                "annotated candidate ref",
+            )
+            self.assertEqual(resolved, expected)
+
+            self.git(repo, "update-ref", "-d", "refs/heads/feature/T-01")
+            with self.assertRaises(v2_release_gate.ReleaseGateError):
+                v2_release_gate.resolve_candidate_ref(
+                    repo,
+                    "refs/heads/feature/T-01",
+                    expected,
+                    "deleted candidate ref",
+                )
+
+            invalid_refs = (
+                "feature/T-01",
+                expected[:12],
+                expected,
+                "HEAD",
+                "refs/remotes/origin/main",
+                "refs/pull/1/head",
+                "refs/heads/feature/T-01^",
+                "refs/heads/feature/T-01~1",
+                "refs/heads/feature/T-01@{1}",
+            )
+            for raw_ref in invalid_refs:
+                with self.subTest(ref=raw_ref):
+                    with self.assertRaises(v2_release_gate.ReleaseGateError):
+                        v2_release_gate.resolve_candidate_ref(
+                            repo, raw_ref, expected, "candidate ref"
+                        )
+
+    def test_stable_branch_resolver_accepts_heads_only(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            manifest_path = self.build_trial_files(root, 5)
+            data = json.loads(manifest_path.read_text(encoding="utf-8"))
+            expected = self.git(root / "project", "rev-parse", "refs/heads/main")
+            self.assertEqual(
+                v2_release_gate.resolve_stable_branch(
+                    root / "project", "main", "stable branch"
+                ),
+                expected,
+            )
+            self.assertEqual(
+                v2_release_gate.resolve_stable_branch(
+                    root / "project", "refs/heads/main", "stable branch"
+                ),
+                expected,
+            )
+            repo = root / "project"
+            self.git(repo, "tag", "-a", "main", expected, "-m", "same-name tag")
+            with self.assertRaises(v2_release_gate.ReleaseGateError):
+                v2_release_gate.resolve_stable_branch(
+                    repo, "refs/tags/main", "stable branch"
+                )
+            self.git(repo, "update-ref", "-d", "refs/heads/main")
+            with self.assertRaises(v2_release_gate.ReleaseGateError):
+                v2_release_gate.resolve_stable_branch(repo, "main", "stable branch")
+            self.assertEqual(data["sources"][0]["stable_branch"], "main")
+
+    def test_refs_heads_stable_branch_opens_stable_gate(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            manifest_path = self.build_trial_files(
+                Path(raw), 5, stable_branch="refs/heads/main"
+            )
+            result = self.evaluate(manifest_path)
+
+        self.assertTrue(result["stable_v2_ready"])
+
+    def test_tag_only_stable_branch_cannot_open_stable_gate(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            manifest_path = self.build_trial_files(
+                root, 5, stable_branch="refs/tags/main"
+            )
+            repo = root / "project"
+            main_commit = self.git(repo, "rev-parse", "refs/heads/main")
+            self.git(repo, "tag", "-a", "main", main_commit, "-m", "same-name tag")
+            result = self.evaluate(manifest_path)
+
+        source_codes = {item["code"] for item in result["sources"][0]["issues"]}
+        self.assertIn("stable_branch_error", source_codes)
+        self.assertFalse(result["stable_v2_ready"])
 
     def test_same_tree_tree_label_and_ref_are_recomputed(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
@@ -879,6 +1244,84 @@ class V2ReleaseGateTests(unittest.TestCase):
         codes = {item["code"] for item in result["trials"][0]["issues"]}
         self.assertIn("candidate_tree_mismatch", codes)
         self.assertFalse(result["stable_v2_ready"])
+
+    def test_manifest_and_acceptance_evidence_integration_proof_must_match(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            manifest_path = self.build_trial_files(
+                root, 5, integration_mode="same_tree"
+            )
+            data = json.loads(manifest_path.read_text(encoding="utf-8"))
+            trial = data["trials"][0]
+            repo = root / "project"
+            self.git(
+                repo,
+                "tag",
+                "-a",
+                "same-tree-alternate",
+                trial["candidate_commit"],
+                "-m",
+                "alternate candidate ref",
+            )
+            acceptance_path = root / trial["acceptance_evidence"]
+            acceptance = json.loads(acceptance_path.read_text(encoding="utf-8"))
+            alternate_proof = json.loads(json.dumps(trial["integration_proof"]))
+            alternate_proof["candidate_ref"] = "refs/tags/same-tree-alternate"
+            acceptance["integration_proof"] = alternate_proof
+            acceptance_path.write_text(
+                json.dumps(acceptance, sort_keys=True), encoding="utf-8"
+            )
+            trial["acceptance_evidence_sha256"] = hashlib.sha256(
+                acceptance_path.read_bytes()
+            ).hexdigest()
+            manifest_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+            result = self.evaluate(manifest_path)
+
+        codes = {item["code"] for item in result["trials"][0]["issues"]}
+        self.assertIn("acceptance_evidence_integration_proof_mismatch", codes)
+        self.assertFalse(result["stable_v2_ready"])
+
+    def test_tree_scope_blocks_runtime_and_evidence_paths_for_counted_trials(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            manifest_path = self.build_trial_files(
+                root, 5, integration_mode="same_tree"
+            )
+            loaded = v2_release_gate.load_manifest(manifest_path)
+            loaded["trials"][0]["integration_proof"]["tree_scope"][
+                "non_tree_dependencies"
+            ] = ["runtime-generated-output"]
+            runtime_result = v2_release_gate.evaluate_manifest(
+                loaded, manifest_path, self.anchor_for(manifest_path)
+            )
+            runtime_codes = {
+                item["code"] for item in runtime_result["trials"][0]["issues"]
+            }
+            self.assertIn("integration_proof_invalid", runtime_codes)
+            self.assertEqual(runtime_result["listed_trials"], 5)
+            self.assertFalse(runtime_result["stable_v2_ready"])
+
+            data = json.loads(manifest_path.read_text(encoding="utf-8"))
+            trial = data["trials"][0]
+            acceptance_path = root / trial["acceptance_evidence"]
+            acceptance = json.loads(acceptance_path.read_text(encoding="utf-8"))
+            acceptance["integration_proof"]["tree_scope"][
+                "non_tree_dependencies"
+            ] = ["evidence-generated-output"]
+            acceptance_path.write_text(
+                json.dumps(acceptance, sort_keys=True), encoding="utf-8"
+            )
+            trial["acceptance_evidence_sha256"] = hashlib.sha256(
+                acceptance_path.read_bytes()
+            ).hexdigest()
+            manifest_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+            evidence_result = self.evaluate(manifest_path)
+
+        evidence_codes = {
+            item["code"] for item in evidence_result["trials"][0]["issues"]
+        }
+        self.assertIn("acceptance_evidence_integration_proof_invalid", evidence_codes)
+        self.assertFalse(evidence_result["stable_v2_ready"])
 
     def test_same_tree_rejects_moved_candidate_ref(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
@@ -998,6 +1441,98 @@ class V2ReleaseGateTests(unittest.TestCase):
                 with self.subTest(field=field):
                     with self.assertRaises(v2_release_gate.ReleaseGateError):
                         v2_release_gate.load_manifest(manifest_path)
+
+    def test_anchor_receipt_registry_and_closure_scalars_fail_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            manifest_path = self.build_trial_files(root, 5)
+            anchor = self.anchor_for(manifest_path)
+            registry_cases = [
+                (
+                    "candidate_commit",
+                    lambda data: data.__setitem__("candidate_commit", 1),
+                ),
+                (
+                    "baseline_digest",
+                    lambda data: data["v1_baselines"][0].__setitem__(
+                        "evidence_sha256", 1
+                    ),
+                ),
+                (
+                    "source_digest",
+                    lambda data: data["sources"][0].__setitem__(
+                        "ledger_prefix_sha256", 1
+                    ),
+                ),
+            ]
+            for name, mutate in registry_cases:
+                with self.subTest(scope="registry", field=name):
+                    registry = json.loads(json.dumps(anchor["registry"]))
+                    mutate(registry)
+                    with self.assertRaises(v2_release_gate.ReleaseGateError):
+                        v2_release_gate.validate_anchor_registry(registry)
+
+            receipt = {
+                key: value
+                for key, value in anchor["receipts"][0].items()
+                if key in v2_release_gate.ANCHOR_RECEIPT_FIELDS
+            }
+            receipt_cases = [
+                (
+                    "candidate_commit",
+                    lambda data: data.__setitem__("skill_candidate_commit", 1),
+                ),
+                (
+                    "receipt_digest",
+                    lambda data: data.__setitem__("request_evidence_sha256", 1),
+                ),
+            ]
+            registry_sources = {
+                source["source_id"]: source for source in anchor["registry"]["sources"]
+            }
+            registry_baselines = {
+                baseline["baseline_id"]: baseline
+                for baseline in anchor["registry"]["v1_baselines"]
+            }
+            for name, mutate in receipt_cases:
+                with self.subTest(scope="receipt", field=name):
+                    invalid_receipt = json.loads(json.dumps(receipt))
+                    mutate(invalid_receipt)
+                    with self.assertRaises(v2_release_gate.ReleaseGateError):
+                        v2_release_gate.validate_anchor_receipt(
+                            invalid_receipt,
+                            expected_sequence=1,
+                            registry_sources=registry_sources,
+                            registry_baselines=registry_baselines,
+                            candidate_commit=anchor["registry"]["candidate_commit"],
+                        )
+
+            metadata = json.loads(
+                (root / "_anchor-test.json").read_text(encoding="utf-8")
+            )
+            anchor_repo = Path(metadata["repo"])
+            for name, freeze, head in (
+                ("freeze", 1, metadata["head"]),
+                ("head", metadata["freeze"], 1),
+            ):
+                with self.subTest(scope="load_anchor", field=name):
+                    with self.assertRaises(v2_release_gate.ReleaseGateError):
+                        v2_release_gate.load_anchor(anchor_repo, freeze, head)
+
+        closure_cases = (
+            "candidate_commit",
+            "anchor_freeze_commit",
+            "final_registration_commit",
+            "trial_manifest_sha256",
+            "closed_at",
+        )
+        for field in closure_cases:
+            with self.subTest(scope="closure", field=field), tempfile.TemporaryDirectory() as raw:
+                manifest_path = self.build_trial_files(
+                    Path(raw), 5, anchor_closure_overrides={field: 1}
+                )
+                with self.assertRaises(v2_release_gate.ReleaseGateError):
+                    self.anchor_for(manifest_path)
 
     def test_unregistered_writer_violation_is_a_source_level_blocker(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
