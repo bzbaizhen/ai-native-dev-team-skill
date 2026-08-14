@@ -25,6 +25,7 @@ required = [
     SKILL / "references" / "release-registration-receipt.schema.json",
     SKILL / "references" / "release-source-registry.schema.json",
     SKILL / "references" / "release-trial-evidence.schema.json",
+    SKILL / "references" / "release-v1-baseline-evidence.schema.json",
     SKILL / "references" / "release-trial-manifest.schema.json",
     SKILL / "references" / "team-governance-template.zh-CN.md",
     SKILL / "assets" / "team-bootstrap-proposal.md",
@@ -39,11 +40,13 @@ required = [
     ROOT / "benchmarks" / "v2-prospective" / "registration-000001.example.json",
     ROOT / "benchmarks" / "v2-prospective" / "source-registry.example.json",
     ROOT / "benchmarks" / "v2-prospective" / "trial-manifest.example.json",
+    ROOT / "benchmarks" / "v2-prospective" / "v1-baseline.example.json",
     ROOT / "tests" / "routing-scenarios.json",
     ROOT / "tests" / "test_team_metrics.py",
     ROOT / "tests" / "test_v2_release_gate.py",
     ROOT / "releases" / "v2.0.0-rc.1.md",
     ROOT / "releases" / "v2.0.0-rc.2.md",
+    ROOT / "releases" / "v2.0.0-rc.3.md",
 ]
 
 for path in required:
@@ -91,6 +94,7 @@ direct_references = {
     "references/release-registration-receipt.schema.json",
     "references/release-source-registry.schema.json",
     "references/release-trial-evidence.schema.json",
+    "references/release-v1-baseline-evidence.schema.json",
     "references/release-trial-manifest.schema.json",
 }
 if not direct_references.issubset(set(local_links)):
@@ -130,6 +134,7 @@ for name in (
     "release-registration-receipt.schema.json",
     "release-source-registry.schema.json",
     "release-trial-evidence.schema.json",
+    "release-v1-baseline-evidence.schema.json",
 ):
     schema_path = SKILL / "references" / name
     try:

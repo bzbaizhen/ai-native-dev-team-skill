@@ -31,7 +31,7 @@ ALLOWED_FIELDS = {
     "schema_version", "timestamp", "task_id", "event", "actor", "complexity",
     "risk", "topology", "governance_profile", "material_behavior_change",
     "release_trial_registration_sequence", "skill_candidate_commit",
-    "release_trial_comparable", "v1_baseline_stratum",
+    "release_trial_comparable", "v1_baseline_id", "v1_baseline_stratum",
     "capability_tier", "reasoning_tier", "actual_model", "escalation_reason",
     "approved_writer", "team_skill_loaded", "owned_paths",
     "backlog_override_reason", "commit", "stable_commit", "result",
@@ -149,13 +149,48 @@ def validate_event(event: dict[str, Any], *, location: str = "event") -> None:
 
     string_fields = {
         "actor", "actual_model", "escalation_reason", "backlog_override_reason",
-        "reason", "v1_baseline_stratum",
+        "reason",
     }
     for field in string_fields:
         if field in event and (
             not isinstance(event[field], str) or not event[field].strip()
         ):
             raise LedgerError(f"{location}: {field} must be a non-empty string")
+
+    for field in ("v1_baseline_id", "v1_baseline_stratum"):
+        if field in event and event[field] is not None and (
+            not isinstance(event[field], str) or not event[field].strip()
+        ):
+            raise LedgerError(f"{location}: {field} must be null or a non-empty string")
+
+    if event["event"] == "task_ready" and "release_trial_comparable" in event:
+        if event["release_trial_comparable"]:
+            trial_required = {
+                "release_trial_registration_sequence",
+                "skill_candidate_commit",
+                "v1_baseline_id",
+                "v1_baseline_stratum",
+            }
+            missing_trial = trial_required - event.keys()
+            if missing_trial:
+                raise LedgerError(
+                    f"{location}: comparable release trial is missing fields: "
+                    f"{sorted(missing_trial)}"
+                )
+            expected_stratum = (
+                f"{event['complexity']}|{event['risk']}|{event['topology']}"
+            )
+            if event["v1_baseline_stratum"] != expected_stratum:
+                raise LedgerError(
+                    f"{location}: v1_baseline_stratum must match complexity, risk, "
+                    "and topology"
+                )
+        elif event.get("v1_baseline_id") is not None or event.get(
+            "v1_baseline_stratum"
+        ) is not None:
+            raise LedgerError(
+                f"{location}: non-comparable release trial cannot name a V1 baseline"
+            )
 
     if "owned_paths" in event:
         paths = event["owned_paths"]
@@ -205,6 +240,7 @@ def event_from_args(args: argparse.Namespace) -> dict[str, Any]:
         "release_trial_registration_sequence": args.release_trial_registration_sequence,
         "skill_candidate_commit": args.skill_candidate_commit,
         "release_trial_comparable": args.release_trial_comparable,
+        "v1_baseline_id": args.v1_baseline_id,
         "v1_baseline_stratum": args.v1_baseline_stratum,
         "capability_tier": args.capability_tier,
         "reasoning_tier": args.reasoning_tier,
@@ -636,6 +672,7 @@ def add_record_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--release-trial-registration-sequence", type=int)
     parser.add_argument("--skill-candidate-commit")
     parser.add_argument("--release-trial-comparable", type=parse_bool)
+    parser.add_argument("--v1-baseline-id")
     parser.add_argument("--v1-baseline-stratum")
     parser.add_argument("--capability-tier", choices=sorted(CAPABILITIES))
     parser.add_argument("--reasoning-tier", choices=sorted(REASONING))

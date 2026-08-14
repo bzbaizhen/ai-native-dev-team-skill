@@ -13,6 +13,7 @@
   "risk": "R1",
   "topology": "single-worker",
   "release_trial_comparable": true,
+  "v1_baseline_id": "V1-STRATUM-C1-R1-SINGLE-WORKER",
   "v1_baseline_stratum": "C1|R1|single-worker",
   "genuine_request": true,
   "synthetic": false

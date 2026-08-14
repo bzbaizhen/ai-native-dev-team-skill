@@ -235,6 +235,7 @@ skills/bootstrap-ai-native-dev-team/
 │   ├── release-registration-receipt.schema.json
 │   ├── release-source-registry.schema.json
 │   ├── release-trial-evidence.schema.json
+│   ├── release-v1-baseline-evidence.schema.json
 │   └── release-trial-manifest.schema.json
 ├── scripts/
 │   ├── team_metrics.py
@@ -269,7 +270,7 @@ python -m unittest discover -s tests -p "test_*.py" -v
 
 仓库包含执行相同结构检查的 GitHub Actions。
 
-`v1.0.0` 是冻结基线。`v2.0.0-rc.1` 增加成本感知执行路由、渐进治理、前瞻指标和硬门禁审计；当前本地 `v2.0.0-rc.2` 候选新增 fail-closed 的前 5 任务发布门。任务宇宙不再由可重写的 Manifest 决定，而是来自外部提供的线性 Git anchor：冻结来源清单、每个 `task_ready` 单独追加一张 receipt，最后用专门 Commit 关闭窗口并锚定最终 Manifest 摘要。门禁还会阻断候选窗口内的来源级完整账本违规，严格匹配 C/R/topology 分层，并同时验证候选 Commit 已进入稳定 Commit、稳定 Commit 位于稳定分支，以及证据哈希。稳定版 `v2.0.0` 仍需在固定 RC.2 Commit 上完成前 5 个唯一、可比的真实任务；正式效率结论要等 15–20 个唯一、可比的验收任务后再发布。本地 Git 不能证明远端保护和 Push 时间，因此 freeze/head SHA 必须来自独立受保护或可信记录。
+`v1.0.0` 是冻结基线。`v2.0.0-rc.1` 增加成本感知执行路由、渐进治理、前瞻指标和硬门禁审计；RC.2 将任务宇宙、线性 receipt、来源完整账本与最终 Manifest 摘要锚定在 Manifest 之外。当前本地 `v2.0.0-rc.3` 候选进一步冻结每个允许使用的 V1 baseline identity、准确 C/R/topology stratum、证据摘要与比较范围。可比任务的 receipt、项目账本和 Manifest 必须引用同一份已取证基线，凭空声明 stratum 会 fail closed。稳定版 `v2.0.0` 仍需在固定 RC.3 Commit 上完成前 5 个唯一、可比的真实任务；正式效率结论只统计 V1 分母可重建的 15–20 个验收任务。本地 Git 不能证明远端保护和 Push 时间，因此 freeze/head SHA 必须来自独立受保护或可信记录。
 
 ## 参考与致谢
 
@@ -294,7 +295,7 @@ python -m unittest discover -s tests -p "test_*.py" -v
 
 ## 状态
 
-`v1.0.0` 为冻结基线；当前本地候选为 `v2.0.0-rc.2`，尚无可计入冻结登记门的真实任务，也未把 RC 指标当作稳定版效率结论。英文发布短文与四张开发过程图见 [X](https://x.com/Bzbaizhen/status/2087828830627205527)。
+`v1.0.0` 为冻结基线；当前本地候选为 `v2.0.0-rc.3`，尚无可计入冻结登记门的真实任务，也未把 RC 指标当作稳定版效率结论。英文发布短文与四张开发过程图见 [X](https://x.com/Bzbaizhen/status/2087828830627205527)。
 
 ## License
 

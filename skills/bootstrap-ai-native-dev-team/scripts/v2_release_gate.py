@@ -7,7 +7,7 @@ import argparse
 from datetime import datetime
 import hashlib
 import json
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import re
 import subprocess
 import sys
@@ -34,7 +34,16 @@ ANCHOR_REGISTRY_FIELDS = {
     "candidate_commit",
     "candidate_frozen_at",
     "required_comparable_tasks",
+    "v1_baselines",
     "sources",
+}
+ANCHOR_BASELINE_FIELDS = {
+    "baseline_id",
+    "stratum_id",
+    "evidence_path",
+    "evidence_sha256",
+    "stable_release_comparable",
+    "formal_efficiency_comparable",
 }
 ANCHOR_RECEIPT_FIELDS = {
     "schema_version",
@@ -51,6 +60,7 @@ ANCHOR_RECEIPT_FIELDS = {
     "risk",
     "topology",
     "release_trial_comparable",
+    "v1_baseline_id",
     "v1_baseline_stratum",
     "genuine_request",
     "synthetic",
@@ -73,6 +83,7 @@ REQUIRED_TRIAL_FIELDS = {
     "skill_candidate_commit",
     "request_evidence",
     "request_evidence_sha256",
+    "v1_baseline_id",
     "v1_baseline_stratum",
     "comparable",
     "disposition",
@@ -283,8 +294,13 @@ def load_manifest(path: Path) -> dict[str, Any]:
         if trial["disposition"] not in DISPOSITIONS:
             raise ReleaseGateError(f"{label}.disposition is invalid")
         if trial["comparable"]:
+            require_non_empty(trial["v1_baseline_id"], f"{label}.v1_baseline_id")
             require_non_empty(trial["v1_baseline_stratum"], f"{label}.v1_baseline_stratum")
         else:
+            if trial["v1_baseline_id"] is not None:
+                raise ReleaseGateError(
+                    f"{label}.v1_baseline_id must be null when non-comparable"
+                )
             if trial["v1_baseline_stratum"] is not None:
                 raise ReleaseGateError(
                     f"{label}.v1_baseline_stratum must be null when non-comparable"
@@ -358,6 +374,78 @@ def git_text(repo: Path, *args: str) -> str:
     return result.stdout
 
 
+def git_blob_bytes(repo: Path, commit: str, path: str, label: str) -> bytes:
+    command = ["git", "-C", str(repo), "show", f"{commit}:{path}"]
+    try:
+        result = subprocess.run(command, check=False, capture_output=True)
+    except OSError as exc:
+        raise ReleaseGateError(f"{label} cannot be read: {exc}") from exc
+    if result.returncode != 0:
+        detail = result.stderr.decode("utf-8", errors="replace").strip()
+        raise ReleaseGateError(detail or f"{label} cannot be read")
+    return result.stdout
+
+
+def anchor_relative_path(raw: Any, label: str) -> str:
+    if not isinstance(raw, str) or not raw or "\\" in raw:
+        raise ReleaseGateError(f"{label} must be a normalized relative POSIX path")
+    path = PurePosixPath(raw)
+    if path.is_absolute() or raw != path.as_posix() or ".." in path.parts:
+        raise ReleaseGateError(f"{label} must be a normalized relative POSIX path")
+    return raw
+
+
+def validate_v1_baseline_evidence(
+    raw: bytes, baseline: dict[str, Any], label: str
+) -> dict[str, Any]:
+    try:
+        data = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ReleaseGateError(f"{label} is not valid UTF-8 JSON: {exc}") from exc
+    if not isinstance(data, dict):
+        raise ReleaseGateError(f"{label} must be a JSON object")
+    required = {
+        "schema_version",
+        "baseline_id",
+        "baseline_version",
+        "measurement_type",
+        "stratum_id",
+        "evidence_scope",
+        "efficiency_denominators_available",
+        "limitations",
+    }
+    if set(data) != required:
+        raise ReleaseGateError(f"{label} fields differ from the contract")
+    expected = {
+        "schema_version": "1.0",
+        "baseline_id": baseline["baseline_id"],
+        "baseline_version": "v1.0.0",
+        "measurement_type": "historical_reconstruction",
+        "stratum_id": baseline["stratum_id"],
+        "efficiency_denominators_available": baseline[
+            "formal_efficiency_comparable"
+        ],
+    }
+    for field, value in expected.items():
+        if data.get(field) != value:
+            raise ReleaseGateError(f"{label}.{field} differs from the frozen registry")
+    if data["evidence_scope"] not in {"case-level", "task-level"}:
+        raise ReleaseGateError(f"{label}.evidence_scope is invalid")
+    if (
+        baseline["formal_efficiency_comparable"]
+        and data["evidence_scope"] != "task-level"
+    ):
+        raise ReleaseGateError(
+            f"{label} must be task-level for formal efficiency comparability"
+        )
+    limitations = data["limitations"]
+    if not isinstance(limitations, list) or not limitations or any(
+        not isinstance(item, str) or not item.strip() for item in limitations
+    ):
+        raise ReleaseGateError(f"{label}.limitations must be a non-empty string array")
+    return data
+
+
 def git_json(repo: Path, commit: str, path: str, label: str) -> dict[str, Any]:
     try:
         data = json.loads(git_text(repo, "show", f"{commit}:{path}"))
@@ -379,6 +467,37 @@ def validate_anchor_registry(data: dict[str, Any]) -> dict[str, Any]:
     required = data.get("required_comparable_tasks")
     if isinstance(required, bool) or not isinstance(required, int) or required < 5:
         raise ReleaseGateError("anchor required_comparable_tasks must be at least 5")
+    baselines = data.get("v1_baselines")
+    if not isinstance(baselines, list) or not baselines:
+        raise ReleaseGateError("anchor v1_baselines must be a non-empty array")
+    baseline_ids: set[str] = set()
+    evidence_paths: set[str] = set()
+    for index, baseline in enumerate(baselines):
+        label = f"anchor v1_baselines[{index}]"
+        if not isinstance(baseline, dict) or set(baseline) != ANCHOR_BASELINE_FIELDS:
+            raise ReleaseGateError(f"{label} fields differ from the contract")
+        for field in ("baseline_id", "stratum_id", "evidence_path", "evidence_sha256"):
+            require_non_empty(baseline.get(field), f"{label}.{field}")
+        if baseline["baseline_id"] in baseline_ids:
+            raise ReleaseGateError(f"duplicate anchor baseline_id: {baseline['baseline_id']}")
+        baseline_ids.add(baseline["baseline_id"])
+        if not STRATUM.fullmatch(baseline["stratum_id"]):
+            raise ReleaseGateError(f"{label}.stratum_id is invalid")
+        path = anchor_relative_path(baseline["evidence_path"], f"{label}.evidence_path")
+        if path in evidence_paths:
+            raise ReleaseGateError(f"duplicate anchor baseline evidence_path: {path}")
+        evidence_paths.add(path)
+        if not SHA256.fullmatch(str(baseline["evidence_sha256"])):
+            raise ReleaseGateError(f"{label}.evidence_sha256 must be SHA-256")
+        for field in ("stable_release_comparable", "formal_efficiency_comparable"):
+            if not isinstance(baseline[field], bool):
+                raise ReleaseGateError(f"{label}.{field} must be boolean")
+        if baseline["formal_efficiency_comparable"] and not baseline[
+            "stable_release_comparable"
+        ]:
+            raise ReleaseGateError(
+                f"{label} cannot support formal efficiency without stable comparability"
+            )
     sources = data.get("sources")
     if not isinstance(sources, list) or not sources:
         raise ReleaseGateError("anchor sources must be a non-empty array")
@@ -418,6 +537,7 @@ def validate_anchor_receipt(
     *,
     expected_sequence: int,
     registry_sources: dict[str, dict[str, Any]],
+    registry_baselines: dict[str, dict[str, Any]],
     candidate_commit: str,
 ) -> dict[str, Any]:
     allowed = ANCHOR_RECEIPT_FIELDS | {"exclusion_reason"}
@@ -464,6 +584,18 @@ def validate_anchor_receipt(
             raise ReleaseGateError(f"registration {expected_sequence}.{field} must be boolean")
     expected_stratum = f"{data['complexity']}|{data['risk']}|{data['topology']}"
     if data["release_trial_comparable"]:
+        baseline_id = data.get("v1_baseline_id")
+        if not isinstance(baseline_id, str) or not baseline_id.strip():
+            raise ReleaseGateError(f"registration {expected_sequence} baseline_id is invalid")
+        baseline = registry_baselines.get(baseline_id)
+        if not baseline:
+            raise ReleaseGateError(
+                f"registration {expected_sequence} V1 baseline is not frozen"
+            )
+        if not baseline["stable_release_comparable"]:
+            raise ReleaseGateError(
+                f"registration {expected_sequence} V1 baseline is not release-comparable"
+            )
         if not isinstance(data.get("v1_baseline_stratum"), str) or not STRATUM.fullmatch(
             data["v1_baseline_stratum"]
         ):
@@ -472,11 +604,19 @@ def validate_anchor_receipt(
             raise ReleaseGateError(
                 f"registration {expected_sequence} stratum does not match C/R/topology"
             )
+        if baseline["stratum_id"] != expected_stratum:
+            raise ReleaseGateError(
+                f"registration {expected_sequence} frozen V1 baseline stratum differs"
+            )
         if "exclusion_reason" in data:
             raise ReleaseGateError(
                 f"registration {expected_sequence} comparable work has exclusion_reason"
             )
     else:
+        if data.get("v1_baseline_id") is not None:
+            raise ReleaseGateError(
+                f"registration {expected_sequence} non-comparable baseline_id must be null"
+            )
         if data.get("v1_baseline_stratum") is not None:
             raise ReleaseGateError(
                 f"registration {expected_sequence} non-comparable stratum must be null"
@@ -537,6 +677,16 @@ def load_anchor(repo: Path, freeze_commit: str, head_commit: str) -> dict[str, A
     registry = validate_anchor_registry(
         git_json(repo, freeze_commit, ANCHOR_REGISTRY_PATH, "anchor source registry")
     )
+    baseline_evidence: dict[str, dict[str, Any]] = {}
+    for baseline in registry["v1_baselines"]:
+        label = f"V1 baseline {baseline['baseline_id']}"
+        raw = git_blob_bytes(repo, freeze_commit, baseline["evidence_path"], label)
+        actual_digest = hashlib.sha256(raw).hexdigest()
+        if actual_digest.casefold() != baseline["evidence_sha256"].casefold():
+            raise ReleaseGateError(f"{label} evidence digest differs")
+        baseline_evidence[baseline["baseline_id"]] = validate_v1_baseline_evidence(
+            raw, baseline, label
+        )
     candidate_commit = registry["candidate_commit"]
     frozen = manifest_time(registry["candidate_frozen_at"], "anchor candidate_frozen_at")
 
@@ -577,6 +727,9 @@ def load_anchor(repo: Path, freeze_commit: str, head_commit: str) -> dict[str, A
         raise ReleaseGateError("anchor closure trial_manifest_sha256 is invalid")
 
     sources = {source["source_id"]: source for source in registry["sources"]}
+    baselines = {
+        baseline["baseline_id"]: baseline for baseline in registry["v1_baselines"]
+    }
     receipts: list[dict[str, Any]] = []
     identities: set[tuple[str, str, str]] = set()
     request_digests: set[str] = set()
@@ -598,6 +751,7 @@ def load_anchor(repo: Path, freeze_commit: str, head_commit: str) -> dict[str, A
             git_json(repo, commit, path, f"registration {sequence}"),
             expected_sequence=sequence,
             registry_sources=sources,
+            registry_baselines=baselines,
             candidate_commit=candidate_commit,
         )
         registered = manifest_time(receipt["registered_at"], f"registration {sequence}")
@@ -624,6 +778,7 @@ def load_anchor(repo: Path, freeze_commit: str, head_commit: str) -> dict[str, A
         "freeze_commit": freeze_commit,
         "head_commit": head_commit,
         "registry": registry,
+        "baseline_evidence": baseline_evidence,
         "closure": closure,
         "receipts": receipts,
         "passed": True,
@@ -725,6 +880,7 @@ def validate_source_registry(
         "candidate_commit",
         "candidate_frozen_at",
         "required_comparable_tasks",
+        "v1_baselines",
         "sources",
     }
     if set(registry) != allowed_top:
@@ -950,6 +1106,7 @@ def evaluate_trial(
             "skill_candidate_commit": "skill_candidate_commit",
             "request_evidence": "request_evidence",
             "request_evidence_sha256": "request_evidence_sha256",
+            "v1_baseline_id": "v1_baseline_id",
             "v1_baseline_stratum": "v1_baseline_stratum",
             "comparable": "release_trial_comparable",
             "genuine_request": "genuine_request",
@@ -991,6 +1148,7 @@ def evaluate_trial(
             "release_trial_registration_sequence": trial["registration_sequence"],
             "skill_candidate_commit": manifest["candidate_commit"],
             "release_trial_comparable": trial["comparable"],
+            "v1_baseline_id": trial["v1_baseline_id"],
             "v1_baseline_stratum": trial["v1_baseline_stratum"],
         }
         if receipt:
@@ -1130,6 +1288,8 @@ def evaluate_trial(
         "project_alias": source["project_alias"],
         "task_id": trial["task_id"],
         "anchor_commit": receipt["anchor_commit"] if receipt else None,
+        "v1_baseline_id": trial["v1_baseline_id"],
+        "v1_baseline_stratum": trial["v1_baseline_stratum"],
         "comparable": trial["comparable"],
         "disposition": trial["disposition"],
         "ready_timestamp": ready["timestamp"] if ready else None,
@@ -1289,6 +1449,18 @@ def evaluate_manifest(
     comparable = [
         result_by_key[key] for key in anchored_comparable_keys if key in result_by_key
     ]
+    baselines_by_id = {
+        baseline["baseline_id"]: baseline
+        for baseline in anchor_registry["v1_baselines"]
+    }
+    anchored_efficiency_keys = [
+        (receipt["source_id"], receipt["task_id"])
+        for receipt in anchor["receipts"]
+        if receipt["release_trial_comparable"]
+        and baselines_by_id[receipt["v1_baseline_id"]][
+            "formal_efficiency_comparable"
+        ]
+    ]
     required = anchor_registry["required_comparable_tasks"]
     first_required_keys = anchored_comparable_keys[:required]
     first_required = [
@@ -1307,6 +1479,11 @@ def evaluate_manifest(
         and all(result["passed"] for result in first_required)
     )
     passed_comparable = sum(result["passed"] for result in comparable)
+    passed_efficiency_comparable = sum(
+        result_by_key[key]["passed"]
+        for key in anchored_efficiency_keys
+        if key in result_by_key
+    )
     public_sources = [
         {
             key: value
@@ -1334,6 +1511,7 @@ def evaluate_manifest(
         "candidate_frozen_at": anchor_registry["candidate_frozen_at"],
         "registry_closed_at": anchor_closure["closed_at"],
         "required_comparable_tasks": required,
+        "frozen_v1_baselines": len(anchor_registry["v1_baselines"]),
         "trusted_anchor": public_anchor,
         "registered_sources": len(source_results),
         "source_registry": source_registry,
@@ -1342,6 +1520,8 @@ def evaluate_manifest(
         "listed_trials": len(evaluated),
         "comparable_trials": len(anchored_comparable_keys),
         "passed_comparable_trials": passed_comparable,
+        "formal_efficiency_comparable_trials": len(anchored_efficiency_keys),
+        "passed_formal_efficiency_comparable_trials": passed_efficiency_comparable,
         "missing_trial_identities": [list(key) for key in missing_trials],
         "extra_trial_identities": [list(key) for key in extra_trials],
         "missing_ledger_registration_identities": [
@@ -1377,7 +1557,7 @@ def evaluate_manifest(
             registry_complete
             and order_established
             and sources_integrity
-            and passed_comparable >= 15
+            and passed_efficiency_comparable >= 15
         ),
         "limitations": [
             "The verifier must supply freeze and head Commit SHAs from an independently protected append-only ref or trusted timestamp record.",

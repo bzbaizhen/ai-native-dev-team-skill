@@ -230,6 +230,8 @@ class TeamMetricsTests(unittest.TestCase):
                         A,
                         "--release-trial-comparable",
                         "true",
+                        "--v1-baseline-id",
+                        "baseline-c0-r0-no-delegation",
                         "--v1-baseline-stratum",
                         "C0|R0|no-delegation",
                     ]
@@ -239,6 +241,9 @@ class TeamMetricsTests(unittest.TestCase):
             recorded = team_metrics.load_events(ledger)[0]
             self.assertEqual(recorded["release_trial_registration_sequence"], 1)
             self.assertEqual(recorded["skill_candidate_commit"], A)
+            self.assertEqual(
+                recorded["v1_baseline_id"], "baseline-c0-r0-no-delegation"
+            )
 
             baseline = root / "baseline.json"
             current = root / "current.json"

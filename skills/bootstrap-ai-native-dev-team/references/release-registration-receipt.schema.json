@@ -19,6 +19,7 @@
     "risk",
     "topology",
     "release_trial_comparable",
+    "v1_baseline_id",
     "v1_baseline_stratum",
     "genuine_request",
     "synthetic"
@@ -46,6 +47,7 @@
       "enum": ["no-delegation", "single-worker", "task-cell", "team-required"]
     },
     "release_trial_comparable": {"type": "boolean"},
+    "v1_baseline_id": {"type": ["string", "null"], "minLength": 1},
     "v1_baseline_stratum": {"type": ["string", "null"], "minLength": 1},
     "genuine_request": {"type": "boolean"},
     "synthetic": {"type": "boolean"},
@@ -58,7 +60,9 @@
         "required": ["release_trial_comparable"]
       },
       "then": {
+        "required": ["v1_baseline_id"],
         "properties": {
+          "v1_baseline_id": {"type": "string", "minLength": 1},
           "v1_baseline_stratum": {
             "type": "string",
             "pattern": "^C[0-3]\\|R[0-3]\\|(no-delegation|single-worker|task-cell|team-required)$"
@@ -67,7 +71,10 @@
       },
       "else": {
         "required": ["exclusion_reason"],
-        "properties": {"v1_baseline_stratum": {"type": "null"}}
+        "properties": {
+          "v1_baseline_id": {"type": "null"},
+          "v1_baseline_stratum": {"type": "null"}
+        }
       }
     }
   ]

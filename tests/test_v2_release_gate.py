@@ -23,6 +23,7 @@ v2_release_gate = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(v2_release_gate)
 
 SKILL_COMMIT = "c" * 40
+V1_BASELINE_ID = "baseline-c1-r1-no-delegation"
 
 
 class V2ReleaseGateTests(unittest.TestCase):
@@ -33,6 +34,11 @@ class V2ReleaseGateTests(unittest.TestCase):
         *,
         failing_index: int | None = None,
         receipt_stratum_override: tuple[int, str] | None = None,
+        receipt_baseline_id_override: tuple[int, str] | None = None,
+        baseline_digest_override: str | None = None,
+        formal_efficiency_comparable: bool = True,
+        baseline_evidence_scope: str = "task-level",
+        baseline_extra_field: bool = False,
         historical_backlog: bool = False,
     ) -> Path:
         repo = root / "project"
@@ -120,6 +126,7 @@ class V2ReleaseGateTests(unittest.TestCase):
                         "release_trial_registration_sequence": index,
                         "skill_candidate_commit": SKILL_COMMIT,
                         "release_trial_comparable": True,
+                        "v1_baseline_id": V1_BASELINE_ID,
                         "v1_baseline_stratum": "C1|R1|no-delegation",
                     },
                     {
@@ -194,6 +201,7 @@ class V2ReleaseGateTests(unittest.TestCase):
                     "request_evidence_sha256": hashlib.sha256(
                         request_evidence.read_bytes()
                     ).hexdigest(),
+                    "v1_baseline_id": V1_BASELINE_ID,
                     "v1_baseline_stratum": "C1|R1|no-delegation",
                     "comparable": True,
                     "disposition": "accepted",
@@ -230,6 +238,32 @@ class V2ReleaseGateTests(unittest.TestCase):
             "ledger_prefix_bytes": len(prefix_bytes),
             "ledger_prefix_sha256": hashlib.sha256(prefix_bytes).hexdigest(),
         }
+        baseline_evidence = root / "v1-baseline.json"
+        baseline_data = {
+            "schema_version": "1.0",
+            "baseline_id": V1_BASELINE_ID,
+            "baseline_version": "v1.0.0",
+            "measurement_type": "historical_reconstruction",
+            "stratum_id": "C1|R1|no-delegation",
+            "evidence_scope": baseline_evidence_scope,
+            "efficiency_denominators_available": formal_efficiency_comparable,
+            "limitations": ["test fixture"],
+        }
+        if baseline_extra_field:
+            baseline_data["undeclared_claim"] = True
+        baseline_evidence.write_text(
+            json.dumps(baseline_data, sort_keys=True),
+            encoding="utf-8",
+        )
+        frozen_baseline = {
+            "baseline_id": V1_BASELINE_ID,
+            "stratum_id": "C1|R1|no-delegation",
+            "evidence_path": "v1-baseline.json",
+            "evidence_sha256": baseline_digest_override
+            or hashlib.sha256(baseline_evidence.read_bytes()).hexdigest(),
+            "stable_release_comparable": True,
+            "formal_efficiency_comparable": formal_efficiency_comparable,
+        }
         source_registry = root / "source-registry.json"
         source_registry.write_text(
             json.dumps(
@@ -238,6 +272,7 @@ class V2ReleaseGateTests(unittest.TestCase):
                     "candidate_commit": SKILL_COMMIT,
                     "candidate_frozen_at": "2026-08-14T00:00:00Z",
                     "required_comparable_tasks": 5,
+                    "v1_baselines": [frozen_baseline],
                     "sources": [frozen_source],
                 },
                 sort_keys=True,
@@ -249,7 +284,7 @@ class V2ReleaseGateTests(unittest.TestCase):
             json.dumps(
                 {
                     "schema_version": "2.0",
-                    "candidate_version": "v2.0.0-rc.2",
+                    "candidate_version": "v2.0.0-rc.3",
                     "candidate_commit": SKILL_COMMIT,
                     "candidate_frozen_at": "2026-08-14T00:00:00Z",
                     "registry_closed_at": "2026-08-14T23:59:59Z",
@@ -307,6 +342,7 @@ class V2ReleaseGateTests(unittest.TestCase):
         (anchor_repo / v2_release_gate.ANCHOR_REGISTRY_PATH).write_bytes(
             source_registry.read_bytes()
         )
+        (anchor_repo / "v1-baseline.json").write_bytes(baseline_evidence.read_bytes())
         freeze_commit = anchor_commit("freeze candidate and sources")
         registrations = anchor_repo / v2_release_gate.ANCHOR_RECEIPTS_DIR
         registrations.mkdir()
@@ -319,6 +355,9 @@ class V2ReleaseGateTests(unittest.TestCase):
             stratum = trial["v1_baseline_stratum"]
             if receipt_stratum_override and receipt_stratum_override[0] == index:
                 stratum = receipt_stratum_override[1]
+            baseline_id = trial["v1_baseline_id"]
+            if receipt_baseline_id_override and receipt_baseline_id_override[0] == index:
+                baseline_id = receipt_baseline_id_override[1]
             receipt = {
                 "schema_version": "2.0",
                 "receipt_type": "task_ready_registration",
@@ -334,6 +373,7 @@ class V2ReleaseGateTests(unittest.TestCase):
                 "risk": ready["risk"],
                 "topology": ready["topology"],
                 "release_trial_comparable": trial["comparable"],
+                "v1_baseline_id": baseline_id,
                 "v1_baseline_stratum": stratum,
                 "genuine_request": trial["genuine_request"],
                 "synthetic": trial["synthetic"],
@@ -845,6 +885,49 @@ class V2ReleaseGateTests(unittest.TestCase):
             ):
                 self.anchor_for(manifest_path)
 
+    def test_comparable_receipt_must_reference_a_frozen_v1_baseline(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            manifest_path = self.build_trial_files(
+                Path(raw),
+                5,
+                receipt_baseline_id_override=(1, "unfrozen-baseline"),
+            )
+            with self.assertRaisesRegex(
+                v2_release_gate.ReleaseGateError, "V1 baseline is not frozen"
+            ):
+                self.anchor_for(manifest_path)
+
+    def test_v1_baseline_evidence_digest_is_verified_at_freeze(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            manifest_path = self.build_trial_files(
+                Path(raw), 5, baseline_digest_override="0" * 64
+            )
+            with self.assertRaisesRegex(
+                v2_release_gate.ReleaseGateError, "evidence digest differs"
+            ):
+                self.anchor_for(manifest_path)
+
+    def test_task_ready_baseline_identity_must_match_anchor_receipt(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            manifest_path = self.build_trial_files(root, 5)
+            ledger = root / "events.jsonl"
+            events = [json.loads(line) for line in ledger.read_text().splitlines()]
+            for event in events:
+                if event["task_id"] == "T-01" and event["event"] == "task_ready":
+                    event["v1_baseline_id"] = "different-baseline"
+            ledger.write_text(
+                "".join(json.dumps(event, sort_keys=True) + "\n" for event in events),
+                encoding="utf-8",
+                newline="\n",
+            )
+            self.refresh_ledger_digest(manifest_path)
+            result = self.evaluate(manifest_path)
+
+        codes = {item["code"] for item in result["trials"][0]["issues"]}
+        self.assertIn("task_ready_v1_baseline_id_mismatch", codes)
+        self.assertFalse(result["stable_v2_ready"])
+
     def test_post_close_receipt_edit_is_not_a_valid_anchor_head(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
@@ -893,6 +976,39 @@ class V2ReleaseGateTests(unittest.TestCase):
                 v2_release_gate.ReleaseGateError, "duplicate trial task identity"
             ):
                 v2_release_gate.load_manifest(manifest_path)
+
+    def test_formal_sample_requires_efficiency_eligible_v1_baselines(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            manifest_path = self.build_trial_files(
+                Path(raw), 15, formal_efficiency_comparable=False
+            )
+            result = self.evaluate(manifest_path)
+
+        self.assertTrue(result["stable_v2_ready"])
+        self.assertEqual(result["formal_efficiency_comparable_trials"], 0)
+        self.assertFalse(result["formal_efficiency_sample_size_ready"])
+
+    def test_formal_efficiency_baseline_must_be_task_level(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            manifest_path = self.build_trial_files(
+                Path(raw), 5, baseline_evidence_scope="case-level"
+            )
+            with self.assertRaisesRegex(
+                v2_release_gate.ReleaseGateError,
+                "must be task-level for formal efficiency comparability",
+            ):
+                self.evaluate(manifest_path)
+
+    def test_v1_baseline_evidence_rejects_unknown_fields(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            manifest_path = self.build_trial_files(
+                Path(raw), 5, baseline_extra_field=True
+            )
+            with self.assertRaisesRegex(
+                v2_release_gate.ReleaseGateError,
+                "fields differ from the contract",
+            ):
+                self.evaluate(manifest_path)
 
 
 if __name__ == "__main__":

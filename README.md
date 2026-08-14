@@ -156,6 +156,7 @@ skills/bootstrap-ai-native-dev-team/
 │   ├── release-registration-receipt.schema.json
 │   ├── release-source-registry.schema.json
 │   ├── release-trial-evidence.schema.json
+│   ├── release-v1-baseline-evidence.schema.json
 │   └── release-trial-manifest.schema.json
 ├── scripts/
 │   ├── team_metrics.py
@@ -183,7 +184,7 @@ The repository includes a GitHub Actions workflow for the same structural checks
 
 ## Status
 
-`v1.0.0` is the frozen baseline. `v2.0.0-rc.1` added cost-aware execution routing, progressive governance, prospective metrics, and hard-gate audits. The current local `v2.0.0-rc.2` candidate adds a fail-closed first-five-task release gate whose task universe comes from an externally supplied linear Git anchor: a frozen source roster, one append-only receipt per `task_ready`, and a dedicated closure Commit that anchors the final Manifest digest. It also checks source-level full-ledger violations, exact C/R/topology strata, candidate-to-stable ancestry, stable-branch ancestry, and content-addressed evidence. Stable `v2.0.0` still requires five unique comparable real tasks on the fixed RC.2 Commit; formal efficiency claims require 15–20 unique comparable accepted tasks. Local Git alone does not prove remote protection or push time, so the freeze/head SHAs must come from an independent protected or trusted record.
+`v1.0.0` is the frozen baseline. `v2.0.0-rc.1` added cost-aware execution routing, progressive governance, prospective metrics, and hard-gate audits. RC.2 anchored the first-five-task universe, linear receipts, source-complete ledgers, and final Manifest digest outside the Manifest. The current local `v2.0.0-rc.3` candidate additionally freezes every allowed V1 baseline identity, exact C/R/topology stratum, evidence digest, and comparison scope. Comparable receipts, ledgers, and Manifest trials must name the same evidenced baseline; an invented stratum now fails closed. Stable `v2.0.0` still requires five unique comparable real tasks on the fixed RC.3 Commit. Formal efficiency claims require 15–20 accepted tasks whose frozen V1 baselines have reconstructable denominators. Local Git alone does not prove remote protection or push time, so the freeze/head SHAs must come from an independent protected or trusted record.
 
 ## License
 

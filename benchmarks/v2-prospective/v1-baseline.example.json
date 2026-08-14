@@ -1,0 +1,12 @@
+{
+  "schema_version": "1.0",
+  "baseline_id": "V1-STRATUM-C1-R1-SINGLE-WORKER",
+  "baseline_version": "v1.0.0",
+  "measurement_type": "historical_reconstruction",
+  "stratum_id": "C1|R1|single-worker",
+  "evidence_scope": "task-level",
+  "efficiency_denominators_available": true,
+  "limitations": [
+    "Example only; a real freeze must reference evidence reconstructed before the V2 trial."
+  ]
+}

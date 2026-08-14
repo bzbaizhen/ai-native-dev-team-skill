@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/bzbaizhen/ai-native-dev-team-skill/release-v1-baseline-evidence.schema.json",
+  "title": "Frozen V1 baseline evidence for a V2 release stratum",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "baseline_id",
+    "baseline_version",
+    "measurement_type",
+    "stratum_id",
+    "evidence_scope",
+    "efficiency_denominators_available",
+    "limitations"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "baseline_id": {"type": "string", "minLength": 1},
+    "baseline_version": {"const": "v1.0.0"},
+    "measurement_type": {"const": "historical_reconstruction"},
+    "stratum_id": {
+      "type": "string",
+      "pattern": "^C[0-3]\\|R[0-3]\\|(no-delegation|single-worker|task-cell|team-required)$"
+    },
+    "evidence_scope": {"enum": ["case-level", "task-level"]},
+    "efficiency_denominators_available": {"type": "boolean"},
+    "limitations": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"type": "string", "minLength": 1}
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "efficiency_denominators_available": {"const": true}
+        },
+        "required": ["efficiency_denominators_available"]
+      },
+      "then": {
+        "properties": {
+          "evidence_scope": {"const": "task-level"}
+        }
+      }
+    }
+  ]
+}

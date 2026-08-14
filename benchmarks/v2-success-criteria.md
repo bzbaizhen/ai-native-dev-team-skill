@@ -5,8 +5,10 @@ These criteria are fixed before V2 implementation. Passing a script or producing
 ## Release stages
 
 - `v2.0.0-rc.1`: routing, progressive governance loading, metrics script, schema, templates, and scenario tests are implemented and verified.
+- `v2.0.0-rc.2`: the task universe and closed Manifest are externally anchored and source-complete.
+- `v2.0.0-rc.3`: every comparable task is bound to a frozen, content-addressed V1 baseline identity and exact C/R/topology stratum.
 - `v2.0.0`: the first five unique comparable real tasks in the externally anchored append-only registry satisfy every source, evidence, Git, mechanism, and quality gate.
-- Formal efficiency claim: only after 15–20 unique comparable accepted tasks from that registry, stratified by complexity, risk, and topology.
+- Formal efficiency claim: only after 15–20 unique comparable accepted tasks whose frozen V1 baselines have reconstructable denominators, stratified by complexity, risk, and topology.
 
 ## Must improve
 
