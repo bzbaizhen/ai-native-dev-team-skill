@@ -6,7 +6,7 @@
 
 ![More agents does not equal a team: approval-gated AI-native delivery](docs/images/ai-native-dev-team-hero.png)
 
-[Install](#install) · [How it works](#how-it-works) · [Why this is different](#why-this-is-different)
+[Install](#install) · [How it works](#how-it-works) · [Cost-aware routing](#cost-aware-model-and-reasoning-routing) · [Why this is different](#why-this-is-different)
 
 ## The problem
 
@@ -25,6 +25,7 @@ This Skill treats the main agent as a control plane and specialist agents as tem
 
 - proposal-first team initialization;
 - separate `C0-C3` complexity and `R0-R3` risk classification;
+- cost-aware model and reasoning routing that targets the lowest expected cost per accepted task, not the cheapest token or the strongest model by default;
 - business owner, producer/main agent, implementer, validator, and optional specialist boundaries;
 - one-owner-per-file and task-scoped write leases;
 - contract-first parallelism with branch/worktree/PR isolation;
@@ -84,6 +85,27 @@ initialize → implement → independent validation → acceptance → recovery 
 
 See [`examples/sample-proposal.md`](examples/sample-proposal.md) for a compact output.
 
+## Cost-aware model and reasoning routing
+
+The two-axis classification is also a routing system:
+
+| Signal | What it changes |
+|---|---|
+| Complexity `C0-C3` | Executor capability, reasoning effort, context preparation, and whether the task should be decomposed |
+| Risk `R0-R3` | Permissions, independent validation, approval depth, rollback evidence, and stop conditions |
+| Project evidence | First-pass acceptance, rework, latency, and cost per accepted task |
+| Runtime availability | The active model mapping, declared fallback, main-thread takeover, or a stop |
+
+This separation matters. A `C1/R3` production configuration change may use an economical implementation model while requiring specialist review, owner approval, and rollback evidence. A `C3/R1` pure refactor may justify the strongest reliable model and highest reasoning effort without production-grade approval ceremony.
+
+The target is **the lowest expected total cost that still clears the quality and risk gates**:
+
+```text
+accepted-task cost = execution + likely retry/rework + validation + coordination
+```
+
+Model names are not hard-coded into the general workflow. Each project maps currently available models to the complexity levels, records an allowed fallback, and must not claim that a requested model ran when the runtime did not provide it. When evidence is weak, the workflow escalates capability or reasoning, decomposes the task, returns it to the main thread, or stops.
+
 ## Why this is different
 
 This project combines useful patterns found in mature agent-development projects, then adds a governance layer for traceability and recovery:
@@ -94,7 +116,7 @@ This project combines useful patterns found in mature agent-development projects
 
 The workflow in this repository is independently authored. Its additional focus includes proposal-first authorization, separate complexity/risk routing, business-owner authority, write leases, immutable evidence, native-environment boundaries, backup semantics, and recovery drills.
 
-It deliberately does **not** create a fixed eight-agent pipeline. Roles are capabilities activated by real work, not permanent headcount.
+It deliberately does **not** create a fixed eight-agent pipeline or run every task on the most expensive model. Roles and model effort are allocated by the work; risk is handled with stronger evidence and authority rather than blindly increasing inference cost.
 
 ## Repository layout
 
