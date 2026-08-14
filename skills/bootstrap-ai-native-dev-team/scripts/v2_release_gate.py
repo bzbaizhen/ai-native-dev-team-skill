@@ -26,6 +26,26 @@ SAFE_REF = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]*$")
 STRATUM = re.compile(
     r"^(C[0-3])\|(R[0-3])\|(no-delegation|single-worker|task-cell|team-required)$"
 )
+SOURCE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+BASELINE_SOURCE_KINDS = {
+    "task_contract",
+    "qa_report",
+    "acceptance_record",
+    "git_record",
+    "metrics_record",
+}
+BASELINE_SOURCE_CLAIMS = {
+    "task_identity",
+    "stratum",
+    "acceptance",
+    "efficiency_denominator",
+}
+CLAIM_ALLOWED_KINDS = {
+    "task_identity": BASELINE_SOURCE_KINDS,
+    "stratum": {"task_contract"},
+    "acceptance": {"qa_report", "acceptance_record", "git_record"},
+    "efficiency_denominator": {"metrics_record"},
+}
 ANCHOR_REGISTRY_PATH = "release-source-registry.json"
 ANCHOR_RECEIPTS_DIR = "registrations"
 ANCHOR_CLOSURE_PATH = "release-window-closure.json"
@@ -382,7 +402,8 @@ def git_blob_bytes(repo: Path, commit: str, path: str, label: str) -> bytes:
         raise ReleaseGateError(f"{label} cannot be read: {exc}") from exc
     if result.returncode != 0:
         detail = result.stderr.decode("utf-8", errors="replace").strip()
-        raise ReleaseGateError(detail or f"{label} cannot be read")
+        suffix = f": {detail}" if detail else ""
+        raise ReleaseGateError(f"{label} cannot be read{suffix}")
     return result.stdout
 
 
@@ -390,7 +411,12 @@ def anchor_relative_path(raw: Any, label: str) -> str:
     if not isinstance(raw, str) or not raw or "\\" in raw:
         raise ReleaseGateError(f"{label} must be a normalized relative POSIX path")
     path = PurePosixPath(raw)
-    if path.is_absolute() or raw != path.as_posix() or ".." in path.parts:
+    if (
+        path.is_absolute()
+        or not path.parts
+        or raw != path.as_posix()
+        or ".." in path.parts
+    ):
         raise ReleaseGateError(f"{label} must be a normalized relative POSIX path")
     return raw
 
@@ -412,6 +438,7 @@ def validate_v1_baseline_evidence(
         "stratum_id",
         "evidence_scope",
         "efficiency_denominators_available",
+        "source_evidence",
         "limitations",
     }
     if set(data) != required:
@@ -437,6 +464,65 @@ def validate_v1_baseline_evidence(
     ):
         raise ReleaseGateError(
             f"{label} must be task-level for formal efficiency comparability"
+        )
+    sources = data["source_evidence"]
+    if not isinstance(sources, list) or not sources:
+        raise ReleaseGateError(f"{label}.source_evidence must be a non-empty array")
+    source_fields = {
+        "source_id",
+        "evidence_kind",
+        "source_revision",
+        "evidence_path",
+        "evidence_sha256",
+        "supports",
+    }
+    source_ids: set[str] = set()
+    source_paths: set[str] = set()
+    covered_claims: set[str] = set()
+    for index, source in enumerate(sources):
+        source_label = f"{label}.source_evidence[{index}]"
+        if not isinstance(source, dict) or set(source) != source_fields:
+            raise ReleaseGateError(f"{source_label} fields differ from the contract")
+        source_id = source.get("source_id")
+        if not isinstance(source_id, str) or not SOURCE_ID.fullmatch(source_id):
+            raise ReleaseGateError(f"{source_label}.source_id is invalid")
+        if source_id in source_ids:
+            raise ReleaseGateError(f"{label} has duplicate source_evidence source_id")
+        source_ids.add(source_id)
+        kind = source.get("evidence_kind")
+        if kind not in BASELINE_SOURCE_KINDS:
+            raise ReleaseGateError(f"{source_label}.evidence_kind is invalid")
+        if not FULL_SHA.fullmatch(str(source.get("source_revision", ""))):
+            raise ReleaseGateError(f"{source_label}.source_revision must be a full SHA")
+        path = anchor_relative_path(
+            source.get("evidence_path"), f"{source_label}.evidence_path"
+        )
+        if path in source_paths:
+            raise ReleaseGateError(f"{label} has duplicate source_evidence path")
+        source_paths.add(path)
+        if not SHA256.fullmatch(str(source.get("evidence_sha256", ""))):
+            raise ReleaseGateError(f"{source_label}.evidence_sha256 must be SHA-256")
+        supports = source.get("supports")
+        if (
+            not isinstance(supports, list)
+            or not supports
+            or len(supports) != len(set(supports))
+            or any(claim not in BASELINE_SOURCE_CLAIMS for claim in supports)
+        ):
+            raise ReleaseGateError(f"{source_label}.supports is invalid")
+        for claim in supports:
+            if kind not in CLAIM_ALLOWED_KINDS[claim]:
+                raise ReleaseGateError(
+                    f"{source_label}.{kind} cannot support {claim}"
+                )
+        covered_claims.update(supports)
+    required_claims = {"task_identity", "stratum", "acceptance"}
+    if baseline["formal_efficiency_comparable"]:
+        required_claims.add("efficiency_denominator")
+    missing_claims = required_claims - covered_claims
+    if missing_claims:
+        raise ReleaseGateError(
+            f"{label}.source_evidence is missing claims: {sorted(missing_claims)}"
         )
     limitations = data["limitations"]
     if not isinstance(limitations, list) or not limitations or any(
@@ -684,9 +770,16 @@ def load_anchor(repo: Path, freeze_commit: str, head_commit: str) -> dict[str, A
         actual_digest = hashlib.sha256(raw).hexdigest()
         if actual_digest.casefold() != baseline["evidence_sha256"].casefold():
             raise ReleaseGateError(f"{label} evidence digest differs")
-        baseline_evidence[baseline["baseline_id"]] = validate_v1_baseline_evidence(
-            raw, baseline, label
-        )
+        evidence = validate_v1_baseline_evidence(raw, baseline, label)
+        for source in evidence["source_evidence"]:
+            source_label = f"{label} source {source['source_id']}"
+            source_raw = git_blob_bytes(
+                repo, freeze_commit, source["evidence_path"], source_label
+            )
+            source_digest = hashlib.sha256(source_raw).hexdigest()
+            if source_digest.casefold() != source["evidence_sha256"].casefold():
+                raise ReleaseGateError(f"{source_label} evidence digest differs")
+        baseline_evidence[baseline["baseline_id"]] = evidence
     candidate_commit = registry["candidate_commit"]
     frozen = manifest_time(registry["candidate_frozen_at"], "anchor candidate_frozen_at")
 

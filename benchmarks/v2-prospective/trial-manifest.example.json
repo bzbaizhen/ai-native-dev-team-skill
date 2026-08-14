@@ -1,11 +1,11 @@
 {
   "schema_version": "2.0",
-  "candidate_version": "v2.0.0-rc.3",
+  "candidate_version": "v2.0.0-rc.4",
   "candidate_commit": "1111111111111111111111111111111111111111",
   "candidate_frozen_at": "2026-08-15T00:00:00Z",
   "registry_closed_at": "2026-08-31T23:59:59Z",
   "source_registry": "source-registry.example.json",
-  "source_registry_sha256": "31e55cb06b068ea07da0cceb0f8575c08de828250c7413114522ce44ddc2e143",
+  "source_registry_sha256": "dd26477ea0f0db03f76a50cfbdac02c975e85322ded867d11d14615d27694aae",
   "required_comparable_tasks": 5,
   "sources": [
     {

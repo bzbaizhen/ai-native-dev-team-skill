@@ -1,4 +1,5 @@
-from pathlib import Path
+from pathlib import Path, PurePosixPath
+import hashlib
 import json
 import re
 
@@ -41,12 +42,15 @@ required = [
     ROOT / "benchmarks" / "v2-prospective" / "source-registry.example.json",
     ROOT / "benchmarks" / "v2-prospective" / "trial-manifest.example.json",
     ROOT / "benchmarks" / "v2-prospective" / "v1-baseline.example.json",
+    ROOT / "benchmarks" / "v2-prospective" / "v1-task-contract.example.md",
+    ROOT / "benchmarks" / "v2-prospective" / "v1-qa-report.example.md",
     ROOT / "tests" / "routing-scenarios.json",
     ROOT / "tests" / "test_team_metrics.py",
     ROOT / "tests" / "test_v2_release_gate.py",
     ROOT / "releases" / "v2.0.0-rc.1.md",
     ROOT / "releases" / "v2.0.0-rc.2.md",
     ROOT / "releases" / "v2.0.0-rc.3.md",
+    ROOT / "releases" / "v2.0.0-rc.4.md",
 ]
 
 for path in required:
@@ -165,6 +169,81 @@ except json.JSONDecodeError as exc:
     fail(f"release trial example is invalid JSON: {exc}")
 if example_manifest.get("required_comparable_tasks") != 5:
     fail("release trial example must preserve the preregistered five-task gate")
+if example_manifest.get("candidate_version") != "v2.0.0-rc.4":
+    fail("release trial example must name the current RC.4 candidate")
+
+example_dir = ROOT / "benchmarks" / "v2-prospective"
+
+
+def example_child(relative: object, label: str) -> Path:
+    if not isinstance(relative, str) or not relative or "\\" in relative:
+        fail(f"{label} must be a relative POSIX path")
+    pure = PurePosixPath(relative)
+    if (
+        pure.is_absolute()
+        or not pure.parts
+        or pure.as_posix() != relative
+        or ".." in pure.parts
+    ):
+        fail(f"{label} must be a normalized relative POSIX path")
+    path = example_dir.joinpath(*pure.parts)
+    if not path.is_file():
+        fail(f"missing example digest source: {relative}")
+    return path
+
+
+registry_path = example_child(
+    example_manifest.get("source_registry"), "example source_registry"
+)
+registry_digest = hashlib.sha256(registry_path.read_bytes()).hexdigest()
+if registry_digest != example_manifest.get("source_registry_sha256"):
+    fail("example Manifest source-registry SHA-256 is stale")
+try:
+    example_registry = json.loads(registry_path.read_text(encoding="utf-8"))
+except json.JSONDecodeError as exc:
+    fail(f"source-registry example is invalid JSON: {exc}")
+baseline_entries = example_registry.get("v1_baselines")
+if not isinstance(baseline_entries, list) or len(baseline_entries) != 1:
+    fail("source-registry example must contain exactly one V1 baseline")
+baseline_entry = baseline_entries[0]
+baseline_path = example_child(
+    baseline_entry.get("evidence_path"), "example baseline evidence_path"
+)
+baseline_digest = hashlib.sha256(baseline_path.read_bytes()).hexdigest()
+if baseline_digest != baseline_entry.get("evidence_sha256"):
+    fail("example source-registry baseline SHA-256 is stale")
+try:
+    example_baseline = json.loads(baseline_path.read_text(encoding="utf-8"))
+except json.JSONDecodeError as exc:
+    fail(f"V1 baseline example is invalid JSON: {exc}")
+if example_baseline.get("baseline_id") != baseline_entry.get("baseline_id"):
+    fail("example V1 baseline identity differs from the source registry")
+if example_baseline.get("stratum_id") != baseline_entry.get("stratum_id"):
+    fail("example V1 baseline stratum differs from the source registry")
+if example_baseline.get("efficiency_denominators_available") != baseline_entry.get(
+    "formal_efficiency_comparable"
+):
+    fail("example V1 baseline efficiency eligibility differs from the source registry")
+sources = example_baseline.get("source_evidence")
+if not isinstance(sources, list) or not sources:
+    fail("V1 baseline example must contain source evidence")
+covered_claims = set()
+for source in sources:
+    source_path = example_child(
+        source.get("evidence_path"), "example baseline source evidence_path"
+    )
+    source_digest = hashlib.sha256(source_path.read_bytes()).hexdigest()
+    if source_digest != source.get("evidence_sha256"):
+        fail(f"example baseline source SHA-256 is stale: {source_path.name}")
+    supports = source.get("supports")
+    if not isinstance(supports, list):
+        fail(f"example baseline source supports is invalid: {source_path.name}")
+    covered_claims.update(supports)
+required_claims = {"task_identity", "stratum", "acceptance"}
+if baseline_entry.get("formal_efficiency_comparable"):
+    required_claims.add("efficiency_denominator")
+if not required_claims.issubset(covered_claims):
+    fail("example V1 baseline source claim coverage is incomplete")
 
 try:
     scenarios = json.loads(

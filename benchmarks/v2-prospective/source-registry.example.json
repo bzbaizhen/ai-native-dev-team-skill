@@ -8,9 +8,9 @@
       "baseline_id": "V1-STRATUM-C1-R1-SINGLE-WORKER",
       "stratum_id": "C1|R1|single-worker",
       "evidence_path": "v1-baseline.example.json",
-      "evidence_sha256": "d5f6b68aae50a9df8614401e11d738b09970a7bc1599c1ea2a81ed80c117f29a",
+      "evidence_sha256": "5f6abf9fa86df76a5639e2400eabe910af2378a44f63a2fdc1c2c71e3177acd7",
       "stable_release_comparable": true,
-      "formal_efficiency_comparable": true
+      "formal_efficiency_comparable": false
     }
   ],
   "sources": [

@@ -270,7 +270,7 @@ python -m unittest discover -s tests -p "test_*.py" -v
 
 仓库包含执行相同结构检查的 GitHub Actions。
 
-`v1.0.0` 是冻结基线。`v2.0.0-rc.1` 增加成本感知执行路由、渐进治理、前瞻指标和硬门禁审计；RC.2 将任务宇宙、线性 receipt、来源完整账本与最终 Manifest 摘要锚定在 Manifest 之外。当前本地 `v2.0.0-rc.3` 候选进一步冻结每个允许使用的 V1 baseline identity、准确 C/R/topology stratum、证据摘要与比较范围。可比任务的 receipt、项目账本和 Manifest 必须引用同一份已取证基线，凭空声明 stratum 会 fail closed。稳定版 `v2.0.0` 仍需在固定 RC.3 Commit 上完成前 5 个唯一、可比的真实任务；正式效率结论只统计 V1 分母可重建的 15–20 个验收任务。本地 Git 不能证明远端保护和 Push 时间，因此 freeze/head SHA 必须来自独立受保护或可信记录。
+`v1.0.0` 是冻结基线。`v2.0.0-rc.1` 增加成本感知执行路由、渐进治理、前瞻指标和硬门禁审计；RC.2 将任务宇宙、线性 receipt、来源完整账本与最终 Manifest 摘要锚定在 Manifest 之外；RC.3 冻结每个允许使用的 V1 baseline identity、准确 C/R/topology stratum、证据摘要与比较范围。当前本地 `v2.0.0-rc.4` 候选进一步对支撑任务身份、分层和验收的底层来源逐份内容寻址；若声明正式效率可比，还必须由 metrics source 支撑分母。Verifier 会从准确 freeze Commit 回读每个 blob，因此没有匹配 source blob 的 baseline JSON、缺失来源、错误摘要、虚构 stratum 或无依据分母都会 fail closed。这能证明冻结内容完整一致，不能自动证明历史材料真实或远端已受保护。稳定版 `v2.0.0` 仍需在固定 RC.4 Commit 上完成前 5 个唯一、可比的真实任务；正式效率结论还需 15–20 个分母可重建且通过人工资格审核的验收任务。
 
 ## 参考与致谢
 
@@ -295,7 +295,7 @@ python -m unittest discover -s tests -p "test_*.py" -v
 
 ## 状态
 
-`v1.0.0` 为冻结基线；当前本地候选为 `v2.0.0-rc.3`，尚无可计入冻结登记门的真实任务，也未把 RC 指标当作稳定版效率结论。英文发布短文与四张开发过程图见 [X](https://x.com/Bzbaizhen/status/2087828830627205527)。
+`v1.0.0` 为冻结基线；当前本地候选为 `v2.0.0-rc.4`，尚无可计入冻结登记门的真实任务，也未把 RC 指标当作稳定版效率结论。英文发布短文与四张开发过程图见 [X](https://x.com/Bzbaizhen/status/2087828830627205527)。
 
 ## License
 

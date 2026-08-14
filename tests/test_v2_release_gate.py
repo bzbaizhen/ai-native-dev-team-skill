@@ -39,6 +39,11 @@ class V2ReleaseGateTests(unittest.TestCase):
         formal_efficiency_comparable: bool = True,
         baseline_evidence_scope: str = "task-level",
         baseline_extra_field: bool = False,
+        baseline_source_digest_override: str | None = None,
+        baseline_source_path_override: str | None = None,
+        omit_acceptance_source: bool = False,
+        omit_baseline_source_blob: bool = False,
+        metrics_source_kind: str = "metrics_record",
         historical_backlog: bool = False,
     ) -> Path:
         repo = root / "project"
@@ -238,6 +243,61 @@ class V2ReleaseGateTests(unittest.TestCase):
             "ledger_prefix_bytes": len(prefix_bytes),
             "ledger_prefix_sha256": hashlib.sha256(prefix_bytes).hexdigest(),
         }
+        baseline_contract = root / "v1-task-contract.md"
+        baseline_contract.write_text(
+            "# Historical task\n\nC1 / R1 / no-delegation\n",
+            encoding="utf-8",
+            newline="\n",
+        )
+        baseline_qa = root / "v1-qa-report.md"
+        baseline_qa.write_text(
+            "# QA\n\nPASSED\n", encoding="utf-8", newline="\n"
+        )
+        baseline_source_files = [baseline_contract, baseline_qa]
+        source_evidence = [
+            {
+                "source_id": "historical-task-contract",
+                "evidence_kind": "task_contract",
+                "source_revision": "a" * 40,
+                "evidence_path": baseline_source_path_override
+                or baseline_contract.name,
+                "evidence_sha256": baseline_source_digest_override
+                or hashlib.sha256(baseline_contract.read_bytes()).hexdigest(),
+                "supports": ["task_identity", "stratum"],
+            }
+        ]
+        if not omit_acceptance_source:
+            source_evidence.append(
+                {
+                    "source_id": "historical-qa-report",
+                    "evidence_kind": "qa_report",
+                    "source_revision": "b" * 40,
+                    "evidence_path": baseline_qa.name,
+                    "evidence_sha256": hashlib.sha256(
+                        baseline_qa.read_bytes()
+                    ).hexdigest(),
+                    "supports": ["acceptance"],
+                }
+            )
+        if formal_efficiency_comparable:
+            baseline_metrics = root / "v1-metrics.json"
+            baseline_metrics.write_text(
+                json.dumps({"accepted_cycle_hours": 1.0}, sort_keys=True),
+                encoding="utf-8",
+            )
+            baseline_source_files.append(baseline_metrics)
+            source_evidence.append(
+                {
+                    "source_id": "historical-metrics",
+                    "evidence_kind": metrics_source_kind,
+                    "source_revision": "c" * 40,
+                    "evidence_path": baseline_metrics.name,
+                    "evidence_sha256": hashlib.sha256(
+                        baseline_metrics.read_bytes()
+                    ).hexdigest(),
+                    "supports": ["efficiency_denominator"],
+                }
+            )
         baseline_evidence = root / "v1-baseline.json"
         baseline_data = {
             "schema_version": "1.0",
@@ -247,6 +307,7 @@ class V2ReleaseGateTests(unittest.TestCase):
             "stratum_id": "C1|R1|no-delegation",
             "evidence_scope": baseline_evidence_scope,
             "efficiency_denominators_available": formal_efficiency_comparable,
+            "source_evidence": source_evidence,
             "limitations": ["test fixture"],
         }
         if baseline_extra_field:
@@ -284,7 +345,7 @@ class V2ReleaseGateTests(unittest.TestCase):
             json.dumps(
                 {
                     "schema_version": "2.0",
-                    "candidate_version": "v2.0.0-rc.3",
+                    "candidate_version": "v2.0.0-rc.4",
                     "candidate_commit": SKILL_COMMIT,
                     "candidate_frozen_at": "2026-08-14T00:00:00Z",
                     "registry_closed_at": "2026-08-14T23:59:59Z",
@@ -343,6 +404,10 @@ class V2ReleaseGateTests(unittest.TestCase):
             source_registry.read_bytes()
         )
         (anchor_repo / "v1-baseline.json").write_bytes(baseline_evidence.read_bytes())
+        for source_file in baseline_source_files:
+            if omit_baseline_source_blob and source_file == baseline_contract:
+                continue
+            (anchor_repo / source_file.name).write_bytes(source_file.read_bytes())
         freeze_commit = anchor_commit("freeze candidate and sources")
         registrations = anchor_repo / v2_release_gate.ANCHOR_RECEIPTS_DIR
         registrations.mkdir()
@@ -1009,6 +1074,62 @@ class V2ReleaseGateTests(unittest.TestCase):
                 "fields differ from the contract",
             ):
                 self.evaluate(manifest_path)
+
+    def test_v1_baseline_source_blob_must_exist_at_freeze(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            manifest_path = self.build_trial_files(
+                Path(raw), 5, omit_baseline_source_blob=True
+            )
+            with self.assertRaisesRegex(
+                v2_release_gate.ReleaseGateError,
+                "V1 baseline .* source historical-task-contract cannot be read",
+            ):
+                self.evaluate(manifest_path)
+
+    def test_v1_baseline_source_digest_is_verified_at_freeze(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            manifest_path = self.build_trial_files(
+                Path(raw), 5, baseline_source_digest_override="0" * 64
+            )
+            with self.assertRaisesRegex(
+                v2_release_gate.ReleaseGateError,
+                "source historical-task-contract evidence digest differs",
+            ):
+                self.evaluate(manifest_path)
+
+    def test_v1_baseline_source_claims_must_cover_acceptance(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            manifest_path = self.build_trial_files(
+                Path(raw), 5, omit_acceptance_source=True
+            )
+            with self.assertRaisesRegex(
+                v2_release_gate.ReleaseGateError,
+                "source_evidence is missing claims:.*acceptance",
+            ):
+                self.evaluate(manifest_path)
+
+    def test_efficiency_denominator_requires_metrics_source(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            manifest_path = self.build_trial_files(
+                Path(raw), 5, metrics_source_kind="qa_report"
+            )
+            with self.assertRaisesRegex(
+                v2_release_gate.ReleaseGateError,
+                "qa_report cannot support efficiency_denominator",
+            ):
+                self.evaluate(manifest_path)
+
+    def test_v1_baseline_source_path_must_be_a_normalized_file_path(self) -> None:
+        for invalid_path in ("../task-contract.md", "."):
+            with self.subTest(path=invalid_path), tempfile.TemporaryDirectory() as raw:
+                manifest_path = self.build_trial_files(
+                    Path(raw), 5, baseline_source_path_override=invalid_path
+                )
+                with self.assertRaisesRegex(
+                    v2_release_gate.ReleaseGateError,
+                    "evidence_path must be a normalized relative POSIX path",
+                ):
+                    self.evaluate(manifest_path)
 
 
 if __name__ == "__main__":
