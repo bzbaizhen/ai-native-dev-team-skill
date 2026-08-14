@@ -195,8 +195,15 @@ def require_sha256(value: Any, label: str) -> str:
     return value
 
 
+def require_no_ascii_controls(value: str, label: str) -> str:
+    if any(ord(char) < 0x20 or ord(char) == 0x7F for char in value):
+        raise ReleaseGateError(f"{label} contains ASCII control characters")
+    return value
+
+
 def require_candidate_ref_shape(value: Any, label: str) -> str:
     value = require_non_empty(value, label)
+    require_no_ascii_controls(value, label)
     if not FULL_CANDIDATE_REF.fullmatch(value) or any(
         token in value for token in ("^", "~", "@{")
     ):
@@ -465,7 +472,7 @@ def run_git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
             encoding="utf-8",
             errors="replace",
         )
-    except OSError as exc:
+    except (OSError, TypeError, ValueError) as exc:
         return subprocess.CompletedProcess(command, 127, stdout="", stderr=str(exc))
 
 
@@ -504,6 +511,7 @@ def resolve_candidate_ref(
 
 def resolve_stable_branch(repo: Path, raw_branch: Any, label: str) -> str:
     branch = require_non_empty(raw_branch, label)
+    require_no_ascii_controls(branch, label)
     if branch == "HEAD" or FULL_SHA.fullmatch(branch):
         raise ReleaseGateError(f"{label} must identify a stable branch")
     if branch.startswith("refs/"):

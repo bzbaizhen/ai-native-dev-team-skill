@@ -1167,6 +1167,86 @@ class V2ReleaseGateTests(unittest.TestCase):
                             repo, raw_ref, expected, "candidate ref"
                         )
 
+    def test_control_git_refs_fail_closed_through_shape_resolver_and_evaluate(self) -> None:
+        control_refs = (
+            "refs/heads/feature/\x00",
+            "refs/heads/feature/\x01",
+            "refs/heads/feature/\x1f",
+            "refs/heads/feature/\x7f",
+        )
+        for raw_ref in control_refs:
+            with self.subTest(scope="shape", ref=repr(raw_ref)):
+                with self.assertRaises(v2_release_gate.ReleaseGateError):
+                    v2_release_gate.validate_integration_proof(
+                        {
+                            "mode": "same_tree",
+                            "candidate_ref": raw_ref,
+                            "candidate_tree": "a" * 40,
+                            "stable_tree": "a" * 40,
+                            "tree_scope": {
+                                "history_sensitive": False,
+                                "non_tree_dependencies": [],
+                            },
+                        },
+                        "proof",
+                    )
+
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            manifest_path = self.build_trial_files(
+                root, 5, integration_mode="same_tree"
+            )
+            repo = root / "project"
+            data = json.loads(manifest_path.read_text(encoding="utf-8"))
+            expected = data["trials"][0]["candidate_commit"]
+            for raw_ref in control_refs:
+                with self.subTest(scope="resolver", ref=repr(raw_ref)):
+                    with self.assertRaises(v2_release_gate.ReleaseGateError):
+                        v2_release_gate.resolve_candidate_ref(
+                            repo, raw_ref, expected, "candidate ref"
+                        )
+
+            startup_result = v2_release_gate.run_git(
+                repo, "check-ref-format", "refs/heads/\x00"
+            )
+            self.assertNotEqual(startup_result.returncode, 0)
+            self.assertTrue(startup_result.stderr)
+
+            loaded = v2_release_gate.load_manifest(manifest_path)
+            loaded["trials"][0]["integration_proof"]["candidate_ref"] = control_refs[0]
+            try:
+                runtime_result = v2_release_gate.evaluate_manifest(
+                    loaded, manifest_path, self.anchor_for(manifest_path)
+                )
+            except Exception as exc:  # pragma: no cover - assertion guard
+                self.fail(f"candidate control ref leaked {type(exc).__name__}: {exc}")
+            runtime_codes = {
+                item["code"] for item in runtime_result["trials"][0]["issues"]
+            }
+            self.assertIn("integration_proof_invalid", runtime_codes)
+            self.assertFalse(runtime_result["stable_v2_ready"])
+
+            stable_loaded = v2_release_gate.load_manifest(manifest_path)
+            stable_loaded["sources"][0]["stable_branch"] = "refs/heads/\x00"
+            try:
+                stable_result = v2_release_gate.evaluate_manifest(
+                    stable_loaded, manifest_path, self.anchor_for(manifest_path)
+                )
+            except Exception as exc:  # pragma: no cover - assertion guard
+                self.fail(f"stable control ref leaked {type(exc).__name__}: {exc}")
+            stable_codes = {
+                item["code"] for item in stable_result["sources"][0]["issues"]
+            }
+            self.assertIn("stable_branch_error", stable_codes)
+            self.assertFalse(stable_result["stable_v2_ready"])
+
+            cli_data = json.loads(manifest_path.read_text(encoding="utf-8"))
+            cli_data["trials"][0]["integration_proof"]["candidate_ref"] = control_refs[0]
+            manifest_path.write_text(json.dumps(cli_data, indent=2), encoding="utf-8")
+            with contextlib.redirect_stderr(io.StringIO()):
+                exit_code = v2_release_gate.main(self.main_args(manifest_path))
+            self.assertEqual(exit_code, 2)
+
     def test_stable_branch_resolver_accepts_heads_only(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
@@ -1195,6 +1275,18 @@ class V2ReleaseGateTests(unittest.TestCase):
             with self.assertRaises(v2_release_gate.ReleaseGateError):
                 v2_release_gate.resolve_stable_branch(repo, "main", "stable branch")
             self.assertEqual(data["sources"][0]["stable_branch"], "main")
+
+            for raw_branch in (
+                "refs/heads/\x00",
+                "refs/heads/\x01",
+                "refs/heads/\x1f",
+                "refs/heads/\x7f",
+            ):
+                with self.subTest(branch=repr(raw_branch)):
+                    with self.assertRaises(v2_release_gate.ReleaseGateError):
+                        v2_release_gate.resolve_stable_branch(
+                            repo, raw_branch, "stable branch"
+                        )
 
     def test_refs_heads_stable_branch_opens_stable_gate(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
