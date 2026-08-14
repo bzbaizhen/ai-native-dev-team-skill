@@ -231,6 +231,8 @@ skills/bootstrap-ai-native-dev-team/
 │   ├── governance-strict.md
 │   ├── metrics.md
 │   ├── metrics-event.schema.json
+│   ├── release-source-registry.schema.json
+│   ├── release-trial-evidence.schema.json
 │   └── release-trial-manifest.schema.json
 ├── scripts/
 │   ├── team_metrics.py
@@ -265,7 +267,7 @@ python -m unittest discover -s tests -p "test_*.py" -v
 
 仓库包含执行相同结构检查的 GitHub Actions。
 
-`v1.0.0` 是冻结基线。`v2.0.0-rc.1` 增加成本感知执行路由、渐进治理、前瞻指标和硬门禁审计；当前本地 `v2.0.0-rc.2` 候选新增 fail-closed 的前 5 任务发布门。稳定版 `v2.0.0` 仍需在固定 RC.2 Commit 上完成前 5 个可比真实任务；正式效率结论要等 15–20 个可比验收任务后再发布。
+`v1.0.0` 是冻结基线。`v2.0.0-rc.1` 增加成本感知执行路由、渐进治理、前瞻指标和硬门禁审计；当前本地 `v2.0.0-rc.2` 候选新增 fail-closed 的前 5 任务发布门，冻结来源清单和账本前缀，并校验连续登记、证据哈希、完整账本审计和稳定分支祖先关系。稳定版 `v2.0.0` 仍需在固定 RC.2 Commit 上完成前 5 个唯一、可比的真实任务；正式效率结论要等 15–20 个唯一、可比的验收任务后再发布。
 
 ## 参考与致谢
 
@@ -290,7 +292,7 @@ python -m unittest discover -s tests -p "test_*.py" -v
 
 ## 状态
 
-`v1.0.0` 为冻结基线；当前本地候选为 `v2.0.0-rc.2`，尚无可计入稳定门的真实任务，也未把 RC 指标当作稳定版效率结论。英文发布短文与四张开发过程图见 [X](https://x.com/Bzbaizhen/status/2087828830627205527)。
+`v1.0.0` 为冻结基线；当前本地候选为 `v2.0.0-rc.2`，尚无可计入冻结登记门的真实任务，也未把 RC 指标当作稳定版效率结论。英文发布短文与四张开发过程图见 [X](https://x.com/Bzbaizhen/status/2087828830627205527)。
 
 ## License
 

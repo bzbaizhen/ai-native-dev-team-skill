@@ -5,8 +5,8 @@ These criteria are fixed before V2 implementation. Passing a script or producing
 ## Release stages
 
 - `v2.0.0-rc.1`: routing, progressive governance loading, metrics script, schema, templates, and scenario tests are implemented and verified.
-- `v2.0.0`: the first five comparable real tasks satisfy every hard gate with no material quality regression.
-- Formal efficiency claim: only after 15–20 comparable accepted tasks, stratified by complexity, risk, and topology.
+- `v2.0.0`: the first five unique comparable real tasks in the frozen continuous registry satisfy every source, evidence, Git, mechanism, and quality gate.
+- Formal efficiency claim: only after 15–20 unique comparable accepted tasks from that registry, stratified by complexity, risk, and topology.
 
 ## Must improve
 

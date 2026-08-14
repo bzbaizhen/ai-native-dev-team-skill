@@ -142,7 +142,7 @@ For prospective V2 tasks, the main agent owns `.ai-team/metrics/events.jsonl`. W
 
 Record `task_ready`, `worker_started` when delegated, `dev_complete`, `qa_complete` when applicable, and `accepted`. Record `blocked`, `reopened`, and `cancelled` when they occur. Follow [metrics.md](references/metrics.md) and [metrics-event.schema.json](references/metrics-event.schema.json); use `scripts/team_metrics.py` for `record`, `snapshot`, `audit`, and `compare`.
 
-For a stable V2 release decision, preserve every prospective trial in a private manifest following [release-trial-manifest.schema.json](references/release-trial-manifest.schema.json). Run `scripts/v2_release_gate.py`; never omit failed or non-comparable trials, and never count synthetic work as a real task.
+For a stable V2 release decision, freeze the candidate and complete source roster, preserve each ledger's pre-trial prefix, and register every later `task_ready` with one continuous sequence. Keep request and acceptance evidence private and content-addressed. Follow [release-source-registry.schema.json](references/release-source-registry.schema.json), [release-trial-manifest.schema.json](references/release-trial-manifest.schema.json), and [release-trial-evidence.schema.json](references/release-trial-evidence.schema.json), then run `scripts/v2_release_gate.py`. Never omit failed, unfinished, or non-comparable trials, and never count synthetic work or one task more than once.
 
 Treat Commit count, line count, Agent count, thread count, or token volume alone as non-productivity metrics. Do not claim percentage improvement without a comparable baseline denominator.
 

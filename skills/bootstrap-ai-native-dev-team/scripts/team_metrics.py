@@ -30,6 +30,8 @@ FULL_SHA = re.compile(r"^[0-9a-fA-F]{40}$")
 ALLOWED_FIELDS = {
     "schema_version", "timestamp", "task_id", "event", "actor", "complexity",
     "risk", "topology", "governance_profile", "material_behavior_change",
+    "release_trial_registration_sequence", "skill_candidate_commit",
+    "release_trial_comparable", "v1_baseline_stratum",
     "capability_tier", "reasoning_tier", "actual_model", "escalation_reason",
     "approved_writer", "team_skill_loaded", "owned_paths",
     "backlog_override_reason", "commit", "stable_commit", "result",
@@ -139,7 +141,7 @@ def validate_event(event: dict[str, Any], *, location: str = "event") -> None:
     bool_fields = {
         "material_behavior_change", "approved_writer", "team_skill_loaded",
         "independent_validation", "status_truth_match", "rollback_executable",
-        "owner_approval",
+        "owner_approval", "release_trial_comparable",
     }
     for field in bool_fields:
         if field in event and not isinstance(event[field], bool):
@@ -147,7 +149,7 @@ def validate_event(event: dict[str, Any], *, location: str = "event") -> None:
 
     string_fields = {
         "actor", "actual_model", "escalation_reason", "backlog_override_reason",
-        "reason",
+        "reason", "v1_baseline_stratum",
     }
     for field in string_fields:
         if field in event and (
@@ -164,9 +166,16 @@ def validate_event(event: dict[str, Any], *, location: str = "event") -> None:
         if len(paths) != len(set(paths)):
             raise LedgerError(f"{location}: owned_paths must be unique")
 
-    for field in ("commit", "stable_commit"):
+    for field in ("commit", "stable_commit", "skill_candidate_commit"):
         if field in event and not FULL_SHA.fullmatch(str(event[field])):
             raise LedgerError(f"{location}: {field} must be a full 40-character SHA")
+
+    if "release_trial_registration_sequence" in event:
+        sequence = event["release_trial_registration_sequence"]
+        if isinstance(sequence, bool) or not isinstance(sequence, int) or sequence < 1:
+            raise LedgerError(
+                f"{location}: release_trial_registration_sequence must be positive"
+            )
 
     for field in ("active_minutes", "governance_minutes"):
         if field in event:
@@ -193,6 +202,10 @@ def event_from_args(args: argparse.Namespace) -> dict[str, Any]:
         "topology": args.topology,
         "governance_profile": args.governance_profile,
         "material_behavior_change": args.material_behavior_change,
+        "release_trial_registration_sequence": args.release_trial_registration_sequence,
+        "skill_candidate_commit": args.skill_candidate_commit,
+        "release_trial_comparable": args.release_trial_comparable,
+        "v1_baseline_stratum": args.v1_baseline_stratum,
         "capability_tier": args.capability_tier,
         "reasoning_tier": args.reasoning_tier,
         "actual_model": args.actual_model,
@@ -619,6 +632,10 @@ def add_record_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--topology", choices=sorted(TOPOLOGIES))
     parser.add_argument("--governance-profile", choices=sorted(PROFILES))
     parser.add_argument("--material-behavior-change", type=parse_bool)
+    parser.add_argument("--release-trial-registration-sequence", type=int)
+    parser.add_argument("--skill-candidate-commit")
+    parser.add_argument("--release-trial-comparable", type=parse_bool)
+    parser.add_argument("--v1-baseline-stratum")
     parser.add_argument("--capability-tier", choices=sorted(CAPABILITIES))
     parser.add_argument("--reasoning-tier", choices=sorted(REASONING))
     parser.add_argument("--actual-model")

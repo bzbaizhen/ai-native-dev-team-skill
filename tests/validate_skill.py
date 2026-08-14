@@ -21,6 +21,8 @@ required = [
     SKILL / "references" / "governance-strict.md",
     SKILL / "references" / "metrics.md",
     SKILL / "references" / "metrics-event.schema.json",
+    SKILL / "references" / "release-source-registry.schema.json",
+    SKILL / "references" / "release-trial-evidence.schema.json",
     SKILL / "references" / "release-trial-manifest.schema.json",
     SKILL / "references" / "team-governance-template.zh-CN.md",
     SKILL / "assets" / "team-bootstrap-proposal.md",
@@ -31,6 +33,7 @@ required = [
     SKILL / "scripts" / "team_metrics.py",
     SKILL / "scripts" / "v2_release_gate.py",
     ROOT / "benchmarks" / "v2-prospective" / "README.md",
+    ROOT / "benchmarks" / "v2-prospective" / "source-registry.example.json",
     ROOT / "benchmarks" / "v2-prospective" / "trial-manifest.example.json",
     ROOT / "tests" / "routing-scenarios.json",
     ROOT / "tests" / "test_team_metrics.py",
@@ -80,6 +83,8 @@ direct_references = {
     "references/governance-strict.md",
     "references/metrics.md",
     "references/metrics-event.schema.json",
+    "references/release-source-registry.schema.json",
+    "references/release-trial-evidence.schema.json",
     "references/release-trial-manifest.schema.json",
 }
 if not direct_references.issubset(set(local_links)):
@@ -113,6 +118,15 @@ if (
     != 5
 ):
     fail("release trial schema must require at least five comparable tasks")
+
+for name in ("release-source-registry.schema.json", "release-trial-evidence.schema.json"):
+    schema_path = SKILL / "references" / name
+    try:
+        extra_schema = json.loads(schema_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        fail(f"{name} is invalid JSON: {exc}")
+    if extra_schema.get("$schema") != "https://json-schema.org/draft/2020-12/schema":
+        fail(f"{name} must declare JSON Schema 2020-12")
 
 script_path = SKILL / "scripts" / "team_metrics.py"
 try:

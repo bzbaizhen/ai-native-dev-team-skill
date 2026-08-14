@@ -24,6 +24,8 @@ Record `blocked`, `reopened`, and `cancelled` when they occur. A worker Commit, 
 
 At `task_ready` record complexity, risk, route/topology, governance profile, and whether the task is a material behavior change.
 
+For a prospective release trial, also record `release_trial_registration_sequence`, `skill_candidate_commit`, `release_trial_comparable`, and the declared `v1_baseline_stratum`. The sequence is global across the frozen source roster, starts at `1`, never repeats, and is assigned before outcome is known.
+
 At `worker_started` record the approved Writer, declared owned paths, capability and reasoning tiers, whether the Writer loaded this team Skill, and any integration-backlog override reason.
 
 At `qa_complete` record the candidate Commit, result, and whether validation was independent.
@@ -72,7 +74,9 @@ Audit the first-five-task stable-release gate:
 python scripts/v2_release_gate.py --manifest <PRIVATE_TRIAL_MANIFEST>
 ```
 
-The private manifest follows [release-trial-manifest.schema.json](release-trial-manifest.schema.json). Preserve excluded and failed trials with reasons; do not cherry-pick later successes. This gate evaluates recorded hard mechanisms and quality fields. It does not prove an efficiency improvement.
+Freeze the candidate, source roster, project identity, stable branch, ledger path, byte length, and SHA-256 of each pre-trial ledger prefix using [release-source-registry.schema.json](release-source-registry.schema.json). At each audit cutoff, hash the full ledgers and follow [release-trial-manifest.schema.json](release-trial-manifest.schema.json). Request and acceptance records follow [release-trial-evidence.schema.json](release-trial-evidence.schema.json) and are referenced by SHA-256.
+
+The gate enumerates every `task_ready` after candidate freeze and through the declared cutoff, requires a unique Manifest entry for each, audits each complete source ledger before mapping violations to tasks, and verifies Git stable-branch ancestry. Preserve excluded, unfinished, and failed trials; do not cherry-pick later successes. The gate proves only the registered evidence universe, not unrecorded external work or an efficiency improvement.
 
 ## Primary measures
 
