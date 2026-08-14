@@ -1,0 +1,19 @@
+{
+  "schema_version": "2.0",
+  "receipt_type": "task_ready_registration",
+  "registration_sequence": 1,
+  "source_id": "SOURCE-001",
+  "project_evidence_id": "project-a-private-id",
+  "task_id": "TASK-001",
+  "registered_at": "2026-08-15T00:05:00Z",
+  "skill_candidate_commit": "1111111111111111111111111111111111111111",
+  "request_evidence": "../../private-evidence/task-001-request.json",
+  "request_evidence_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "complexity": "C1",
+  "risk": "R1",
+  "topology": "single-worker",
+  "release_trial_comparable": true,
+  "v1_baseline_stratum": "C1|R1|single-worker",
+  "genuine_request": true,
+  "synthetic": false
+}

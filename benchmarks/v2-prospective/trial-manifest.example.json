@@ -5,7 +5,7 @@
   "candidate_frozen_at": "2026-08-15T00:00:00Z",
   "registry_closed_at": "2026-08-31T23:59:59Z",
   "source_registry": "source-registry.example.json",
-  "source_registry_sha256": "191ac597a8d3dbbeb2a168c4310e907051c85d24f335574d24373c02aae29537",
+  "source_registry_sha256": "120d28ff2012387d4332598463bf7d59f1494cc657a4537f66bf7443388cb17b",
   "required_comparable_tasks": 5,
   "sources": [
     {

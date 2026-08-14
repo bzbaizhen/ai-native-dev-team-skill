@@ -32,6 +32,8 @@ class V2ReleaseGateTests(unittest.TestCase):
         count: int,
         *,
         failing_index: int | None = None,
+        receipt_stratum_override: tuple[int, str] | None = None,
+        historical_backlog: bool = False,
     ) -> Path:
         repo = root / "project"
         repo.mkdir()
@@ -65,6 +67,18 @@ class V2ReleaseGateTests(unittest.TestCase):
             },
             sort_keys=True,
         ) + "\n"
+        if historical_backlog:
+            frozen_prefix += json.dumps(
+                {
+                    "schema_version": "2.0",
+                    "timestamp": "2026-08-13T01:00:00Z",
+                    "task_id": "HISTORICAL-001",
+                    "event": "dev_complete",
+                    "actor": "main-agent",
+                    "commit": "d" * 40,
+                },
+                sort_keys=True,
+            ) + "\n"
         events = []
         trials = []
         for index in range(1, count + 1):
@@ -223,6 +237,7 @@ class V2ReleaseGateTests(unittest.TestCase):
                     "schema_version": "2.0",
                     "candidate_commit": SKILL_COMMIT,
                     "candidate_frozen_at": "2026-08-14T00:00:00Z",
+                    "required_comparable_tasks": 5,
                     "sources": [frozen_source],
                 },
                 sort_keys=True,
@@ -255,7 +270,139 @@ class V2ReleaseGateTests(unittest.TestCase):
             ),
             encoding="utf-8",
         )
+        anchor_repo = root / "anchor"
+        anchor_repo.mkdir()
+        subprocess.run(
+            ["git", "init", "-b", "main", str(anchor_repo)],
+            check=True,
+            capture_output=True,
+        )
+        for key, value in (
+            ("user.name", "Release Gate Test"),
+            ("user.email", "test@example.invalid"),
+        ):
+            subprocess.run(
+                ["git", "-C", str(anchor_repo), "config", key, value],
+                check=True,
+            )
+
+        def anchor_commit(message: str) -> str:
+            subprocess.run(
+                ["git", "-C", str(anchor_repo), "add", "."],
+                check=True,
+                capture_output=True,
+            )
+            subprocess.run(
+                ["git", "-C", str(anchor_repo), "commit", "-m", message],
+                check=True,
+                capture_output=True,
+            )
+            return subprocess.run(
+                ["git", "-C", str(anchor_repo), "rev-parse", "HEAD"],
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+
+        (anchor_repo / v2_release_gate.ANCHOR_REGISTRY_PATH).write_bytes(
+            source_registry.read_bytes()
+        )
+        freeze_commit = anchor_commit("freeze candidate and sources")
+        registrations = anchor_repo / v2_release_gate.ANCHOR_RECEIPTS_DIR
+        registrations.mkdir()
+        ready_by_task = {
+            event["task_id"]: event for event in events if event["event"] == "task_ready"
+        }
+        registration_commits = []
+        for index, trial in enumerate(trials, 1):
+            ready = ready_by_task[trial["task_id"]]
+            stratum = trial["v1_baseline_stratum"]
+            if receipt_stratum_override and receipt_stratum_override[0] == index:
+                stratum = receipt_stratum_override[1]
+            receipt = {
+                "schema_version": "2.0",
+                "receipt_type": "task_ready_registration",
+                "registration_sequence": index,
+                "source_id": trial["source_id"],
+                "project_evidence_id": "project-a-evidence",
+                "task_id": trial["task_id"],
+                "registered_at": ready["timestamp"],
+                "skill_candidate_commit": trial["skill_candidate_commit"],
+                "request_evidence": trial["request_evidence"],
+                "request_evidence_sha256": trial["request_evidence_sha256"],
+                "complexity": ready["complexity"],
+                "risk": ready["risk"],
+                "topology": ready["topology"],
+                "release_trial_comparable": trial["comparable"],
+                "v1_baseline_stratum": stratum,
+                "genuine_request": trial["genuine_request"],
+                "synthetic": trial["synthetic"],
+            }
+            (registrations / f"{index:06d}.json").write_text(
+                json.dumps(receipt, sort_keys=True), encoding="utf-8"
+            )
+            registration_commits.append(anchor_commit(f"register task {index:06d}"))
+        final_registration = registration_commits[-1] if registration_commits else freeze_commit
+        (anchor_repo / v2_release_gate.ANCHOR_CLOSURE_PATH).write_text(
+            json.dumps(
+                {
+                    "schema_version": "2.0",
+                    "closure_type": "registration_window_closed",
+                    "candidate_commit": SKILL_COMMIT,
+                    "anchor_freeze_commit": freeze_commit,
+                    "final_registration_commit": final_registration,
+                    "closed_at": "2026-08-14T23:59:59Z",
+                    "registration_count": count,
+                    "trial_manifest_sha256": hashlib.sha256(
+                        manifest.read_bytes()
+                    ).hexdigest(),
+                },
+                sort_keys=True,
+            ),
+            encoding="utf-8",
+        )
+        head_commit = anchor_commit("close registration window")
+        (root / "_anchor-test.json").write_text(
+            json.dumps(
+                {
+                    "repo": str(anchor_repo),
+                    "freeze": freeze_commit,
+                    "head": head_commit,
+                }
+            ),
+            encoding="utf-8",
+        )
         return manifest
+
+    def anchor_for(self, manifest_path: Path) -> dict:
+        data = json.loads(
+            (manifest_path.parent / "_anchor-test.json").read_text(encoding="utf-8")
+        )
+        return v2_release_gate.load_anchor(
+            Path(data["repo"]), data["freeze"], data["head"]
+        )
+
+    def evaluate(self, manifest_path: Path) -> dict:
+        return v2_release_gate.evaluate_manifest(
+            v2_release_gate.load_manifest(manifest_path),
+            manifest_path,
+            self.anchor_for(manifest_path),
+        )
+
+    def main_args(self, manifest_path: Path) -> list[str]:
+        data = json.loads(
+            (manifest_path.parent / "_anchor-test.json").read_text(encoding="utf-8")
+        )
+        return [
+            "--manifest",
+            str(manifest_path),
+            "--anchor-repo",
+            data["repo"],
+            "--anchor-freeze-commit",
+            data["freeze"],
+            "--anchor-head-commit",
+            data["head"],
+        ]
 
     def refresh_ledger_digest(self, manifest_path: Path) -> dict:
         data = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -269,10 +416,9 @@ class V2ReleaseGateTests(unittest.TestCase):
     def test_first_five_passing_trials_open_stable_gate(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             manifest_path = self.build_trial_files(Path(raw), 5)
-            manifest = v2_release_gate.load_manifest(manifest_path)
-            result = v2_release_gate.evaluate_manifest(manifest, manifest_path)
+            result = self.evaluate(manifest_path)
             with contextlib.redirect_stdout(io.StringIO()):
-                exit_code = v2_release_gate.main(["--manifest", str(manifest_path)])
+                exit_code = v2_release_gate.main(self.main_args(manifest_path))
 
         self.assertTrue(result["stable_v2_ready"])
         self.assertTrue(result["gates"]["no_hard_gate_violations"])
@@ -288,12 +434,9 @@ class V2ReleaseGateTests(unittest.TestCase):
     def test_later_success_cannot_hide_failure_in_first_five(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             manifest_path = self.build_trial_files(Path(raw), 6, failing_index=3)
-            result = v2_release_gate.evaluate_manifest(
-                v2_release_gate.load_manifest(manifest_path),
-                manifest_path,
-            )
+            result = self.evaluate(manifest_path)
             with contextlib.redirect_stdout(io.StringIO()):
-                exit_code = v2_release_gate.main(["--manifest", str(manifest_path)])
+                exit_code = v2_release_gate.main(self.main_args(manifest_path))
 
         self.assertFalse(result["stable_v2_ready"])
         self.assertIn("material_quality_regression", {
@@ -306,10 +449,7 @@ class V2ReleaseGateTests(unittest.TestCase):
     def test_fewer_than_five_trials_fails_closed(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             manifest_path = self.build_trial_files(Path(raw), 4)
-            result = v2_release_gate.evaluate_manifest(
-                v2_release_gate.load_manifest(manifest_path),
-                manifest_path,
-            )
+            result = self.evaluate(manifest_path)
 
         self.assertFalse(result["stable_v2_ready"])
         self.assertFalse(result["gates"]["enough_comparable_tasks"])
@@ -336,10 +476,7 @@ class V2ReleaseGateTests(unittest.TestCase):
                 encoding="utf-8",
                 newline="\n",
             )
-            result = v2_release_gate.evaluate_manifest(
-                v2_release_gate.load_manifest(manifest_path),
-                manifest_path,
-            )
+            result = self.evaluate(manifest_path)
 
         self.assertFalse(result["stable_v2_ready"])
         self.assertFalse(result["gates"]["registry_complete"])
@@ -404,9 +541,7 @@ class V2ReleaseGateTests(unittest.TestCase):
                 newline="\n",
             )
             self.refresh_ledger_digest(manifest_path)
-            result = v2_release_gate.evaluate_manifest(
-                v2_release_gate.load_manifest(manifest_path), manifest_path
-            )
+            result = self.evaluate(manifest_path)
 
         codes = {
             item["code"]
@@ -432,18 +567,14 @@ class V2ReleaseGateTests(unittest.TestCase):
                 newline="\n",
             )
             data = self.refresh_ledger_digest(manifest_path)
-            result = v2_release_gate.evaluate_manifest(
-                v2_release_gate.load_manifest(manifest_path), manifest_path
-            )
+            result = self.evaluate(manifest_path)
             self.assertEqual(result["first_comparable_trial_ids"][-1], "TRIAL-005")
             self.assertFalse(result["stable_v2_ready"])
 
             data["trials"][4]["registration_sequence"] = 6
             data["trials"][5]["registration_sequence"] = 5
             manifest_path.write_text(json.dumps(data), encoding="utf-8")
-            swapped = v2_release_gate.evaluate_manifest(
-                v2_release_gate.load_manifest(manifest_path), manifest_path
-            )
+            swapped = self.evaluate(manifest_path)
 
         self.assertFalse(swapped["stable_v2_ready"])
         swapped_codes = {
@@ -462,9 +593,7 @@ class V2ReleaseGateTests(unittest.TestCase):
             data = json.loads(manifest_path.read_text(encoding="utf-8"))
             del data["trials"][0]
             manifest_path.write_text(json.dumps(data), encoding="utf-8")
-            result = v2_release_gate.evaluate_manifest(
-                v2_release_gate.load_manifest(manifest_path), manifest_path
-            )
+            result = self.evaluate(manifest_path)
 
         self.assertFalse(result["gates"]["registry_complete"])
         self.assertEqual(result["missing_trial_identities"], [["source-a", "T-01"]])
@@ -476,9 +605,7 @@ class V2ReleaseGateTests(unittest.TestCase):
             manifest_path = self.build_trial_files(root, 5)
             request = root / "evidence" / "request-01.json"
             request.write_text(request.read_text() + "\n", encoding="utf-8")
-            result = v2_release_gate.evaluate_manifest(
-                v2_release_gate.load_manifest(manifest_path), manifest_path
-            )
+            result = self.evaluate(manifest_path)
 
         codes = {item["code"] for item in result["trials"][0]["issues"]}
         self.assertIn("request_evidence_digest_mismatch", codes)
@@ -490,9 +617,7 @@ class V2ReleaseGateTests(unittest.TestCase):
             manifest_path = self.build_trial_files(root, 5)
             registry = root / "source-registry.json"
             registry.write_text(registry.read_text() + "\n", encoding="utf-8")
-            registry_result = v2_release_gate.evaluate_manifest(
-                v2_release_gate.load_manifest(manifest_path), manifest_path
-            )
+            registry_result = self.evaluate(manifest_path)
             self.assertFalse(registry_result["gates"]["source_snapshots_integral"])
 
             data = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -505,9 +630,7 @@ class V2ReleaseGateTests(unittest.TestCase):
                 ledger.read_bytes()
             ).hexdigest()
             manifest_path.write_text(json.dumps(data), encoding="utf-8")
-            prefix_result = v2_release_gate.evaluate_manifest(
-                v2_release_gate.load_manifest(manifest_path), manifest_path
-            )
+            prefix_result = self.evaluate(manifest_path)
 
         source_codes = {
             item["code"] for item in prefix_result["sources"][0]["issues"]
@@ -515,12 +638,249 @@ class V2ReleaseGateTests(unittest.TestCase):
         self.assertIn("ledger_prefix_digest_mismatch", source_codes)
         self.assertFalse(prefix_result["stable_v2_ready"])
 
+    def test_candidate_commit_must_reach_stable_commit(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            manifest_path = self.build_trial_files(root, 5)
+            repo = root / "project"
+            empty_tree = subprocess.run(
+                ["git", "-C", str(repo), "mktree"],
+                input="",
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+            candidate = subprocess.run(
+                ["git", "-C", str(repo), "commit-tree", empty_tree, "-m", "isolated"],
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+            data = json.loads(manifest_path.read_text(encoding="utf-8"))
+            trial = data["trials"][0]
+            trial["candidate_commit"] = candidate
+            acceptance_path = root / trial["acceptance_evidence"]
+            acceptance = json.loads(acceptance_path.read_text(encoding="utf-8"))
+            acceptance["candidate_commit"] = candidate
+            acceptance_path.write_text(json.dumps(acceptance, sort_keys=True), encoding="utf-8")
+            trial["acceptance_evidence_sha256"] = hashlib.sha256(
+                acceptance_path.read_bytes()
+            ).hexdigest()
+            ledger = root / "events.jsonl"
+            events = [json.loads(line) for line in ledger.read_text().splitlines()]
+            for event in events:
+                if event["task_id"] == "T-01" and event["event"] in {
+                    "dev_complete", "accepted"
+                }:
+                    event["commit"] = candidate
+            ledger.write_text(
+                "".join(json.dumps(event, sort_keys=True) + "\n" for event in events),
+                encoding="utf-8",
+                newline="\n",
+            )
+            manifest_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+            self.refresh_ledger_digest(manifest_path)
+            result = self.evaluate(manifest_path)
+
+        codes = {item["code"] for item in result["trials"][0]["issues"]}
+        self.assertIn("candidate_commit_not_in_stable_commit", codes)
+        self.assertFalse(result["stable_v2_ready"])
+
+    def test_unregistered_writer_violation_is_a_source_level_blocker(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            manifest_path = self.build_trial_files(root, 5)
+            ledger = root / "events.jsonl"
+            events = [json.loads(line) for line in ledger.read_text().splitlines()]
+            events.extend(
+                [
+                    {
+                        "schema_version": "2.0",
+                        "timestamp": "2026-08-14T00:10:00Z",
+                        "task_id": "T-01",
+                        "event": "worker_started",
+                        "actor": "writer-1",
+                        "capability_tier": "standard",
+                        "reasoning_tier": "medium",
+                        "approved_writer": True,
+                        "team_skill_loaded": False,
+                        "owned_paths": ["src"],
+                    },
+                    {
+                        "schema_version": "2.0",
+                        "timestamp": "2026-08-14T00:11:00Z",
+                        "task_id": "UNREGISTERED",
+                        "event": "worker_started",
+                        "actor": "writer-x",
+                        "capability_tier": "standard",
+                        "reasoning_tier": "medium",
+                        "approved_writer": False,
+                        "team_skill_loaded": False,
+                        "owned_paths": ["src/file.py"],
+                    },
+                ]
+            )
+            events.sort(key=lambda event: event["timestamp"])
+            ledger.write_text(
+                "".join(json.dumps(event, sort_keys=True) + "\n" for event in events),
+                encoding="utf-8",
+                newline="\n",
+            )
+            self.refresh_ledger_digest(manifest_path)
+            result = self.evaluate(manifest_path)
+
+        codes = {item["code"] for item in result["sources"][0]["issues"]}
+        self.assertIn("hard_gate:missing_task_ready", codes)
+        self.assertIn("hard_gate:unapproved_writer", codes)
+        self.assertIn("hard_gate:overlapping_writer_paths", codes)
+        self.assertFalse(result["stable_v2_ready"])
+
+    def test_pre_freeze_backlog_state_blocks_new_writer_in_window(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            manifest_path = self.build_trial_files(root, 5, historical_backlog=True)
+            ledger = root / "events.jsonl"
+            events = [json.loads(line) for line in ledger.read_text().splitlines()]
+            events.append(
+                {
+                    "schema_version": "2.0",
+                    "timestamp": "2026-08-14T00:10:00Z",
+                    "task_id": "T-01",
+                    "event": "worker_started",
+                    "actor": "writer-1",
+                    "capability_tier": "standard",
+                    "reasoning_tier": "medium",
+                    "approved_writer": True,
+                    "team_skill_loaded": False,
+                    "owned_paths": ["src"],
+                }
+            )
+            events.sort(key=lambda event: event["timestamp"])
+            ledger.write_text(
+                "".join(json.dumps(event, sort_keys=True) + "\n" for event in events),
+                encoding="utf-8",
+                newline="\n",
+            )
+            self.refresh_ledger_digest(manifest_path)
+            result = self.evaluate(manifest_path)
+
+        codes = {item["code"] for item in result["sources"][0]["issues"]}
+        self.assertIn("hard_gate:writer_started_with_integration_backlog", codes)
+        self.assertFalse(result["stable_v2_ready"])
+
+    def test_deleted_failure_and_rewritten_sequence_cannot_replace_anchor(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            manifest_path = self.build_trial_files(root, 6, failing_index=1)
+            ledger = root / "events.jsonl"
+            events = [json.loads(line) for line in ledger.read_text().splitlines()]
+            events = [event for event in events if event["task_id"] != "T-01"]
+            for event in events:
+                if event.get("release_trial_registration_sequence"):
+                    event["release_trial_registration_sequence"] -= 1
+            ledger.write_text(
+                "".join(json.dumps(event, sort_keys=True) + "\n" for event in events),
+                encoding="utf-8",
+                newline="\n",
+            )
+            data = json.loads(manifest_path.read_text(encoding="utf-8"))
+            data["trials"] = data["trials"][1:]
+            for trial in data["trials"]:
+                trial["registration_sequence"] -= 1
+            manifest_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+            self.refresh_ledger_digest(manifest_path)
+            result = self.evaluate(manifest_path)
+
+        self.assertEqual(result["missing_trial_identities"], [["source-a", "T-01"]])
+        self.assertEqual(
+            result["missing_ledger_registration_identities"], [["source-a", "T-01"]]
+        )
+        self.assertIn(
+            "manifest_anchor_digest_mismatch",
+            {item["code"] for item in result["source_registry"]["issues"]},
+        )
+        self.assertFalse(result["stable_v2_ready"])
+
+    def test_unanchored_task_ready_fails_registry_completeness(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            manifest_path = self.build_trial_files(root, 5)
+            ledger = root / "events.jsonl"
+            events = [json.loads(line) for line in ledger.read_text().splitlines()]
+            events.append(
+                {
+                    "schema_version": "2.0",
+                    "timestamp": "2026-08-14T00:30:00Z",
+                    "task_id": "UNANCHORED-READY",
+                    "event": "task_ready",
+                    "complexity": "C1",
+                    "risk": "R1",
+                    "topology": "no-delegation",
+                    "governance_profile": "lean",
+                    "material_behavior_change": False,
+                }
+            )
+            events.sort(key=lambda event: event["timestamp"])
+            ledger.write_text(
+                "".join(json.dumps(event, sort_keys=True) + "\n" for event in events),
+                encoding="utf-8",
+                newline="\n",
+            )
+            self.refresh_ledger_digest(manifest_path)
+            result = self.evaluate(manifest_path)
+
+        self.assertEqual(
+            result["unanchored_ledger_registration_identities"],
+            [["source-a", "UNANCHORED-READY"]],
+        )
+        self.assertFalse(result["stable_v2_ready"])
+
+    def test_v1_stratum_must_equal_registered_complexity_risk_topology(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            manifest_path = self.build_trial_files(
+                Path(raw), 5, receipt_stratum_override=(1, "C2|R1|no-delegation")
+            )
+            with self.assertRaisesRegex(
+                v2_release_gate.ReleaseGateError, "stratum does not match"
+            ):
+                self.anchor_for(manifest_path)
+
+    def test_post_close_receipt_edit_is_not_a_valid_anchor_head(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            manifest_path = self.build_trial_files(root, 5)
+            metadata = json.loads((root / "_anchor-test.json").read_text())
+            anchor_repo = Path(metadata["repo"])
+            receipt = anchor_repo / v2_release_gate.ANCHOR_RECEIPTS_DIR / "000001.json"
+            receipt.write_text(receipt.read_text() + "\n", encoding="utf-8")
+            subprocess.run(
+                ["git", "-C", str(anchor_repo), "add", "."],
+                check=True,
+                capture_output=True,
+            )
+            subprocess.run(
+                ["git", "-C", str(anchor_repo), "commit", "-m", "rewrite receipt"],
+                check=True,
+                capture_output=True,
+            )
+            rewritten_head = subprocess.run(
+                ["git", "-C", str(anchor_repo), "rev-parse", "HEAD"],
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+            with self.assertRaisesRegex(
+                v2_release_gate.ReleaseGateError, "anchor head must add only"
+            ):
+                v2_release_gate.load_anchor(
+                    anchor_repo, metadata["freeze"], rewritten_head
+                )
+            self.assertTrue(self.evaluate(manifest_path)["stable_v2_ready"])
+
     def test_fifteen_unique_tasks_are_required_for_formal_sample(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             manifest_path = self.build_trial_files(Path(raw), 15)
-            result = v2_release_gate.evaluate_manifest(
-                v2_release_gate.load_manifest(manifest_path), manifest_path
-            )
+            result = self.evaluate(manifest_path)
             self.assertTrue(result["formal_efficiency_sample_size_ready"])
 
             data = json.loads(manifest_path.read_text(encoding="utf-8"))

@@ -376,7 +376,8 @@ def add_violation(
 ) -> None:
     output.append({
         "code": code, "task_id": event["task_id"],
-        "line": event.get("_line"), "message": message,
+        "timestamp": event["timestamp"], "line": event.get("_line"),
+        "message": message,
     })
 
 

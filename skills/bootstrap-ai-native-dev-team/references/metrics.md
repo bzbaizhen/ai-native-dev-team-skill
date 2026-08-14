@@ -71,12 +71,12 @@ python scripts/team_metrics.py compare --baseline baseline.json --current curren
 Audit the first-five-task stable-release gate:
 
 ```powershell
-python scripts/v2_release_gate.py --manifest <PRIVATE_TRIAL_MANIFEST>
+python scripts/v2_release_gate.py --manifest <PRIVATE_TRIAL_MANIFEST> --anchor-repo <PRIVATE_ANCHOR_REPO> --anchor-freeze-commit <TRUSTED_FREEZE_SHA> --anchor-head-commit <TRUSTED_CLOSED_HEAD_SHA>
 ```
 
-Freeze the candidate, source roster, project identity, stable branch, ledger path, byte length, and SHA-256 of each pre-trial ledger prefix using [release-source-registry.schema.json](release-source-registry.schema.json). At each audit cutoff, hash the full ledgers and follow [release-trial-manifest.schema.json](release-trial-manifest.schema.json). Request and acceptance records follow [release-trial-evidence.schema.json](release-trial-evidence.schema.json) and are referenced by SHA-256.
+At the external freeze Commit, record the candidate, five-task policy, source roster, project identity, stable branch, ledger path, byte length, and SHA-256 of each pre-trial ledger prefix using [release-source-registry.schema.json](release-source-registry.schema.json). Before each task outcome, add one linear Git Commit containing only a receipt that follows [release-registration-receipt.schema.json](release-registration-receipt.schema.json). At the cutoff, hash the full ledgers, finalize [release-trial-manifest.schema.json](release-trial-manifest.schema.json), then end with a Commit that adds only [release-anchor-closure.schema.json](release-anchor-closure.schema.json) and anchors that Manifest digest. The verifier must receive the immutable freeze and closed-head SHAs outside the Manifest. Request and acceptance records follow [release-trial-evidence.schema.json](release-trial-evidence.schema.json).
 
-The gate enumerates every `task_ready` after candidate freeze and through the declared cutoff, requires a unique Manifest entry for each, audits each complete source ledger before mapping violations to tasks, and verifies Git stable-branch ancestry. Preserve excluded, unfinished, and failed trials; do not cherry-pick later successes. The gate proves only the registered evidence universe, not unrecorded external work or an efficiency improvement.
+The anchor history enumerates the task universe; the Manifest only maps outcomes. The gate requires the ledger and Manifest to cover every anchored receipt, rejects unanchored `task_ready`, treats every source-level audit violation triggered inside the candidate window as blocking, and verifies candidate-to-stable plus stable-branch ancestry. It also requires the V1 stratum to exactly equal the receipt C/R/topology. Preserve excluded, unfinished, and failed trials; do not cherry-pick later successes. Local Git cannot prove remote ref protection or push time, so use a protected append-only ref, signed record, or trusted timestamp receipt as the independent control.
 
 ## Primary measures
 

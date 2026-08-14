@@ -1,0 +1,10 @@
+{
+  "schema_version": "2.0",
+  "closure_type": "registration_window_closed",
+  "candidate_commit": "1111111111111111111111111111111111111111",
+  "anchor_freeze_commit": "4444444444444444444444444444444444444444",
+  "final_registration_commit": "5555555555555555555555555555555555555555",
+  "closed_at": "2026-08-31T23:59:59Z",
+  "registration_count": 1,
+  "trial_manifest_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+}

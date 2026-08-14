@@ -21,6 +21,8 @@ required = [
     SKILL / "references" / "governance-strict.md",
     SKILL / "references" / "metrics.md",
     SKILL / "references" / "metrics-event.schema.json",
+    SKILL / "references" / "release-anchor-closure.schema.json",
+    SKILL / "references" / "release-registration-receipt.schema.json",
     SKILL / "references" / "release-source-registry.schema.json",
     SKILL / "references" / "release-trial-evidence.schema.json",
     SKILL / "references" / "release-trial-manifest.schema.json",
@@ -33,6 +35,8 @@ required = [
     SKILL / "scripts" / "team_metrics.py",
     SKILL / "scripts" / "v2_release_gate.py",
     ROOT / "benchmarks" / "v2-prospective" / "README.md",
+    ROOT / "benchmarks" / "v2-prospective" / "anchor-closure.example.json",
+    ROOT / "benchmarks" / "v2-prospective" / "registration-000001.example.json",
     ROOT / "benchmarks" / "v2-prospective" / "source-registry.example.json",
     ROOT / "benchmarks" / "v2-prospective" / "trial-manifest.example.json",
     ROOT / "tests" / "routing-scenarios.json",
@@ -83,6 +87,8 @@ direct_references = {
     "references/governance-strict.md",
     "references/metrics.md",
     "references/metrics-event.schema.json",
+    "references/release-anchor-closure.schema.json",
+    "references/release-registration-receipt.schema.json",
     "references/release-source-registry.schema.json",
     "references/release-trial-evidence.schema.json",
     "references/release-trial-manifest.schema.json",
@@ -119,7 +125,12 @@ if (
 ):
     fail("release trial schema must require at least five comparable tasks")
 
-for name in ("release-source-registry.schema.json", "release-trial-evidence.schema.json"):
+for name in (
+    "release-anchor-closure.schema.json",
+    "release-registration-receipt.schema.json",
+    "release-source-registry.schema.json",
+    "release-trial-evidence.schema.json",
+):
     schema_path = SKILL / "references" / name
     try:
         extra_schema = json.loads(schema_path.read_text(encoding="utf-8"))

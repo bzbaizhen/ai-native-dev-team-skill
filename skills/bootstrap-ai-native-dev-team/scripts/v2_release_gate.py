@@ -23,6 +23,48 @@ import team_metrics  # noqa: E402
 FULL_SHA = re.compile(r"^[0-9a-fA-F]{40}$")
 SHA256 = re.compile(r"^[0-9a-fA-F]{64}$")
 SAFE_REF = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]*$")
+STRATUM = re.compile(
+    r"^(C[0-3])\|(R[0-3])\|(no-delegation|single-worker|task-cell|team-required)$"
+)
+ANCHOR_REGISTRY_PATH = "release-source-registry.json"
+ANCHOR_RECEIPTS_DIR = "registrations"
+ANCHOR_CLOSURE_PATH = "release-window-closure.json"
+ANCHOR_REGISTRY_FIELDS = {
+    "schema_version",
+    "candidate_commit",
+    "candidate_frozen_at",
+    "required_comparable_tasks",
+    "sources",
+}
+ANCHOR_RECEIPT_FIELDS = {
+    "schema_version",
+    "receipt_type",
+    "registration_sequence",
+    "source_id",
+    "project_evidence_id",
+    "task_id",
+    "registered_at",
+    "skill_candidate_commit",
+    "request_evidence",
+    "request_evidence_sha256",
+    "complexity",
+    "risk",
+    "topology",
+    "release_trial_comparable",
+    "v1_baseline_stratum",
+    "genuine_request",
+    "synthetic",
+}
+ANCHOR_CLOSURE_FIELDS = {
+    "schema_version",
+    "closure_type",
+    "candidate_commit",
+    "anchor_freeze_commit",
+    "final_registration_commit",
+    "closed_at",
+    "registration_count",
+    "trial_manifest_sha256",
+}
 REQUIRED_TRIAL_FIELDS = {
     "trial_id",
     "registration_sequence",
@@ -308,6 +350,286 @@ def git_commit_exists(repo: Path, commit: str) -> bool:
     return run_git(repo, "cat-file", "-e", f"{commit}^{{commit}}").returncode == 0
 
 
+def git_text(repo: Path, *args: str) -> str:
+    result = run_git(repo, *args)
+    if result.returncode != 0:
+        detail = result.stderr.strip() or result.stdout.strip() or "Git command failed"
+        raise ReleaseGateError(detail)
+    return result.stdout
+
+
+def git_json(repo: Path, commit: str, path: str, label: str) -> dict[str, Any]:
+    try:
+        data = json.loads(git_text(repo, "show", f"{commit}:{path}"))
+    except json.JSONDecodeError as exc:
+        raise ReleaseGateError(f"{label} is invalid JSON: {exc}") from exc
+    if not isinstance(data, dict):
+        raise ReleaseGateError(f"{label} must be a JSON object")
+    return data
+
+
+def validate_anchor_registry(data: dict[str, Any]) -> dict[str, Any]:
+    if set(data) != ANCHOR_REGISTRY_FIELDS:
+        raise ReleaseGateError("anchor source registry fields differ from the contract")
+    if data.get("schema_version") != "2.0":
+        raise ReleaseGateError("anchor source registry schema_version must be 2.0")
+    if not FULL_SHA.fullmatch(str(data.get("candidate_commit", ""))):
+        raise ReleaseGateError("anchor candidate_commit must be a full SHA")
+    manifest_time(data.get("candidate_frozen_at"), "anchor candidate_frozen_at")
+    required = data.get("required_comparable_tasks")
+    if isinstance(required, bool) or not isinstance(required, int) or required < 5:
+        raise ReleaseGateError("anchor required_comparable_tasks must be at least 5")
+    sources = data.get("sources")
+    if not isinstance(sources, list) or not sources:
+        raise ReleaseGateError("anchor sources must be a non-empty array")
+    frozen_fields = REQUIRED_SOURCE_FIELDS - {"ledger_sha256"}
+    source_ids: set[str] = set()
+    project_ids: set[str] = set()
+    for index, source in enumerate(sources):
+        label = f"anchor sources[{index}]"
+        if not isinstance(source, dict) or set(source) != frozen_fields:
+            raise ReleaseGateError(f"{label} fields differ from the contract")
+        for field in frozen_fields - {"ledger_prefix_bytes", "ledger_prefix_sha256"}:
+            require_non_empty(source.get(field), f"{label}.{field}")
+        source_id = source["source_id"]
+        project_id = source["project_evidence_id"]
+        if source_id in source_ids:
+            raise ReleaseGateError(f"duplicate anchor source_id: {source_id}")
+        if project_id in project_ids:
+            raise ReleaseGateError(f"duplicate anchor project_evidence_id: {project_id}")
+        source_ids.add(source_id)
+        project_ids.add(project_id)
+        if not SAFE_REF.fullmatch(source["stable_branch"]):
+            raise ReleaseGateError(f"{label}.stable_branch is not a safe Git ref")
+        prefix_bytes = source["ledger_prefix_bytes"]
+        if (
+            isinstance(prefix_bytes, bool)
+            or not isinstance(prefix_bytes, int)
+            or prefix_bytes < 0
+        ):
+            raise ReleaseGateError(f"{label}.ledger_prefix_bytes must be non-negative")
+        if not SHA256.fullmatch(str(source["ledger_prefix_sha256"])):
+            raise ReleaseGateError(f"{label}.ledger_prefix_sha256 must be SHA-256")
+    return data
+
+
+def validate_anchor_receipt(
+    data: dict[str, Any],
+    *,
+    expected_sequence: int,
+    registry_sources: dict[str, dict[str, Any]],
+    candidate_commit: str,
+) -> dict[str, Any]:
+    allowed = ANCHOR_RECEIPT_FIELDS | {"exclusion_reason"}
+    if set(data) - allowed or ANCHOR_RECEIPT_FIELDS - data.keys():
+        raise ReleaseGateError(
+            f"registration {expected_sequence} fields differ from the contract"
+        )
+    if data.get("schema_version") != "2.0" or data.get("receipt_type") != (
+        "task_ready_registration"
+    ):
+        raise ReleaseGateError(f"registration {expected_sequence} type is invalid")
+    if data.get("registration_sequence") != expected_sequence:
+        raise ReleaseGateError(f"registration {expected_sequence} sequence differs")
+    for field in (
+        "source_id",
+        "project_evidence_id",
+        "task_id",
+        "registered_at",
+        "skill_candidate_commit",
+        "request_evidence",
+        "request_evidence_sha256",
+        "complexity",
+        "risk",
+        "topology",
+    ):
+        require_non_empty(data.get(field), f"registration {expected_sequence}.{field}")
+    source = registry_sources.get(data["source_id"])
+    if not source:
+        raise ReleaseGateError(f"registration {expected_sequence} source is not frozen")
+    if data["project_evidence_id"] != source["project_evidence_id"]:
+        raise ReleaseGateError(f"registration {expected_sequence} project identity differs")
+    if data["skill_candidate_commit"].casefold() != candidate_commit.casefold():
+        raise ReleaseGateError(f"registration {expected_sequence} candidate differs")
+    if not SHA256.fullmatch(str(data["request_evidence_sha256"])):
+        raise ReleaseGateError(f"registration {expected_sequence} request digest is invalid")
+    if data["complexity"] not in team_metrics.COMPLEXITIES:
+        raise ReleaseGateError(f"registration {expected_sequence} complexity is invalid")
+    if data["risk"] not in team_metrics.RISKS:
+        raise ReleaseGateError(f"registration {expected_sequence} risk is invalid")
+    if data["topology"] not in team_metrics.TOPOLOGIES:
+        raise ReleaseGateError(f"registration {expected_sequence} topology is invalid")
+    for field in ("release_trial_comparable", "genuine_request", "synthetic"):
+        if not isinstance(data.get(field), bool):
+            raise ReleaseGateError(f"registration {expected_sequence}.{field} must be boolean")
+    expected_stratum = f"{data['complexity']}|{data['risk']}|{data['topology']}"
+    if data["release_trial_comparable"]:
+        if not isinstance(data.get("v1_baseline_stratum"), str) or not STRATUM.fullmatch(
+            data["v1_baseline_stratum"]
+        ):
+            raise ReleaseGateError(f"registration {expected_sequence} stratum is invalid")
+        if data["v1_baseline_stratum"] != expected_stratum:
+            raise ReleaseGateError(
+                f"registration {expected_sequence} stratum does not match C/R/topology"
+            )
+        if "exclusion_reason" in data:
+            raise ReleaseGateError(
+                f"registration {expected_sequence} comparable work has exclusion_reason"
+            )
+    else:
+        if data.get("v1_baseline_stratum") is not None:
+            raise ReleaseGateError(
+                f"registration {expected_sequence} non-comparable stratum must be null"
+            )
+        require_non_empty(
+            data.get("exclusion_reason"),
+            f"registration {expected_sequence}.exclusion_reason",
+        )
+    manifest_time(data["registered_at"], f"registration {expected_sequence}.registered_at")
+    return data
+
+
+def load_anchor(repo: Path, freeze_commit: str, head_commit: str) -> dict[str, Any]:
+    repo = repo.resolve()
+    for value, label in (
+        (freeze_commit, "anchor_freeze_commit"),
+        (head_commit, "anchor_head_commit"),
+    ):
+        if not FULL_SHA.fullmatch(str(value)):
+            raise ReleaseGateError(f"{label} must be a full 40-character SHA")
+    root = git_text(repo, "rev-parse", "--show-toplevel").strip()
+    if Path(root).resolve() != repo:
+        raise ReleaseGateError("anchor_repo must be the Git root")
+    freeze_commit = freeze_commit.casefold()
+    head_commit = head_commit.casefold()
+    if not git_commit_exists(repo, freeze_commit) or not git_commit_exists(repo, head_commit):
+        raise ReleaseGateError("trusted anchor Commit is absent")
+    if run_git(
+        repo, "merge-base", "--is-ancestor", freeze_commit, head_commit
+    ).returncode != 0:
+        raise ReleaseGateError("anchor freeze Commit is not an ancestor of anchor head")
+
+    first_parent = [
+        line.strip().casefold()
+        for line in git_text(
+            repo,
+            "rev-list",
+            "--first-parent",
+            "--reverse",
+            f"{freeze_commit}..{head_commit}",
+        ).splitlines()
+        if line.strip()
+    ]
+    all_count = int(git_text(repo, "rev-list", "--count", f"{freeze_commit}..{head_commit}"))
+    if not first_parent or len(first_parent) != all_count or first_parent[-1] != head_commit:
+        raise ReleaseGateError("anchor history must be a closed linear first-parent chain")
+    previous = freeze_commit
+    for commit in first_parent:
+        parents = git_text(repo, "show", "-s", "--format=%P", commit).split()
+        if parents != [previous]:
+            raise ReleaseGateError("anchor history contains a merge or discontinuity")
+        previous = commit
+
+    if git_text(
+        repo, "ls-tree", "-r", "--name-only", freeze_commit, ANCHOR_RECEIPTS_DIR
+    ).strip():
+        raise ReleaseGateError("anchor freeze Commit already contains registrations")
+    registry = validate_anchor_registry(
+        git_json(repo, freeze_commit, ANCHOR_REGISTRY_PATH, "anchor source registry")
+    )
+    candidate_commit = registry["candidate_commit"]
+    frozen = manifest_time(registry["candidate_frozen_at"], "anchor candidate_frozen_at")
+
+    closure_changes = [
+        line.split("\t", 1)
+        for line in git_text(
+            repo, "diff-tree", "--no-commit-id", "--name-status", "-r", head_commit
+        ).splitlines()
+        if line.strip()
+    ]
+    if closure_changes != [["A", ANCHOR_CLOSURE_PATH]]:
+        raise ReleaseGateError("anchor head must add only the window closure")
+    closure = git_json(repo, head_commit, ANCHOR_CLOSURE_PATH, "anchor closure")
+    if set(closure) != ANCHOR_CLOSURE_FIELDS:
+        raise ReleaseGateError("anchor closure fields differ from the contract")
+    if closure.get("schema_version") != "2.0" or closure.get("closure_type") != (
+        "registration_window_closed"
+    ):
+        raise ReleaseGateError("anchor closure type is invalid")
+    if str(closure.get("candidate_commit", "")).casefold() != candidate_commit.casefold():
+        raise ReleaseGateError("anchor closure candidate differs")
+    if str(closure.get("anchor_freeze_commit", "")).casefold() != freeze_commit:
+        raise ReleaseGateError("anchor closure freeze Commit differs")
+    closed = manifest_time(closure.get("closed_at"), "anchor closed_at")
+    if closed <= frozen:
+        raise ReleaseGateError("anchor closed_at must be after candidate_frozen_at")
+
+    registration_commits = first_parent[:-1]
+    expected_final = registration_commits[-1] if registration_commits else freeze_commit
+    if str(closure.get("final_registration_commit", "")).casefold() != expected_final:
+        raise ReleaseGateError("anchor closure final registration Commit differs")
+    count = closure.get("registration_count")
+    if isinstance(count, bool) or not isinstance(count, int) or count != len(
+        registration_commits
+    ):
+        raise ReleaseGateError("anchor closure registration_count differs")
+    if not SHA256.fullmatch(str(closure.get("trial_manifest_sha256", ""))):
+        raise ReleaseGateError("anchor closure trial_manifest_sha256 is invalid")
+
+    sources = {source["source_id"]: source for source in registry["sources"]}
+    receipts: list[dict[str, Any]] = []
+    identities: set[tuple[str, str, str]] = set()
+    request_digests: set[str] = set()
+    last_registered = frozen
+    for sequence, commit in enumerate(registration_commits, 1):
+        path = f"{ANCHOR_RECEIPTS_DIR}/{sequence:06d}.json"
+        changes = [
+            line.split("\t", 1)
+            for line in git_text(
+                repo, "diff-tree", "--no-commit-id", "--name-status", "-r", commit
+            ).splitlines()
+            if line.strip()
+        ]
+        if changes != [["A", path]]:
+            raise ReleaseGateError(
+                f"anchor registration Commit {sequence} must add only {path}"
+            )
+        receipt = validate_anchor_receipt(
+            git_json(repo, commit, path, f"registration {sequence}"),
+            expected_sequence=sequence,
+            registry_sources=sources,
+            candidate_commit=candidate_commit,
+        )
+        registered = manifest_time(receipt["registered_at"], f"registration {sequence}")
+        if not frozen < registered <= closed or registered < last_registered:
+            raise ReleaseGateError(
+                f"registration {sequence} time is outside or reorders the anchor window"
+            )
+        last_registered = registered
+        identity = (
+            candidate_commit.casefold(),
+            receipt["project_evidence_id"],
+            receipt["task_id"],
+        )
+        if identity in identities:
+            raise ReleaseGateError(f"registration {sequence} duplicates a task identity")
+        identities.add(identity)
+        digest = receipt["request_evidence_sha256"].casefold()
+        if digest in request_digests:
+            raise ReleaseGateError(f"registration {sequence} duplicates request evidence")
+        request_digests.add(digest)
+        receipts.append(receipt | {"anchor_commit": commit, "anchor_path": path})
+    return {
+        "repo": str(repo),
+        "freeze_commit": freeze_commit,
+        "head_commit": head_commit,
+        "registry": registry,
+        "closure": closure,
+        "receipts": receipts,
+        "passed": True,
+    }
+
+
 def load_source(source: dict[str, Any], manifest_path: Path) -> dict[str, Any]:
     issues: list[dict[str, str]] = []
     ledger = resolve_path(manifest_path, source["ledger"])
@@ -376,7 +698,7 @@ def load_source(source: dict[str, Any], manifest_path: Path) -> dict[str, Any]:
 
 
 def validate_source_registry(
-    manifest: dict[str, Any], manifest_path: Path
+    manifest: dict[str, Any], manifest_path: Path, anchor: dict[str, Any]
 ) -> dict[str, Any]:
     path = resolve_path(manifest_path, manifest["source_registry"])
     issues: list[dict[str, str]] = []
@@ -398,12 +720,30 @@ def validate_source_registry(
     if not isinstance(registry, dict):
         issues.append(issue("source_registry_invalid", "source registry must be an object"))
         registry = {}
-    allowed_top = {"schema_version", "candidate_commit", "candidate_frozen_at", "sources"}
+    allowed_top = {
+        "schema_version",
+        "candidate_commit",
+        "candidate_frozen_at",
+        "required_comparable_tasks",
+        "sources",
+    }
     if set(registry) != allowed_top:
         issues.append(issue("source_registry_fields", "source registry top-level fields differ"))
-    for field in ("schema_version", "candidate_commit", "candidate_frozen_at"):
+    for field in (
+        "schema_version",
+        "candidate_commit",
+        "candidate_frozen_at",
+        "required_comparable_tasks",
+    ):
         if registry.get(field) != manifest.get(field):
             issues.append(issue(f"source_registry_{field}_mismatch", f"{field} differs"))
+    if registry != anchor["registry"]:
+        issues.append(
+            issue(
+                "source_registry_anchor_mismatch",
+                "source registry differs from the trusted Git freeze Commit",
+            )
+        )
     registry_sources = registry.get("sources")
     if not isinstance(registry_sources, list):
         issues.append(issue("source_registry_sources_invalid", "sources must be an array"))
@@ -443,6 +783,7 @@ def validate_source_registry(
     return {
         "path": str(path),
         "sha256": actual_hash,
+        "anchor_freeze_commit": anchor["freeze_commit"],
         "issues": issues,
         "passed": not issues,
     }
@@ -581,6 +922,8 @@ def evaluate_trial(
     manifest: dict[str, Any],
     manifest_path: Path,
     source: dict[str, Any],
+    receipt: dict[str, Any] | None,
+    closed: datetime,
 ) -> dict[str, Any]:
     issues: list[dict[str, str]] = []
     task_events = [
@@ -592,6 +935,49 @@ def evaluate_trial(
     accepted = accepted_events[0] if len(accepted_events) == 1 else None
     ready_time = team_metrics.parse_time(ready["timestamp"]) if ready else None
     accepted_time = team_metrics.parse_time(accepted["timestamp"]) if accepted else None
+    if receipt is None:
+        issues.append(
+            issue(
+                "task_not_in_trusted_anchor",
+                "trial has no registration in the trusted Git anchor history",
+            )
+        )
+    else:
+        anchored_fields = {
+            "registration_sequence": "registration_sequence",
+            "source_id": "source_id",
+            "task_id": "task_id",
+            "skill_candidate_commit": "skill_candidate_commit",
+            "request_evidence": "request_evidence",
+            "request_evidence_sha256": "request_evidence_sha256",
+            "v1_baseline_stratum": "v1_baseline_stratum",
+            "comparable": "release_trial_comparable",
+            "genuine_request": "genuine_request",
+            "synthetic": "synthetic",
+        }
+        for trial_field, receipt_field in anchored_fields.items():
+            actual = trial.get(trial_field)
+            expected = receipt.get(receipt_field)
+            matches = (
+                str(actual).casefold() == str(expected).casefold()
+                if trial_field in {"skill_candidate_commit", "request_evidence_sha256"}
+                else actual == expected
+            )
+            if not matches:
+                issues.append(
+                    issue(
+                        f"anchor_{trial_field}_mismatch",
+                        f"trial {trial_field} differs from the trusted registration receipt",
+                    )
+                )
+        registered_time = team_metrics.parse_time(receipt["registered_at"])
+        if ready_time and ready_time != registered_time:
+            issues.append(
+                issue(
+                    "task_ready_anchor_time_mismatch",
+                    "task_ready timestamp differs from the trusted registration receipt",
+                )
+            )
     if trial["skill_candidate_commit"].casefold() != manifest["candidate_commit"].casefold():
         issues.append(
             issue("skill_candidate_mismatch", "trial did not use the candidate Commit")
@@ -607,6 +993,14 @@ def evaluate_trial(
             "release_trial_comparable": trial["comparable"],
             "v1_baseline_stratum": trial["v1_baseline_stratum"],
         }
+        if receipt:
+            ready_checks.update(
+                {
+                    "complexity": receipt["complexity"],
+                    "risk": receipt["risk"],
+                    "topology": receipt["topology"],
+                }
+            )
         for field, expected in ready_checks.items():
             actual = ready.get(field)
             matches = (
@@ -648,15 +1042,33 @@ def evaluate_trial(
             issues.append(issue("candidate_commit_missing", "candidate Commit is absent"))
         if not git_commit_exists(repo, trial["stable_commit"]):
             issues.append(issue("stable_commit_missing", "stable Commit is absent"))
-        elif source["stable_branch_commit"] and run_git(
-            repo,
-            "merge-base",
-            "--is-ancestor",
-            trial["stable_commit"],
-            source["stable_branch_commit"],
-        ).returncode != 0:
+        else:
+            if git_commit_exists(repo, trial["candidate_commit"]) and run_git(
+                repo,
+                "merge-base",
+                "--is-ancestor",
+                trial["candidate_commit"],
+                trial["stable_commit"],
+            ).returncode != 0:
+                issues.append(
+                    issue(
+                        "candidate_commit_not_in_stable_commit",
+                        "candidate Commit is not an ancestor of stable Commit",
+                    )
+                )
+            if source["stable_branch_commit"] and run_git(
+                repo,
+                "merge-base",
+                "--is-ancestor",
+                trial["stable_commit"],
+                source["stable_branch_commit"],
+            ).returncode != 0:
+                issues.append(
+                    issue("stable_commit_not_on_branch", "stable Commit is not on stable_branch")
+                )
+        if accepted_time and accepted_time > closed:
             issues.append(
-                issue("stable_commit_not_on_branch", "stable Commit is not on stable_branch")
+                issue("acceptance_after_anchor_close", "accepted event postdates anchor close")
             )
     else:
         if accepted_events:
@@ -666,11 +1078,18 @@ def evaluate_trial(
 
     issues.extend(
         validate_evidence(
-            path=resolve_path(manifest_path, trial["request_evidence"]),
-            expected_hash=trial["request_evidence_sha256"],
+            path=resolve_path(
+                manifest_path,
+                receipt["request_evidence"] if receipt else trial["request_evidence"],
+            ),
+            expected_hash=(
+                receipt["request_evidence_sha256"]
+                if receipt
+                else trial["request_evidence_sha256"]
+            ),
             evidence_type="request",
             source=source,
-            trial=trial,
+            trial=receipt if receipt else trial,
             ready_time=ready_time,
             accepted_time=accepted_time,
         )
@@ -710,6 +1129,7 @@ def evaluate_trial(
         "source_id": trial["source_id"],
         "project_alias": source["project_alias"],
         "task_id": trial["task_id"],
+        "anchor_commit": receipt["anchor_commit"] if receipt else None,
         "comparable": trial["comparable"],
         "disposition": trial["disposition"],
         "ready_timestamp": ready["timestamp"] if ready else None,
@@ -720,10 +1140,47 @@ def evaluate_trial(
     }
 
 
-def evaluate_manifest(manifest: dict[str, Any], manifest_path: Path) -> dict[str, Any]:
-    frozen = team_metrics.parse_time(manifest["candidate_frozen_at"])
-    closed = team_metrics.parse_time(manifest["registry_closed_at"])
-    source_registry = validate_source_registry(manifest, manifest_path)
+def evaluate_manifest(
+    manifest: dict[str, Any],
+    manifest_path: Path,
+    anchor: dict[str, Any],
+) -> dict[str, Any]:
+    anchor_registry = anchor["registry"]
+    anchor_closure = anchor["closure"]
+    frozen = team_metrics.parse_time(anchor_registry["candidate_frozen_at"])
+    closed = team_metrics.parse_time(anchor_closure["closed_at"])
+    anchor_alignment_issues: list[dict[str, str]] = []
+    expected_manifest_values = {
+        "candidate_commit": anchor_registry["candidate_commit"],
+        "candidate_frozen_at": anchor_registry["candidate_frozen_at"],
+        "registry_closed_at": anchor_closure["closed_at"],
+        "required_comparable_tasks": anchor_registry["required_comparable_tasks"],
+    }
+    for field, expected in expected_manifest_values.items():
+        actual = manifest[field]
+        matches = (
+            str(actual).casefold() == str(expected).casefold()
+            if field == "candidate_commit"
+            else actual == expected
+        )
+        if not matches:
+            anchor_alignment_issues.append(
+                issue(f"manifest_{field}_anchor_mismatch", f"manifest {field} differs")
+            )
+    if file_sha256(manifest_path).casefold() != anchor_closure[
+        "trial_manifest_sha256"
+    ].casefold():
+        anchor_alignment_issues.append(
+            issue(
+                "manifest_anchor_digest_mismatch",
+                "trial Manifest differs from the trusted anchor closure digest",
+            )
+        )
+
+    source_registry = validate_source_registry(manifest, manifest_path, anchor)
+    if anchor_alignment_issues:
+        source_registry["issues"].extend(anchor_alignment_issues)
+        source_registry["passed"] = False
     source_results = {
         source["source_id"]: load_source(source, manifest_path)
         for source in manifest["sources"]
@@ -745,20 +1202,42 @@ def evaluate_manifest(manifest: dict[str, Any], manifest_path: Path) -> dict[str
             canonical_repos[repo_key] = source["source_id"]
         if ledger_key in canonical_ledgers:
             source["issues"].append(
-                issue("duplicate_ledger", f"ledger duplicates source {canonical_ledgers[ledger_key]}")
+                issue(
+                    "duplicate_ledger",
+                    f"ledger duplicates source {canonical_ledgers[ledger_key]}",
+                )
             )
         else:
             canonical_ledgers[ledger_key] = source["source_id"]
+
+        window_violations = []
+        for violation in source["audit"]["violations"]:
+            timestamp = team_metrics.parse_time(violation["timestamp"])
+            if frozen < timestamp <= closed:
+                window_violations.append(violation)
+                source["issues"].append(
+                    issue(f"hard_gate:{violation['code']}", violation["message"])
+                )
+        source["window_hard_gate_violations"] = window_violations
         source["integrity_passed"] = not source["issues"]
 
-    registry_entries: list[dict[str, Any]] = []
+    receipt_by_key = {
+        (receipt["source_id"], receipt["task_id"]): receipt
+        for receipt in anchor["receipts"]
+    }
+    anchor_keys = list(receipt_by_key)
+    anchor_key_set = set(anchor_keys)
+    manifest_key_set = {
+        (trial["source_id"], trial["task_id"]) for trial in manifest["trials"]
+    }
+    ledger_entries: list[dict[str, Any]] = []
     for source in source_results.values():
         for event in source["events"]:
             if event["event"] != "task_ready":
                 continue
             timestamp = team_metrics.parse_time(event["timestamp"])
             if frozen < timestamp <= closed:
-                registry_entries.append(
+                ledger_entries.append(
                     {
                         "source_id": source["source_id"],
                         "task_id": event["task_id"],
@@ -766,34 +1245,27 @@ def evaluate_manifest(manifest: dict[str, Any], manifest_path: Path) -> dict[str
                         "sequence": event.get("release_trial_registration_sequence"),
                     }
                 )
-
-    registry_keys = [(entry["source_id"], entry["task_id"]) for entry in registry_entries]
-    registry_key_set = set(registry_keys)
-    trial_key_set = {
-        (trial["source_id"], trial["task_id"]) for trial in manifest["trials"]
-    }
-    missing_trials = sorted(registry_key_set - trial_key_set)
-    extra_trials = sorted(trial_key_set - registry_key_set)
-    duplicate_registry_keys = sorted(
-        {key for key in registry_keys if registry_keys.count(key) > 1}
+    ledger_keys = [(entry["source_id"], entry["task_id"]) for entry in ledger_entries]
+    ledger_key_set = set(ledger_keys)
+    missing_trials = sorted(anchor_key_set - manifest_key_set)
+    extra_trials = sorted(manifest_key_set - anchor_key_set)
+    missing_ledger_registrations = sorted(anchor_key_set - ledger_key_set)
+    unanchored_ledger_registrations = sorted(ledger_key_set - anchor_key_set)
+    duplicate_ledger_keys = sorted(
+        {key for key in ledger_keys if ledger_keys.count(key) > 1}
     )
-    raw_sequences = [entry["sequence"] for entry in registry_entries]
-    sequence_types_valid = all(
-        isinstance(value, int) and not isinstance(value, bool) and value > 0
-        for value in raw_sequences
-    )
-    sequence_set_valid = sequence_types_valid and sorted(raw_sequences) == list(
-        range(1, len(registry_entries) + 1)
-    )
-    chronology_valid = False
-    if sequence_set_valid:
-        ordered_registry = sorted(registry_entries, key=lambda item: item["sequence"])
-        chronology_valid = all(
-            left["timestamp"] <= right["timestamp"]
-            for left, right in zip(ordered_registry, ordered_registry[1:])
+    registry_complete = not any(
+        (
+            missing_trials,
+            extra_trials,
+            missing_ledger_registrations,
+            unanchored_ledger_registrations,
+            duplicate_ledger_keys,
         )
-    order_established = sequence_set_valid and chronology_valid
-    registry_complete = not missing_trials and not extra_trials and not duplicate_registry_keys
+    )
+    order_established = [
+        receipt["registration_sequence"] for receipt in anchor["receipts"]
+    ] == list(range(1, len(anchor["receipts"]) + 1))
 
     evaluated = [
         evaluate_trial(
@@ -801,27 +1273,28 @@ def evaluate_manifest(manifest: dict[str, Any], manifest_path: Path) -> dict[str
             manifest,
             manifest_path,
             source_results[trial["source_id"]],
+            receipt_by_key.get((trial["source_id"], trial["task_id"])),
+            closed,
         )
         for trial in manifest["trials"]
     ]
     result_by_key = {
         (item["source_id"], item["task_id"]): item for item in evaluated
     }
-    for key in extra_trials:
-        result_by_key[key]["issues"].append(
-            issue(
-                "task_not_in_registry_window",
-                "trial has no task_ready in the frozen registry window",
-            )
-        )
-        result_by_key[key]["passed"] = False
-    comparable = sorted(
-        [result for result in evaluated if result["comparable"]],
-        key=lambda result: result["registration_sequence"],
-    )
-    required = manifest["required_comparable_tasks"]
-    first_required = comparable[:required]
-    enough = len(comparable) >= required
+    anchored_comparable_keys = [
+        (receipt["source_id"], receipt["task_id"])
+        for receipt in anchor["receipts"]
+        if receipt["release_trial_comparable"]
+    ]
+    comparable = [
+        result_by_key[key] for key in anchored_comparable_keys if key in result_by_key
+    ]
+    required = anchor_registry["required_comparable_tasks"]
+    first_required_keys = anchored_comparable_keys[:required]
+    first_required = [
+        result_by_key[key] for key in first_required_keys if key in result_by_key
+    ]
+    enough = len(anchored_comparable_keys) >= required
     sources_integrity = source_registry["passed"] and all(
         source["integrity_passed"] for source in source_results.values()
     )
@@ -830,6 +1303,7 @@ def evaluate_manifest(manifest: dict[str, Any], manifest_path: Path) -> dict[str
         and registry_complete
         and order_established
         and sources_integrity
+        and len(first_required) == required
         and all(result["passed"] for result in first_required)
     )
     passed_comparable = sum(result["passed"] for result in comparable)
@@ -842,28 +1316,52 @@ def evaluate_manifest(manifest: dict[str, Any], manifest_path: Path) -> dict[str
         | {"hard_gate_violations": source["audit"]["violations"]}
         for source in source_results.values()
     ]
+    public_anchor = {
+        "repo": anchor["repo"],
+        "freeze_commit": anchor["freeze_commit"],
+        "head_commit": anchor["head_commit"],
+        "registration_commits": [
+            receipt["anchor_commit"] for receipt in anchor["receipts"]
+        ],
+        "registration_count": len(anchor["receipts"]),
+        "passed": anchor["passed"] and not anchor_alignment_issues,
+        "issues": anchor_alignment_issues,
+    }
     return {
         "schema_version": "2.0",
         "candidate_version": manifest["candidate_version"],
-        "candidate_commit": manifest["candidate_commit"],
-        "candidate_frozen_at": manifest["candidate_frozen_at"],
-        "registry_closed_at": manifest["registry_closed_at"],
+        "candidate_commit": anchor_registry["candidate_commit"],
+        "candidate_frozen_at": anchor_registry["candidate_frozen_at"],
+        "registry_closed_at": anchor_closure["closed_at"],
         "required_comparable_tasks": required,
+        "trusted_anchor": public_anchor,
         "registered_sources": len(source_results),
         "source_registry": source_registry,
-        "registered_task_ready_events": len(registry_entries),
+        "anchored_registrations": len(anchor["receipts"]),
+        "ledger_task_ready_events": len(ledger_entries),
         "listed_trials": len(evaluated),
-        "comparable_trials": len(comparable),
+        "comparable_trials": len(anchored_comparable_keys),
         "passed_comparable_trials": passed_comparable,
         "missing_trial_identities": [list(key) for key in missing_trials],
         "extra_trial_identities": [list(key) for key in extra_trials],
-        "duplicate_registry_identities": [list(key) for key in duplicate_registry_keys],
+        "missing_ledger_registration_identities": [
+            list(key) for key in missing_ledger_registrations
+        ],
+        "unanchored_ledger_registration_identities": [
+            list(key) for key in unanchored_ledger_registrations
+        ],
+        "duplicate_ledger_registration_identities": [
+            list(key) for key in duplicate_ledger_keys
+        ],
         "first_comparable_trial_ids": [
-            result["trial_id"] for result in first_required
+            result_by_key[key]["trial_id"]
+            for key in first_required_keys
+            if key in result_by_key
         ],
         "sources": public_sources,
         "trials": evaluated,
         "gates": {
+            "trusted_anchor_integral": public_anchor["passed"],
             "source_snapshots_integral": sources_integrity,
             "registry_complete": registry_complete,
             "registration_order_established": order_established,
@@ -882,9 +1380,9 @@ def evaluate_manifest(manifest: dict[str, Any], manifest_path: Path) -> dict[str
             and passed_comparable >= 15
         ),
         "limitations": [
-            "This gate proves registered ledger snapshots, Git ancestry, evidence digests, recorded mechanisms, and quality fields only.",
-            "It cannot prove an external task never recorded in a registered ledger or authenticity beyond supplied private evidence.",
-            "It does not prove efficiency improvement; that needs the preregistered stratified comparison.",
+            "The verifier must supply freeze and head Commit SHAs from an independently protected append-only ref or trusted timestamp record.",
+            "Local Git cannot prove remote protection, push time, or authenticity beyond the supplied private evidence.",
+            "The gate does not prove efficiency improvement; that needs the preregistered stratified comparison.",
         ],
     }
 
@@ -902,6 +1400,9 @@ def write_or_print(data: dict[str, Any], output: str | None) -> None:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manifest", required=True)
+    parser.add_argument("--anchor-repo", required=True)
+    parser.add_argument("--anchor-freeze-commit", required=True)
+    parser.add_argument("--anchor-head-commit", required=True)
     parser.add_argument("--output")
     return parser
 
@@ -910,7 +1411,12 @@ def main(argv: list[str] | None = None) -> int:
     try:
         args = build_parser().parse_args(argv)
         path = Path(args.manifest).resolve()
-        result = evaluate_manifest(load_manifest(path), path)
+        anchor = load_anchor(
+            Path(args.anchor_repo),
+            args.anchor_freeze_commit,
+            args.anchor_head_commit,
+        )
+        result = evaluate_manifest(load_manifest(path), path, anchor)
         write_or_print(result, args.output)
         return 0 if result["stable_v2_ready"] else 1
     except (ReleaseGateError, team_metrics.LedgerError, OSError) as exc:

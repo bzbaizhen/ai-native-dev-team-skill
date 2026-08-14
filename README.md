@@ -152,6 +152,8 @@ skills/bootstrap-ai-native-dev-team/
 │   ├── governance-strict.md
 │   ├── metrics.md
 │   ├── metrics-event.schema.json
+│   ├── release-anchor-closure.schema.json
+│   ├── release-registration-receipt.schema.json
 │   ├── release-source-registry.schema.json
 │   ├── release-trial-evidence.schema.json
 │   └── release-trial-manifest.schema.json
@@ -181,7 +183,7 @@ The repository includes a GitHub Actions workflow for the same structural checks
 
 ## Status
 
-`v1.0.0` is the frozen baseline. `v2.0.0-rc.1` added cost-aware execution routing, progressive governance, prospective metrics, and hard-gate audits. The current local `v2.0.0-rc.2` candidate adds a fail-closed first-five-task release gate with a frozen source roster, continuous preregistration, content-addressed evidence, complete-ledger audit, and Git ancestry checks. Stable `v2.0.0` still requires five unique comparable real tasks on the fixed RC.2 Commit; formal efficiency claims require 15–20 unique comparable accepted tasks.
+`v1.0.0` is the frozen baseline. `v2.0.0-rc.1` added cost-aware execution routing, progressive governance, prospective metrics, and hard-gate audits. The current local `v2.0.0-rc.2` candidate adds a fail-closed first-five-task release gate whose task universe comes from an externally supplied linear Git anchor: a frozen source roster, one append-only receipt per `task_ready`, and a dedicated closure Commit that anchors the final Manifest digest. It also checks source-level full-ledger violations, exact C/R/topology strata, candidate-to-stable ancestry, stable-branch ancestry, and content-addressed evidence. Stable `v2.0.0` still requires five unique comparable real tasks on the fixed RC.2 Commit; formal efficiency claims require 15–20 unique comparable accepted tasks. Local Git alone does not prove remote protection or push time, so the freeze/head SHAs must come from an independent protected or trusted record.
 
 ## License
 

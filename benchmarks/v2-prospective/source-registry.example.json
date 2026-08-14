@@ -2,6 +2,7 @@
   "schema_version": "2.0",
   "candidate_commit": "1111111111111111111111111111111111111111",
   "candidate_frozen_at": "2026-08-15T00:00:00Z",
+  "required_comparable_tasks": 5,
   "sources": [
     {
       "source_id": "SOURCE-001",
