@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/bzbaizhen/ai-native-dev-team-skill/release-trial-manifest.schema.json",
+  "title": "V2 release trial manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "candidate_version",
+    "candidate_commit",
+    "required_comparable_tasks",
+    "trials"
+  ],
+  "properties": {
+    "schema_version": {"const": "2.0"},
+    "candidate_version": {"type": "string", "minLength": 1},
+    "candidate_commit": {"type": "string", "pattern": "^[0-9a-fA-F]{40}$"},
+    "required_comparable_tasks": {"type": "integer", "minimum": 5},
+    "trials": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "trial_id",
+          "project_alias",
+          "ledger",
+          "task_id",
+          "skill_candidate_commit",
+          "candidate_commit",
+          "stable_commit",
+          "comparable",
+          "critical_defect_escape",
+          "material_quality_regression",
+          "scope_violation",
+          "write_conflict",
+          "recovery_executable"
+        ],
+        "properties": {
+          "trial_id": {"type": "string", "minLength": 1},
+          "project_alias": {"type": "string", "minLength": 1},
+          "ledger": {"type": "string", "minLength": 1},
+          "task_id": {"type": "string", "minLength": 1},
+          "skill_candidate_commit": {
+            "type": "string",
+            "pattern": "^[0-9a-fA-F]{40}$"
+          },
+          "candidate_commit": {
+            "type": "string",
+            "pattern": "^[0-9a-fA-F]{40}$"
+          },
+          "stable_commit": {
+            "type": "string",
+            "pattern": "^[0-9a-fA-F]{40}$"
+          },
+          "comparable": {"type": "boolean"},
+          "exclusion_reason": {"type": "string", "minLength": 1},
+          "critical_defect_escape": {"type": "boolean"},
+          "material_quality_regression": {"type": "boolean"},
+          "scope_violation": {"type": "boolean"},
+          "write_conflict": {"type": "boolean"},
+          "recovery_executable": {"type": "boolean"},
+          "notes": {
+            "type": "array",
+            "items": {"type": "string"}
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {"comparable": {"const": false}},
+              "required": ["comparable"]
+            },
+            "then": {"required": ["exclusion_reason"]}
+          }
+        ]
+      }
+    }
+  }
+}

@@ -66,6 +66,14 @@ python scripts/team_metrics.py compare --baseline baseline.json --current curren
 
 `audit` exits nonzero when it finds a hard-gate violation. `compare` emits `unavailable` rather than inventing a percentage when either denominator is missing or zero.
 
+Audit the first-five-task stable-release gate:
+
+```powershell
+python scripts/v2_release_gate.py --manifest <PRIVATE_TRIAL_MANIFEST>
+```
+
+The private manifest follows [release-trial-manifest.schema.json](release-trial-manifest.schema.json). Preserve excluded and failed trials with reasons; do not cherry-pick later successes. This gate evaluates recorded hard mechanisms and quality fields. It does not prove an efficiency improvement.
+
 ## Primary measures
 
 - median `task_ready → accepted` cycle hours;

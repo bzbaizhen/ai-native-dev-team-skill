@@ -151,8 +151,11 @@ skills/bootstrap-ai-native-dev-team/
 │   ├── governance-controlled.md
 │   ├── governance-strict.md
 │   ├── metrics.md
-│   └── metrics-event.schema.json
-├── scripts/team_metrics.py
+│   ├── metrics-event.schema.json
+│   └── release-trial-manifest.schema.json
+├── scripts/
+│   ├── team_metrics.py
+│   └── v2_release_gate.py
 └── assets/
     ├── team-bootstrap-proposal.md
     ├── project-team-charter.md
@@ -176,7 +179,7 @@ The repository includes a GitHub Actions workflow for the same structural checks
 
 ## Status
 
-`v1.0.0` is the frozen baseline. `v2.0.0-rc.1` adds cost-aware execution routing, progressive governance, prospective metrics, and hard-gate audits. Stable `v2.0.0` still requires five comparable real tasks to pass every preregistered gate; formal efficiency claims require 15–20 comparable accepted tasks.
+`v1.0.0` is the frozen baseline. `v2.0.0-rc.1` added cost-aware execution routing, progressive governance, prospective metrics, and hard-gate audits. The current local `v2.0.0-rc.2` candidate adds a fail-closed first-five-task release gate. Stable `v2.0.0` still requires five comparable real tasks on the fixed RC.2 Commit; formal efficiency claims require 15–20 comparable accepted tasks.
 
 ## License
 

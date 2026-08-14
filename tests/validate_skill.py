@@ -21,6 +21,7 @@ required = [
     SKILL / "references" / "governance-strict.md",
     SKILL / "references" / "metrics.md",
     SKILL / "references" / "metrics-event.schema.json",
+    SKILL / "references" / "release-trial-manifest.schema.json",
     SKILL / "references" / "team-governance-template.zh-CN.md",
     SKILL / "assets" / "team-bootstrap-proposal.md",
     SKILL / "assets" / "project-team-charter.md",
@@ -28,9 +29,14 @@ required = [
     SKILL / "assets" / "evidence-manifest.yaml",
     SKILL / "assets" / "metrics-handoff.yaml",
     SKILL / "scripts" / "team_metrics.py",
+    SKILL / "scripts" / "v2_release_gate.py",
+    ROOT / "benchmarks" / "v2-prospective" / "README.md",
+    ROOT / "benchmarks" / "v2-prospective" / "trial-manifest.example.json",
     ROOT / "tests" / "routing-scenarios.json",
     ROOT / "tests" / "test_team_metrics.py",
+    ROOT / "tests" / "test_v2_release_gate.py",
     ROOT / "releases" / "v2.0.0-rc.1.md",
+    ROOT / "releases" / "v2.0.0-rc.2.md",
 ]
 
 for path in required:
@@ -74,6 +80,7 @@ direct_references = {
     "references/governance-strict.md",
     "references/metrics.md",
     "references/metrics-event.schema.json",
+    "references/release-trial-manifest.schema.json",
 }
 if not direct_references.issubset(set(local_links)):
     fail("SKILL.md does not directly link every progressive reference")
@@ -92,11 +99,42 @@ if schema.get("$schema") != "https://json-schema.org/draft/2020-12/schema":
 if schema.get("properties", {}).get("schema_version", {}).get("const") != "2.0":
     fail("metrics schema version is not 2.0")
 
+release_schema_path = SKILL / "references" / "release-trial-manifest.schema.json"
+try:
+    release_schema = json.loads(release_schema_path.read_text(encoding="utf-8"))
+except json.JSONDecodeError as exc:
+    fail(f"release trial JSON Schema is invalid JSON: {exc}")
+if release_schema.get("$schema") != "https://json-schema.org/draft/2020-12/schema":
+    fail("release trial schema must declare JSON Schema 2020-12")
+if (
+    release_schema.get("properties", {})
+    .get("required_comparable_tasks", {})
+    .get("minimum")
+    != 5
+):
+    fail("release trial schema must require at least five comparable tasks")
+
 script_path = SKILL / "scripts" / "team_metrics.py"
 try:
     compile(script_path.read_text(encoding="utf-8"), str(script_path), "exec")
 except SyntaxError as exc:
     fail(f"team_metrics.py has a syntax error: {exc}")
+
+release_gate_path = SKILL / "scripts" / "v2_release_gate.py"
+try:
+    compile(release_gate_path.read_text(encoding="utf-8"), str(release_gate_path), "exec")
+except SyntaxError as exc:
+    fail(f"v2_release_gate.py has a syntax error: {exc}")
+
+try:
+    example_manifest = json.loads(
+        (ROOT / "benchmarks" / "v2-prospective" / "trial-manifest.example.json")
+        .read_text(encoding="utf-8")
+    )
+except json.JSONDecodeError as exc:
+    fail(f"release trial example is invalid JSON: {exc}")
+if example_manifest.get("required_comparable_tasks") != 5:
+    fail("release trial example must preserve the preregistered five-task gate")
 
 try:
     scenarios = json.loads(

@@ -6,5 +6,6 @@ The V1 figures are historical reconstructions from project evidence. V2 measurem
 
 - [`v1-historical/`](v1-historical/): anonymous V1 baseline cases
 - [`v2-success-criteria.md`](v2-success-criteria.md): preregistered V2 gates
+- [`v2-prospective/`](v2-prospective/): public inclusion protocol and private-manifest example; no private trial results
 
 The PowerShell/Windows host repair completed before V2 is an external variable. Improvements in first-shell-start success are reported for transparency but excluded from V2 benefit claims.

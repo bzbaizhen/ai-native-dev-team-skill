@@ -1,0 +1,24 @@
+{
+  "schema_version": "2.0",
+  "candidate_version": "v2.0.0-rc.2",
+  "candidate_commit": "1111111111111111111111111111111111111111",
+  "required_comparable_tasks": 5,
+  "trials": [
+    {
+      "trial_id": "TRIAL-001",
+      "project_alias": "project-a",
+      "ledger": "../../private-evidence/project-a-events.jsonl",
+      "task_id": "TASK-001",
+      "skill_candidate_commit": "1111111111111111111111111111111111111111",
+      "candidate_commit": "2222222222222222222222222222222222222222",
+      "stable_commit": "3333333333333333333333333333333333333333",
+      "comparable": true,
+      "critical_defect_escape": false,
+      "material_quality_regression": false,
+      "scope_violation": false,
+      "write_conflict": false,
+      "recovery_executable": true,
+      "notes": []
+    }
+  ]
+}
