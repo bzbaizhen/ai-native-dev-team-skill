@@ -19,19 +19,22 @@ Most multi-agent demos optimize for the number of agents running at once. Real s
 - a push is mistaken for a recoverable backup;
 - planned work is reported as completed work.
 
-This Skill treats the main agent as a control plane and specialist agents as temporary, permission-bounded execution units. It asks one question first: **what is the smallest team and process justified by this project's complexity and risk?**
+This Skill treats the main agent as a control plane and specialist agents as temporary, permission-bounded execution units. It asks two questions first: **does this task need delegation at all, and what is the lowest-cost capability that can pass its quality gates?**
 
 ## What it provides
 
 - proposal-first team initialization;
+- four delivery routes: `no-delegation`, `single-worker`, `task-cell`, and `team-required`;
 - separate `C0-C3` complexity and `R0-R3` risk classification;
 - cost-aware model and reasoning routing that targets the lowest expected cost per accepted task, not the cheapest token or the strongest model by default;
+- Lean, Controlled, and Strict governance loaded only when justified;
 - business owner, producer/main agent, implementer, validator, and optional specialist boundaries;
 - one-owner-per-file and task-scoped write leases;
 - contract-first parallelism with branch/worktree/PR isolation;
 - independent task review and exact-commit evidence;
 - explicit stop, approval, rollback, backup, and recovery rules;
 - reusable project charter, task contract, and evidence manifest templates;
+- a standard-library event ledger CLI for cycle time, integration wait, capability routing, governance share, and hard-gate audits;
 - audit and team-resizing modes for existing projects.
 
 ## Install
@@ -74,7 +77,11 @@ confirmed facts / inferences / to verify
         ↓
 complexity C0-C3 + risk R0-R3
         ↓
-smallest sufficient team topology
+no-delegation / single-worker / task-cell / team-required
+        ↓
+main agent / economy / standard / advanced / frontier
+        ↓
+Lean / Controlled / Strict governance
         ↓
 ownership + contracts + approvals + rollback
         ↓
@@ -106,6 +113,20 @@ accepted-task cost = execution + likely retry/rework + validation + coordination
 
 Model names are not hard-coded into the general workflow. Each project maps currently available models to the complexity levels, records an allowed fallback, and must not claim that a requested model ran when the runtime did not provide it. When evidence is weak, the workflow escalates capability or reasoning, decomposes the task, returns it to the main thread, or stops.
 
+The main agent remains the high-context information hub. `C0` does not automatically mean “use the main agent”: tiny control-plane work stays there, while delegated mechanical batches use the Economy/Low tier. Ordinary workers receive a bounded contract and do not reload the full team Skill.
+
+## Proportional governance and measurable flow
+
+V2 replaces the monolithic governance reference with progressive profiles:
+
+| Profile | Default use |
+|---|---|
+| Lean | C0/C1, R0/R1, at most one Writer |
+| Controlled | C2, R2, behavior-changing task cells, contract-sensitive or parallel work |
+| Strict | C3, R3, production, security/privacy, migration, or public release |
+
+The main agent writes a minimal prospective ledger at `.ai-team/metrics/events.jsonl`. The CLI records lifecycle events and reports `READY → accepted` cycle time, `dev_complete → accepted` wait, accepted tasks per active Agent hour, governance share, low-cost C0/C1 routing, and hard-gate violations. “Accepted” means the exact validated change reached the stable branch.
+
 ## Why this is different
 
 This project combines useful patterns found in mature agent-development projects, then adds a governance layer for traceability and recovery:
@@ -124,29 +145,38 @@ It deliberately does **not** create a fixed eight-agent pipeline or run every ta
 skills/bootstrap-ai-native-dev-team/
 ├── SKILL.md
 ├── agents/openai.yaml
-├── references/team-governance-template.zh-CN.md
+├── references/
+│   ├── routing-and-topologies.md
+│   ├── governance-lean.md
+│   ├── governance-controlled.md
+│   ├── governance-strict.md
+│   ├── metrics.md
+│   └── metrics-event.schema.json
+├── scripts/team_metrics.py
 └── assets/
     ├── team-bootstrap-proposal.md
     ├── project-team-charter.md
     ├── task-contract.md
-    └── evidence-manifest.yaml
+    ├── evidence-manifest.yaml
+    └── metrics-handoff.yaml
 ```
 
 `docs/images/social-preview.png` is the candidate asset for this repository's GitHub Social Preview; committing it does not change the repository setting.
 
 ## Validation
 
-![Version 0.1.0 verification evidence](docs/images/verification-evidence.svg)
+![V1 verification evidence and claim boundary](docs/images/verification-evidence.svg)
 
 ```bash
 python tests/validate_skill.py
+python -m unittest discover -s tests -p "test_*.py" -v
 ```
 
 The repository includes a GitHub Actions workflow for the same structural checks.
 
 ## Status
 
-Version `0.1.0` is the first public baseline. Real-project feedback and focused pull requests are welcome.
+`v1.0.0` is the frozen baseline. `v2.0.0-rc.1` adds cost-aware execution routing, progressive governance, prospective metrics, and hard-gate audits. Stable `v2.0.0` still requires five comparable real tasks to pass every preregistered gate; formal efficiency claims require 15–20 comparable accepted tasks.
 
 ## License
 

@@ -12,7 +12,7 @@
 
 ## 为什么做这个 Skill
 
-这个 Skill 不是先写好一套方法论，再去寻找适用场景。它来自我在一个多 Agent 项目里踩过的坑，下面的项目细节已经匿名化：
+这个 Skill 不是先写好一套方法论，再去寻找适用场景。它来自我在多 Agent 项目里踩过的坑，下面的项目细节已经匿名化：
 
 ```text
 后端：39/39
@@ -32,6 +32,7 @@ TypeScript：0 diagnostics
 | 常见问题 | 这个 Skill 的处理方式 |
 |---|---|
 | 一开始就创建完整角色池 | 先检查任务，只启用最小充分团队；简单任务可由主 Agent 单独完成 |
+| 每个小任务都加载完整团队治理 | 先路由为不委派、单 Worker、任务小组或完整团队，再按需加载 Lean / Controlled / Strict |
 | 接口未冻结，前后端同时开工 | Contract 先于跨组件并行，边界不清时先停止拆分 |
 | 两个 Agent 修改同一文件 | 每个路径只有一个 Owner，写入权限随任务租约发放 |
 | QA 顺手修改自己正在验收的代码 | 实现与独立验证分离，QA 默认只读产品代码 |
@@ -110,7 +111,11 @@ Skill 默认使用 `proposal` 模式。除非相应范围得到批准，否则�
       ↓
 复杂度 C0-C3 + 风险 R0-R3
       ↓
-选择最小充分团队
+不委派 / 单 Worker / 实现-验证小组 / 完整团队
+      ↓
+主 Agent / Economy / Standard / Advanced / Frontier
+      ↓
+Lean / Controlled / Strict 治理
       ↓
 文件 Owner + Contract + 审批 + 回退
       ↓
@@ -143,6 +148,20 @@ Skill 默认使用 `proposal` 模式。除非相应范围得到批准，否则�
 ```
 
 通用规则不会把模型名称永久写死。每个项目按当前可用模型建立映射和允许的回退路径；如果运行时没有提供指定模型，就不能声称已经使用。证据不足时，应提高模型能力或推理强度、继续拆分任务、交回主线程，或者停止执行。
+
+主 Agent 仍然是高上下文的信息枢纽。`C0` 不等于一律由主 Agent 实现：控制平面的微型工作留在主线程；可批量委派的机械任务使用 Economy / Low。普通 Worker 只收到批准后的任务合同，不重新加载完整团队 Skill。
+
+## 渐进治理与可审计效率
+
+V2 不再让每个任务加载一份 1400 多行的完整治理基线，而是只读取当前所需的档位：
+
+| 治理档位 | 默认适用范围 |
+|---|---|
+| Lean | C0/C1、R0/R1、最多一个 Writer |
+| Controlled | C2、R2、行为变化小组、Contract 敏感或并行工作 |
+| Strict | C3、R3、生产、安全隐私、迁移或公开发布 |
+
+主 Agent 维护最小事件账本 `.ai-team/metrics/events.jsonl`。标准库脚本会计算 `READY → accepted` 周期、`dev_complete → accepted` 集成等待、每活跃 Agent 小时的验收任务、治理时间占比、C0/C1 经济档路由和硬门禁违规。这里的 `accepted` 只指准确候选版本已经进入稳定分支。
 
 ## 复杂度和风险为什么要分开
 
@@ -205,16 +224,26 @@ Skill 默认使用 `proposal` 模式。除非相应范围得到批准，否则�
 skills/bootstrap-ai-native-dev-team/
 ├── SKILL.md
 ├── agents/openai.yaml
-├── references/team-governance-template.zh-CN.md
+├── references/
+│   ├── routing-and-topologies.md
+│   ├── governance-lean.md
+│   ├── governance-controlled.md
+│   ├── governance-strict.md
+│   ├── metrics.md
+│   └── metrics-event.schema.json
+├── scripts/team_metrics.py
 └── assets/
     ├── team-bootstrap-proposal.md
     ├── project-team-charter.md
     ├── task-contract.md
-    └── evidence-manifest.yaml
+    ├── evidence-manifest.yaml
+    └── metrics-handoff.yaml
 ```
 
 - `SKILL.md`：工作流入口与决策规则；
-- `team-governance-template.zh-CN.md`：完整治理基线；
+- `routing-and-topologies.md`：复杂度、风险、能力档与拓扑选择；
+- `governance-*.md`：按 Lean、Controlled、Strict 渐进加载的治理要求；
+- `metrics.md`、Schema 与 CLI：前瞻事件记录、快照、硬门禁审计和版本对比；
 - `team-bootstrap-proposal.md`：建队提案模板；
 - `project-team-charter.md`：项目团队章程模板；
 - `task-contract.md`：任务、路径、权限与验收合同；
@@ -222,17 +251,18 @@ skills/bootstrap-ai-native-dev-team/
 
 ## 验证边界
 
-![0.1.0 的验证证据与未声称范围](docs/images/verification-evidence.svg)
+![V1 的验证证据与未声称范围](docs/images/verification-evidence.svg)
 
 本地运行：
 
 ```bash
 python tests/validate_skill.py
+python -m unittest discover -s tests -p "test_*.py" -v
 ```
 
 仓库包含执行相同结构检查的 GitHub Actions。
 
-`0.1.0` 已验证仓库结构、必需资源、本地链接、Agent 配置和公开安装路径。它是首个公开基线，不代表已经达到生产成熟度，也不表示适用于所有团队和项目。
+`v1.0.0` 是冻结基线。`v2.0.0-rc.1` 增加成本感知执行路由、渐进治理、前瞻指标和硬门禁审计。稳定版 `v2.0.0` 仍需前 5 个可比真实任务通过全部预注册门禁；正式效率结论要等 15–20 个可比验收任务后再发布。
 
 ## 参考与致谢
 
@@ -257,7 +287,7 @@ python tests/validate_skill.py
 
 ## 状态
 
-当前版本：`0.1.0`，是首个公开基线。英文发布短文与四张开发过程图见 [X](https://x.com/Bzbaizhen/status/2087828830627205527)。
+`v1.0.0` 为冻结基线；当前分支目标为 `v2.0.0-rc.1`，尚未把 RC 指标当作稳定版效率结论。英文发布短文与四张开发过程图见 [X](https://x.com/Bzbaizhen/status/2087828830627205527)。
 
 ## License
 

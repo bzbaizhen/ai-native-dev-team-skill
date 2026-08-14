@@ -1,4 +1,4 @@
-# AI-Native Team Bootstrap Proposal
+# AI-Native Delivery Proposal
 
 - Status: `proposed`
 - Mode: `proposal / initialize / audit / adjust`
@@ -12,33 +12,41 @@
 - `approve / approve with changes / do not form a team yet`
 - Reason:
 
-## Confirmed facts
+## Fact boundary
+
+### Confirmed facts
 
 -
 
-## Inferences
+### Inferences
 
 -
 
-## To verify and blockers
+### To verify and blockers
 
 -
 
-## Classification
+## Routing decision
 
 - Stage: `DISCOVERY / MVP / BETA / PRODUCTION`
 - Complexity: `C0 / C1 / C2 / C3`
 - Complexity evidence:
 - Risk: `R0 / R1 / R2 / R3`
 - Risk evidence:
+- Route: `no-delegation / single-worker / task-cell / team-required`
+- Governance profile: `lean / controlled / strict`
+- Capability tier: `main-agent / economy / standard / advanced / frontier`
+- Reasoning tier: `current / low / medium / high / max`
+- Escalation or fallback reason:
+- Environment fingerprint and preflight evidence:
 
-## Minimum team
+## Minimum topology
 
-| Role | Enabled | Responsibility | Permission boundary | Handoff or acceptance |
+| Role | Enabled | Task and responsibility | Permission boundary | Handoff or acceptance |
 |---|---:|---|---|---|
 | Business owner | yes | | | |
 | Main agent | yes | | | |
-| Implementer | | | | |
+| Writer | | | | |
 | Independent validator | | | | |
 | Specialist | | | | |
 
@@ -48,19 +56,22 @@ Intentionally omitted roles and reasons:
 
 ## Tasks, dependencies, and ownership
 
-| Task | Goal | Dependencies | Writer | Branch/worktree | Allowed paths | File owner | Validator |
-|---|---|---|---|---|---|---|---|
-| | | | | | | | |
+| Task | Goal | Dependencies | Writer | Validator | Allowed paths / file owner | Integration order |
+|---|---|---|---|---|---|---|
+| | | | | | | |
 
-Contract source of truth:
+- Contract source of truth:
+- Stable branch and baseline Commit:
+- Current integration backlog:
+- WIP limit and any override:
 
 ## Permissions and approvals
 
 - May execute automatically:
 - Requires main-agent approval:
-- Requires explicit owner approval:
+- Requires explicit Owner approval:
 - Stop conditions:
-- Rollback:
+- Rollback and recovery:
 
 ## Quality and evidence
 
@@ -68,9 +79,11 @@ Contract source of truth:
 - Test command:
 - Independent validation:
 - Evidence location:
-- Stable version identifier:
+- Candidate Commit:
+- Stable acceptance evidence:
+- Metrics ledger:
 
-## Proposed writes
+## Proposed writes and resources
 
 | Action | Target | Risk | Authorized |
 |---|---|---|---:|
@@ -79,4 +92,3 @@ Contract source of truth:
 ## Explicitly not executed
 
 -
-

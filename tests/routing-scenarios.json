@@ -1,0 +1,110 @@
+[
+  {
+    "name": "control-plane micro task",
+    "complexity": "C0",
+    "risk": "R0",
+    "shape": "micro",
+    "route": "no-delegation",
+    "profile": "lean",
+    "capability": "main-agent",
+    "reasoning": "current",
+    "independent_validator": false,
+    "owner_approval": false
+  },
+  {
+    "name": "mechanical batch",
+    "complexity": "C0",
+    "risk": "R1",
+    "shape": "batch",
+    "route": "single-worker",
+    "profile": "lean",
+    "capability": "economy",
+    "reasoning": "low",
+    "independent_validator": false,
+    "owner_approval": false
+  },
+  {
+    "name": "isolated small implementation",
+    "complexity": "C1",
+    "risk": "R1",
+    "shape": "isolated",
+    "route": "single-worker",
+    "profile": "lean",
+    "capability": "standard",
+    "reasoning": "medium",
+    "independent_validator": false,
+    "owner_approval": false
+  },
+  {
+    "name": "small material behavior change",
+    "complexity": "C1",
+    "risk": "R1",
+    "shape": "behavior-change",
+    "route": "task-cell",
+    "profile": "controlled",
+    "capability": "standard",
+    "reasoning": "medium",
+    "independent_validator": true,
+    "owner_approval": false
+  },
+  {
+    "name": "cross-module feature",
+    "complexity": "C2",
+    "risk": "R1",
+    "shape": "behavior-change",
+    "route": "task-cell",
+    "profile": "controlled",
+    "capability": "advanced",
+    "reasoning": "high",
+    "independent_validator": true,
+    "owner_approval": false
+  },
+  {
+    "name": "simple high-risk authentication change",
+    "complexity": "C1",
+    "risk": "R2",
+    "shape": "behavior-change",
+    "route": "task-cell",
+    "profile": "controlled",
+    "capability": "standard",
+    "reasoning": "medium",
+    "independent_validator": true,
+    "owner_approval": false
+  },
+  {
+    "name": "parallel contract-frozen slices",
+    "complexity": "C2",
+    "risk": "R2",
+    "shape": "independent-slices",
+    "route": "team-required",
+    "profile": "controlled",
+    "capability": "advanced",
+    "reasoning": "high",
+    "independent_validator": true,
+    "owner_approval": false
+  },
+  {
+    "name": "public release of a narrow change",
+    "complexity": "C1",
+    "risk": "R3",
+    "shape": "release",
+    "route": "team-required",
+    "profile": "strict",
+    "capability": "standard",
+    "reasoning": "medium",
+    "independent_validator": true,
+    "owner_approval": true
+  },
+  {
+    "name": "architecture-level refactor",
+    "complexity": "C3",
+    "risk": "R1",
+    "shape": "architecture",
+    "route": "team-required",
+    "profile": "strict",
+    "capability": "frontier",
+    "reasoning": "max",
+    "independent_validator": true,
+    "owner_approval": false
+  }
+]
