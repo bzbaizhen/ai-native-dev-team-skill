@@ -443,6 +443,11 @@ def validate_v1_baseline_evidence(
     }
     if set(data) != required:
         raise ReleaseGateError(f"{label} fields differ from the contract")
+    efficiency_available = data["efficiency_denominators_available"]
+    if not isinstance(efficiency_available, bool):
+        raise ReleaseGateError(
+            f"{label}.efficiency_denominators_available must be boolean"
+        )
     expected = {
         "schema_version": "1.0",
         "baseline_id": baseline["baseline_id"],
@@ -456,11 +461,15 @@ def validate_v1_baseline_evidence(
     for field, value in expected.items():
         if data.get(field) != value:
             raise ReleaseGateError(f"{label}.{field} differs from the frozen registry")
-    if data["evidence_scope"] not in {"case-level", "task-level"}:
+    evidence_scope = data["evidence_scope"]
+    if not isinstance(evidence_scope, str) or evidence_scope not in {
+        "case-level",
+        "task-level",
+    }:
         raise ReleaseGateError(f"{label}.evidence_scope is invalid")
     if (
         baseline["formal_efficiency_comparable"]
-        and data["evidence_scope"] != "task-level"
+        and evidence_scope != "task-level"
     ):
         raise ReleaseGateError(
             f"{label} must be task-level for formal efficiency comparability"
@@ -490,22 +499,29 @@ def validate_v1_baseline_evidence(
             raise ReleaseGateError(f"{label} has duplicate source_evidence source_id")
         source_ids.add(source_id)
         kind = source.get("evidence_kind")
-        if kind not in BASELINE_SOURCE_KINDS:
+        if not isinstance(kind, str) or kind not in BASELINE_SOURCE_KINDS:
             raise ReleaseGateError(f"{source_label}.evidence_kind is invalid")
-        if not FULL_SHA.fullmatch(str(source.get("source_revision", ""))):
-            raise ReleaseGateError(f"{source_label}.source_revision must be a full SHA")
+        revision = source.get("source_revision")
+        if not isinstance(revision, str) or not FULL_SHA.fullmatch(revision):
+            raise ReleaseGateError(
+                f"{source_label}.source_revision must be a full SHA string"
+            )
         path = anchor_relative_path(
             source.get("evidence_path"), f"{source_label}.evidence_path"
         )
         if path in source_paths:
             raise ReleaseGateError(f"{label} has duplicate source_evidence path")
         source_paths.add(path)
-        if not SHA256.fullmatch(str(source.get("evidence_sha256", ""))):
-            raise ReleaseGateError(f"{source_label}.evidence_sha256 must be SHA-256")
+        digest = source.get("evidence_sha256")
+        if not isinstance(digest, str) or not SHA256.fullmatch(digest):
+            raise ReleaseGateError(
+                f"{source_label}.evidence_sha256 must be a SHA-256 string"
+            )
         supports = source.get("supports")
         if (
             not isinstance(supports, list)
             or not supports
+            or any(not isinstance(claim, str) for claim in supports)
             or len(supports) != len(set(supports))
             or any(claim not in BASELINE_SOURCE_CLAIMS for claim in supports)
         ):

@@ -1064,7 +1064,7 @@ class V2ReleaseGateTests(unittest.TestCase):
             ):
                 self.evaluate(manifest_path)
 
-    def test_v1_baseline_evidence_rejects_unknown_fields(self) -> None:
+    def test_v1_baseline_evidence_contract_is_strict(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             manifest_path = self.build_trial_files(
                 Path(raw), 5, baseline_extra_field=True
@@ -1074,6 +1074,90 @@ class V2ReleaseGateTests(unittest.TestCase):
                 "fields differ from the contract",
             ):
                 self.evaluate(manifest_path)
+
+        baseline = {
+            "baseline_id": V1_BASELINE_ID,
+            "stratum_id": "C1|R1|no-delegation",
+            "formal_efficiency_comparable": False,
+        }
+        valid = {
+            "schema_version": "1.0",
+            "baseline_id": V1_BASELINE_ID,
+            "baseline_version": "v1.0.0",
+            "measurement_type": "historical_reconstruction",
+            "stratum_id": "C1|R1|no-delegation",
+            "evidence_scope": "task-level",
+            "efficiency_denominators_available": False,
+            "source_evidence": [
+                {
+                    "source_id": "contract",
+                    "evidence_kind": "task_contract",
+                    "source_revision": "a" * 40,
+                    "evidence_path": "contract.md",
+                    "evidence_sha256": "1" * 64,
+                    "supports": ["task_identity", "stratum"],
+                },
+                {
+                    "source_id": "qa",
+                    "evidence_kind": "qa_report",
+                    "source_revision": "b" * 40,
+                    "evidence_path": "qa.md",
+                    "evidence_sha256": "2" * 64,
+                    "supports": ["acceptance"],
+                },
+            ],
+            "limitations": ["test fixture"],
+        }
+        cases = [
+            (
+                "numeric boolean",
+                lambda data: data.__setitem__(
+                    "efficiency_denominators_available", 0
+                ),
+                "must be boolean",
+            ),
+            (
+                "non-string scope",
+                lambda data: data.__setitem__("evidence_scope", []),
+                "evidence_scope is invalid",
+            ),
+            (
+                "non-string kind",
+                lambda data: data["source_evidence"][0].__setitem__(
+                    "evidence_kind", []
+                ),
+                "evidence_kind is invalid",
+            ),
+            (
+                "numeric revision",
+                lambda data: data["source_evidence"][0].__setitem__(
+                    "source_revision", int("1" * 40)
+                ),
+                "source_revision must be a full SHA string",
+            ),
+            (
+                "numeric digest",
+                lambda data: data["source_evidence"][0].__setitem__(
+                    "evidence_sha256", int("1" * 64)
+                ),
+                "evidence_sha256 must be a SHA-256 string",
+            ),
+            (
+                "non-string claim",
+                lambda data: data["source_evidence"][0].__setitem__(
+                    "supports", [{}]
+                ),
+                "supports is invalid",
+            ),
+        ]
+        for name, mutate, message in cases:
+            with self.subTest(case=name):
+                data = json.loads(json.dumps(valid))
+                mutate(data)
+                with self.assertRaisesRegex(v2_release_gate.ReleaseGateError, message):
+                    v2_release_gate.validate_v1_baseline_evidence(
+                        json.dumps(data).encode("utf-8"), baseline, "V1 baseline"
+                    )
 
     def test_v1_baseline_source_blob_must_exist_at_freeze(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
