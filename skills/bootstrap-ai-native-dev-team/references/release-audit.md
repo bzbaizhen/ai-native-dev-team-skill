@@ -11,6 +11,25 @@ The word “release”, “deploy”, or “publish” alone is not enough. Ordi
 in [Controlled](controlled.md) with `release_audit=false`. Obtain Owner approval for the
 audit scope and any external write before activating this layer.
 
+## P2 hybrid pre-gate (local contract, P3 not qualified)
+
+When an approved prospective task explicitly selects the P2 contract stage, load the
+local-only [P2 pre-gate verifier](../scripts/p2_pregate.py) and its three strict
+schemas: [private binding](p2-private-binding.schema.json),
+[opaque envelope](p2-opaque-envelope.schema.json), and
+[retained external proof package](p2-external-proof-package.schema.json).
+These are progressive-disclosure contract material; they do not change the existing
+Release Audit schemas or invoke the V2 release gate.
+
+The P2 verifier uses the dependency-free `ai-native-cj-1` profile and checks private
+and public chain integrity, commitments, allowlists, and local evidence inventories.
+It remains fail-closed until a separately approved P3 adapter can cryptographically
+verify retained time/transparency material. Missing, invalid, or merely self-reported
+external proof therefore produces the stable blocking issue `trusted_time_missing`.
+No Git author/committer timestamp, URL, API identifier, screenshot, or proof JSON
+field named `verified` qualifies as trusted time. P2 implementation does not authorize
+P3 submission, public repository creation, Push, Tag, Release, or Skill installation.
+
 ## Freeze the audit inputs
 
 At the approved audit boundary before the trial window, freeze the candidate, source

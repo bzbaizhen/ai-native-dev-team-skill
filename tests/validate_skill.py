@@ -31,6 +31,9 @@ required = [
     SKILL / "references" / "release-trial-evidence.schema.json",
     SKILL / "references" / "release-v1-baseline-evidence.schema.json",
     SKILL / "references" / "release-trial-manifest.schema.json",
+    SKILL / "references" / "p2-private-binding.schema.json",
+    SKILL / "references" / "p2-opaque-envelope.schema.json",
+    SKILL / "references" / "p2-external-proof-package.schema.json",
     SKILL / "references" / "team-governance-template.zh-CN.md",
     SKILL / "assets" / "team-bootstrap-proposal.md",
     SKILL / "assets" / "project-team-charter.md",
@@ -39,6 +42,7 @@ required = [
     SKILL / "assets" / "metrics-handoff.yaml",
     SKILL / "scripts" / "team_metrics.py",
     SKILL / "scripts" / "v2_release_gate.py",
+    SKILL / "scripts" / "p2_pregate.py",
     ROOT / "benchmarks" / "v2-prospective" / "README.md",
     ROOT / "benchmarks" / "v2-prospective" / "anchor-closure.example.json",
     ROOT / "benchmarks" / "v2-prospective" / "registration-000001.example.json",
@@ -51,6 +55,10 @@ required = [
     ROOT / "tests" / "test_routing_policy.py",
     ROOT / "tests" / "test_team_metrics.py",
     ROOT / "tests" / "test_v2_release_gate.py",
+    ROOT / "tests" / "test_p2_pregate.py",
+    ROOT / "tests" / "fixtures" / "p2" / "private-binding-vector.json",
+    ROOT / "tests" / "fixtures" / "p2" / "duplicate-key.json",
+    ROOT / "tests" / "fixtures" / "p2" / "public-leak.json",
     ROOT / "releases" / "v2.0.0-rc.1.md",
     ROOT / "releases" / "v2.0.0-rc.2.md",
     ROOT / "releases" / "v2.0.0-rc.3.md",
@@ -169,6 +177,63 @@ for name in (
     if extra_schema.get("$schema") != "https://json-schema.org/draft/2020-12/schema":
         fail(f"{name} must declare JSON Schema 2020-12")
 
+p2_schema_fields = {
+    "p2-private-binding.schema.json": {
+        "schema_version",
+        "window_id",
+        "sequence",
+        "record_kind",
+        "private_anchor_commit",
+        "private_object_sha256",
+        "candidate_commit",
+        "previous_private_binding_sha256",
+        "created_at",
+    },
+    "p2-opaque-envelope.schema.json": {
+        "schema_version",
+        "receipt_type",
+        "opaque_window_id",
+        "sequence",
+        "commitment_sha256",
+        "previous_envelope_sha256",
+    },
+    "p2-external-proof-package.schema.json": {
+        "schema_version",
+        "proof_type",
+        "provider",
+        "protocol_version",
+        "submitted_digest_sha256",
+        "retained_files",
+        "verification_policy",
+        "acquired_at",
+    },
+}
+for name, expected_fields in p2_schema_fields.items():
+    schema_path = SKILL / "references" / name
+    try:
+        p2_schema = json.loads(schema_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        fail(f"{name} is invalid JSON: {exc}")
+    if p2_schema.get("$schema") != "https://json-schema.org/draft/2020-12/schema":
+        fail(f"{name} must declare JSON Schema 2020-12")
+    if p2_schema.get("additionalProperties") is not False:
+        fail(f"{name} must reject unknown fields")
+    if set(p2_schema.get("required", [])) != expected_fields:
+        fail(f"{name} required fields do not match the frozen P2 contract")
+    if set(p2_schema.get("properties", {})) != expected_fields:
+        fail(f"{name} properties do not match the frozen P2 contract")
+
+release_audit_text = (SKILL / "references" / "release-audit.md").read_text(encoding="utf-8")
+for pointer in (
+    "../scripts/p2_pregate.py",
+    "p2-private-binding.schema.json",
+    "p2-opaque-envelope.schema.json",
+    "p2-external-proof-package.schema.json",
+    "trusted_time_missing",
+):
+    if pointer not in release_audit_text:
+        fail(f"release-audit.md is missing P2 progressive-disclosure pointer: {pointer}")
+
 script_path = SKILL / "scripts" / "team_metrics.py"
 try:
     compile(script_path.read_text(encoding="utf-8"), str(script_path), "exec")
@@ -180,6 +245,17 @@ try:
     compile(release_gate_path.read_text(encoding="utf-8"), str(release_gate_path), "exec")
 except SyntaxError as exc:
     fail(f"v2_release_gate.py has a syntax error: {exc}")
+
+p2_script_path = SKILL / "scripts" / "p2_pregate.py"
+try:
+    p2_script_text = p2_script_path.read_text(encoding="utf-8")
+    compile(p2_script_text, str(p2_script_path), "exec")
+except SyntaxError as exc:
+    fail(f"p2_pregate.py has a syntax error: {exc}")
+if re.search(r"(?:import|from)\s+v2_release_gate|subprocess\.[^\n]*v2_release_gate", p2_script_text):
+    fail("p2_pregate.py must not import or invoke v2_release_gate.py")
+if "trusted_time_missing" not in p2_script_text:
+    fail("p2_pregate.py must emit trusted_time_missing")
 
 try:
     example_manifest = json.loads(

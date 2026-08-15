@@ -1,0 +1,11 @@
+{
+  "candidate_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "created_at": "2026-08-15T00:00:00Z",
+  "previous_private_binding_sha256": null,
+  "private_anchor_commit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "private_object_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "record_kind": "window_freeze",
+  "schema_version": "1.0",
+  "sequence": 1,
+  "window_id": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+}
