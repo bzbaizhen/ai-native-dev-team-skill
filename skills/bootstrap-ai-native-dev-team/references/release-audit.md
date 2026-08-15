@@ -29,6 +29,10 @@ external proof therefore produces the stable blocking issue `trusted_time_missin
 No Git author/committer timestamp, URL, API identifier, screenshot, or proof JSON
 field named `verified` qualifies as trusted time. P2 implementation does not authorize
 P3 submission, public repository creation, Push, Tag, Release, or Skill installation.
+The local contract also refuses to infer exact public-ref/Commit-to-envelope mapping,
+private event-anchor endpoints, recovery from caller-declared digests, or one-to-one
+Manifest outcome/acceptance alignment. Those booleans remain false with explicit
+machine-readable issues until separately approved evidence and verifiers exist.
 
 ## Freeze the audit inputs
 

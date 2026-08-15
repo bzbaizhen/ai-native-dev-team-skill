@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 import sys
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -142,11 +144,25 @@ class SchemaAndChainTests(unittest.TestCase):
             window_salt=salt,
         )
         self.assertFalse(result["private_anchor_integral"])  # no trusted Git pair supplied
-        self.assertTrue(result["public_chain_integral"])
+        self.assertFalse(result["public_chain_integral"])
         self.assertTrue(result["privacy_allowlist_passed"])
         self.assertFalse(result["eligible_for_v2_release_gate"])
         self.assertFalse(result["release_gate_invoked"])
         self.assertIn("trusted_time_missing", {issue["code"] for issue in result["issues"]})
+        self.assertFalse(result["public_chain_integral"])
+        self.assertIn("public_anchor_unproven", {issue["code"] for issue in result["issues"]})
+
+    def test_reversed_caller_order_is_rejected_without_sorting(self) -> None:
+        bindings, envelopes, salt = make_chains()
+        result = p2_pregate.evaluate_pregate(
+            private_bindings=list(reversed(bindings)),
+            public_envelopes=list(reversed(envelopes)),
+            window_salt=salt,
+        )
+        codes = {issue["code"] for issue in result["issues"]}
+        self.assertIn("private_sequence_invalid", codes)
+        self.assertIn("public_sequence_invalid", codes)
+        self.assertFalse(result["public_chain_integral"])
 
     def test_chain_gap_and_commitment_fork_fail_closed(self) -> None:
         bindings, envelopes, salt = make_chains()
@@ -168,6 +184,128 @@ class SchemaAndChainTests(unittest.TestCase):
         )
         self.assertIn("commitment_mismatch", {issue["code"] for issue in fork_result["issues"]})
         self.assertFalse(fork_result["public_chain_integral"])
+
+    def test_pending_ready_prefix_blocks_orphan_outcome_and_closure(self) -> None:
+        bindings, envelopes, salt = make_chains()
+        orphan = copy.deepcopy(bindings)
+        orphan[1]["record_kind"] = "task_outcome"
+        orphan_result = p2_pregate.evaluate_pregate(
+            private_bindings=orphan,
+            public_envelopes=envelopes,
+            window_salt=salt,
+        )
+        self.assertIn("task_outcome_without_ready", {issue["code"] for issue in orphan_result["issues"]})
+
+        pending = copy.deepcopy(bindings)
+        pending[2]["record_kind"] = "task_ready"
+        pending_result = p2_pregate.evaluate_pregate(
+            private_bindings=pending,
+            public_envelopes=envelopes,
+            window_salt=salt,
+        )
+        pending_codes = {issue["code"] for issue in pending_result["issues"]}
+        self.assertIn("pending_task_ready_at_closure", pending_codes)
+        self.assertFalse(pending_result["private_anchor_integral"])
+
+    def test_recovery_declaration_and_caller_digests_remain_unproven(self) -> None:
+        bindings, envelopes, salt = make_chains()
+        recovery = {
+            "restore_verified": True,
+            "source_bundle_sha256": "1" * 64,
+            "restored_bundle_sha256": "1" * 64,
+        }
+        result = p2_pregate.evaluate_pregate(
+            private_bindings=bindings,
+            public_envelopes=envelopes,
+            window_salt=salt,
+            recovery_inventory=recovery,
+        )
+        codes = {issue["code"] for issue in result["issues"]}
+        self.assertIn("recovery_unproven", codes)
+        self.assertFalse(result["recovery_demonstrated"])
+
+    def test_manifest_is_required_and_alignment_is_never_inferred(self) -> None:
+        bindings, envelopes, salt = make_chains()
+        missing = p2_pregate.evaluate_pregate(
+            private_bindings=bindings,
+            public_envelopes=envelopes,
+            window_salt=salt,
+        )
+        missing_codes = {issue["code"] for issue in missing["issues"]}
+        self.assertIn("manifest_missing", missing_codes)
+        self.assertIn("manifest_alignment_unproven", missing_codes)
+
+        arbitrary = p2_pregate.evaluate_pregate(
+            private_bindings=bindings,
+            public_envelopes=envelopes,
+            window_salt=salt,
+            final_manifest={"not_a_manifest": True},
+        )
+        arbitrary_codes = {issue["code"] for issue in arbitrary["issues"]}
+        self.assertIn("manifest_invalid", arbitrary_codes)
+        self.assertIn("manifest_alignment_unproven", arbitrary_codes)
+        self.assertFalse(arbitrary["manifest_alignment_proven"])
+
+        valid_shape = {
+            "schema_version": "2.0",
+            "candidate_version": "candidate",
+            "candidate_commit": "b" * 40,
+            "candidate_frozen_at": "2026-08-15T00:00:00Z",
+            "registry_closed_at": "2026-08-16T00:00:00Z",
+            "source_registry": "registry.json",
+            "source_registry_sha256": "1" * 64,
+            "required_comparable_tasks": 5,
+            "sources": [{"source_id": "source-1"}],
+            "trials": [{"task_id": "task-1", "disposition": "accepted"}],
+        }
+        aligned = p2_pregate.evaluate_pregate(
+            private_bindings=bindings,
+            public_envelopes=envelopes,
+            window_salt=salt,
+            final_manifest=valid_shape,
+        )
+        aligned_codes = {issue["code"] for issue in aligned["issues"]}
+        self.assertNotIn("manifest_invalid", aligned_codes)
+        self.assertIn("manifest_alignment_unproven", aligned_codes)
+        self.assertFalse(aligned["manifest_alignment_proven"])
+
+    def test_private_anchor_endpoints_and_event_anchors_are_required(self) -> None:
+        bindings, envelopes, salt = make_chains()
+        missing_anchor = copy.deepcopy(bindings)
+        missing_anchor[1]["private_anchor_commit"] = None
+        result = p2_pregate.evaluate_pregate(
+            private_bindings=missing_anchor,
+            public_envelopes=envelopes,
+            window_salt=salt,
+            private_freeze_commit="a" * 40,
+            private_head_commit="b" * 40,
+        )
+        codes = {issue["code"] for issue in result["issues"]}
+        self.assertIn("private_anchor_missing", codes)
+        self.assertFalse(result["private_anchor_integral"])
+
+    def test_public_git_merge_history_is_rejected_and_not_integral(self) -> None:
+        issues: list[dict[str, str]] = []
+
+        def fake_run(args: list[str], **_kwargs: object) -> SimpleNamespace:
+            if "cat-file" in args:
+                return SimpleNamespace(returncode=0, stdout="")
+            if "merge-base" in args:
+                return SimpleNamespace(returncode=0, stdout="")
+            if "rev-list" in args:
+                return SimpleNamespace(returncode=0, stdout="deadbeef\n")
+            raise AssertionError(args)
+
+        with patch.object(p2_pregate.subprocess, "run", side_effect=fake_run):
+            verified = p2_pregate._verify_git_chain(
+                SCRIPT_DIR,
+                "a" * 40,
+                "b" * 40,
+                issues,
+                "public",
+            )
+        self.assertFalse(verified)
+        self.assertIn("public_anchor_nonlinear", {issue["code"] for issue in issues})
 
     def test_proof_self_report_is_not_qualification(self) -> None:
         bindings, envelopes, salt = make_chains()
@@ -197,6 +335,32 @@ class SchemaAndChainTests(unittest.TestCase):
         self.assertIn("trusted_time_missing", codes)
         self.assertFalse(result["external_receipts_integral"])
         self.assertFalse(result["pre_outcome_order_proven"])
+
+    def test_protocol_version_and_retained_paths_are_strict(self) -> None:
+        base = {
+            "schema_version": "1.0",
+            "proof_type": "external_time_transparency_proof",
+            "provider": "example",
+            "protocol_version": "v1",
+            "submitted_digest_sha256": "0" * 64,
+            "retained_files": [{"path": "proof.bin", "sha256": "1" * 64}],
+            "verification_policy": {
+                "policy_id": "policy",
+                "tool_version": "tool",
+                "trust_root_sha256": "2" * 64,
+            },
+            "acquired_at": "2026-08-15T00:00:00Z",
+        }
+        too_long = copy.deepcopy(base)
+        too_long["protocol_version"] = "v" * 65
+        with self.assertRaises(p2_pregate.SchemaValidationError):
+            p2_pregate.validate_external_proof_package(too_long)
+        for path in (".", "..", "./proof.bin", "a/../proof.bin", "/proof.bin", "a//proof.bin", "a/./proof.bin"):
+            with self.subTest(path=path):
+                invalid = copy.deepcopy(base)
+                invalid["retained_files"][0]["path"] = path
+                with self.assertRaises(p2_pregate.SchemaValidationError):
+                    p2_pregate.validate_external_proof_package(invalid)
 
 
 if __name__ == "__main__":

@@ -20,7 +20,7 @@
         "additionalProperties": false,
         "required": ["path", "sha256"],
         "properties": {
-          "path": {"type": "string", "pattern": "^[a-zA-Z0-9._/-]+$"},
+          "path": {"type": "string", "pattern": "^(?!/)(?!.*//)(?!.*(?:^|/)\\.(?:/|$))(?!.*(?:^|/)\\.\\.(?:/|$))[a-zA-Z0-9._-]+(?:/[a-zA-Z0-9._-]+)*$"},
           "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
         }
       }
