@@ -17,6 +17,9 @@ required = [
     SKILL / "SKILL.md",
     SKILL / "agents" / "openai.yaml",
     SKILL / "references" / "routing-and-topologies.md",
+    SKILL / "references" / "core.md",
+    SKILL / "references" / "controlled.md",
+    SKILL / "references" / "release-audit.md",
     SKILL / "references" / "governance-lean.md",
     SKILL / "references" / "governance-controlled.md",
     SKILL / "references" / "governance-strict.md",
@@ -77,6 +80,8 @@ if "TODO" in text or "[TODO" in text:
     fail("SKILL.md still contains TODO placeholders")
 if len(text.splitlines()) > 500:
     fail("SKILL.md exceeds 500 lines")
+if len(text.splitlines()) > 120:
+    fail("SKILL.md did not shrink to the Core and selector entry path")
 
 local_links = []
 for target in re.findall(r"\[[^\]]+\]\(([^)]+)\)", text):
@@ -89,20 +94,35 @@ for target in re.findall(r"\[[^\]]+\]\(([^)]+)\)", text):
 
 direct_references = {
     "references/routing-and-topologies.md",
-    "references/governance-lean.md",
-    "references/governance-controlled.md",
-    "references/governance-strict.md",
+    "references/core.md",
+    "references/controlled.md",
+    "references/release-audit.md",
     "references/metrics.md",
-    "references/metrics-event.schema.json",
-    "references/release-anchor-closure.schema.json",
-    "references/release-registration-receipt.schema.json",
-    "references/release-source-registry.schema.json",
-    "references/release-trial-evidence.schema.json",
-    "references/release-v1-baseline-evidence.schema.json",
-    "references/release-trial-manifest.schema.json",
 }
 if not direct_references.issubset(set(local_links)):
-    fail("SKILL.md does not directly link every progressive reference")
+    fail("SKILL.md does not directly link every canonical progressive reference")
+
+default_protocol_details = (
+    "release-anchor-closure.schema.json",
+    "release-registration-receipt.schema.json",
+    "release-trial-manifest.schema.json",
+    "release-source-registry.schema.json",
+    "release-v1-baseline-evidence.schema.json",
+    "release-trial-evidence.schema.json",
+    "Anchor history",
+)
+for detail in default_protocol_details:
+    if detail in text:
+        fail(f"default SKILL.md exposes Release Audit protocol detail: {detail}")
+
+for canonical, pointer in (
+    ("core.md", "governance-lean.md"),
+    ("controlled.md", "governance-controlled.md"),
+    ("controlled.md", "governance-strict.md"),
+):
+    pointer_text = (SKILL / "references" / pointer).read_text(encoding="utf-8")
+    if canonical not in pointer_text:
+        fail(f"compatibility pointer {pointer} does not point to {canonical}")
 
 legacy = SKILL / "references" / "team-governance-template.zh-CN.md"
 if len(legacy.read_text(encoding="utf-8").splitlines()) > 40:

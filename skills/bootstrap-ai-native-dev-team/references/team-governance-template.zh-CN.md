@@ -1,13 +1,15 @@
-# V1 governance reference
+# V1 compatibility pointer
 
-This monolithic reference is retained only as a migration pointer for installations that still reference the V1 path. The immutable V1 content is preserved by the `v1.0.0` Git tag.
-
-V2 uses progressive disclosure. Start from `SKILL.md` and load only one directly linked profile:
+This monolithic reference remains only for installations that still resolve the V1 path;
+it is not a second governance source. V2 starts at `SKILL.md` and loads one canonical
+reference as needed:
 
 - `routing-and-topologies.md`
-- `governance-lean.md`
-- `governance-controlled.md`
-- `governance-strict.md`
+- `core.md`
+- `controlled.md`
+- `release-audit.md`
 - `metrics.md`
 
-Do not load this compatibility pointer into worker prompts.
+The old `governance-lean.md`, `governance-controlled.md`, and `governance-strict.md`
+paths point to the corresponding canonical layer. Do not load this compatibility pointer
+into Worker prompts.
