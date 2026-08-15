@@ -46,8 +46,11 @@ raise implementation capability.
 Read [core.md](references/core.md) when the selector stays in Core. A C0/R0 micro task
 stays with the main agent and creates zero agents and zero mandatory governance files.
 Non-material C1/R1 work does not require a Worktree, ledger, or independent Validator.
-An optional delegated Worker receives only an inline task packet and reports
-`worker_skill_loaded=false`; it does not load this complete Skill.
+An optional delegated Worker receives only an inline task packet with exact allowed
+read/write paths and reports `worker_skill_loaded=false`,
+`worker_repo_wide_search_used=false`, and `worker_out_of_scope_reads=false`; it does not
+load this complete Skill. Any true or unreviewable value fails context-isolation evidence
+and forbids a context or cost saving claim.
 
 Escalate immediately if material behavior, a boundary change, difficult verification,
 R2/R3 risk, concurrency, or production/public action appears.

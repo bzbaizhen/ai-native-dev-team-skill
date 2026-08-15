@@ -74,7 +74,12 @@ BOOL_FIELDS = {
     "evidence_reuse_allowed",
     "rerun_trigger",
 }
-REQUIRED_FIELDS = STRING_FIELDS | BOOL_FIELDS | {"worker_skill_loaded"}
+WORKER_CONTEXT_FIELDS = {
+    "worker_skill_loaded",
+    "worker_repo_wide_search_used",
+    "worker_out_of_scope_reads",
+}
+REQUIRED_FIELDS = STRING_FIELDS | BOOL_FIELDS | WORKER_CONTEXT_FIELDS
 
 
 def controlled_trigger(case: dict) -> bool:
@@ -130,13 +135,15 @@ def validate_case(
     for field in BOOL_FIELDS:
         assert type(case[field]) is bool, f"{field} must be a bool"
     if case["delegated"]:
-        assert type(case["worker_skill_loaded"]) is bool, (
-            "delegated Worker context must report a bool"
-        )
+        for field in WORKER_CONTEXT_FIELDS:
+            assert type(case[field]) is bool, (
+                f"delegated Worker context must report {field} as a bool"
+            )
     else:
-        assert case["worker_skill_loaded"] is None, (
-            "non-Worker scenario must not claim Worker Skill state"
-        )
+        for field in WORKER_CONTEXT_FIELDS:
+            assert case[field] is None, (
+                f"non-Worker scenario must not claim {field} state"
+            )
 
     assert case["complexity"] in {"C0", "C1", "C2", "C3"}
     assert case["risk"] in {"R0", "R1", "R2", "R3"}
@@ -173,7 +180,9 @@ def validate_case(
     if case["risk"] == "R3" or case["layer"] == "release-audit":
         assert case["owner_approval"] is True
     if case["delegated"]:
-        assert case["worker_skill_loaded"] is False
+        assert all(case[field] is False for field in WORKER_CONTEXT_FIELDS), (
+            "delegated Worker context evidence must be explicitly false"
+        )
     if case["rerun_trigger"]:
         assert case["evidence_reuse_allowed"] is False
     if case["evidence_reuse_allowed"]:
@@ -260,6 +269,21 @@ class RoutingPolicyTests(unittest.TestCase):
             "Worker loaded complete Skill",
         )
         self.assert_rejected(
+            worker,
+            lambda case: case.update(worker_repo_wide_search_used=True),
+            "Worker used repo-wide search",
+        )
+        self.assert_rejected(
+            worker,
+            lambda case: case.update(worker_out_of_scope_reads=True),
+            "Worker read out-of-scope content",
+        )
+        self.assert_rejected(
+            worker,
+            lambda case: case.update(worker_out_of_scope_reads="unreviewable"),
+            "Worker context scope is unreviewable",
+        )
+        self.assert_rejected(
             c1_r3,
             lambda case: case.update(capability="frontier", reasoning="max"),
             "risk raised implementation capability",
@@ -281,10 +305,11 @@ class RoutingPolicyTests(unittest.TestCase):
 
         for case in self.scenarios:
             if case["delegated"]:
-                self.assertFalse(
-                    case["worker_skill_loaded"],
-                    f"delegated Worker loaded complete Skill: {case['name']}",
-                )
+                for field in WORKER_CONTEXT_FIELDS:
+                    self.assertFalse(
+                        case[field],
+                        f"delegated Worker context evidence is not false: {case['name']}",
+                    )
 
     def test_material_and_risk_gates(self) -> None:
         material = self.by_name["material C1/R1 behavior change"]

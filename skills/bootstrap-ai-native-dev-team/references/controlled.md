@@ -15,8 +15,11 @@ a stricter profile. It does not implicitly start a Release Audit.
   operations, or owner gate.
 - Freeze the smallest useful task and interface boundary. A shared file has one Writer.
 - Give every Worker a task packet, never the complete team Skill. The packet identifies
-  the objective, confirmed facts, baseline, allowed paths, checks, stop conditions, and
-  rollback. A Worker reports `worker_skill_loaded=false`.
+  the objective, confirmed facts, baseline, exact allowed read/write paths, checks, stop
+  conditions, and rollback. A Worker reports `worker_skill_loaded=false`,
+  `worker_repo_wide_search_used=false`, and `worker_out_of_scope_reads=false`. Any true
+  or unreviewable value fails context-isolation evidence and forbids a context or cost
+  saving claim.
 - Use only the governance artifacts the material task needs. A concise contract, write
   lease, and acceptance record are the default maximum for ordinary Controlled work;
   do not require a daily ledger or release-audit bundle unless explicitly selected.

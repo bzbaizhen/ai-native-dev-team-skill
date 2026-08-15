@@ -12,8 +12,11 @@ required Controlled gate.
 2. Keep C0/R0 micro work with the main agent. Create zero agents and zero mandatory
    governance files.
 3. For a deterministic C0 batch, delegate at most one Worker when handoff has net value.
-   Give the Worker only a task packet with the objective, inputs, allowed paths, checks,
-   stop conditions, and rollback. The Worker reports `worker_skill_loaded=false`.
+   Give the Worker only a task packet with the objective, inputs, exact allowed read/write
+   paths, checks, stop conditions, and rollback. The Worker reports
+   `worker_skill_loaded=false`, `worker_repo_wide_search_used=false`, and
+   `worker_out_of_scope_reads=false`. Any true or unreviewable value fails
+   context-isolation evidence and forbids a context or cost saving claim.
 4. For non-material C1/R1 work, use the main agent or one isolated Worker according to
    verification cost. Do not require a Worktree, daily ledger, or independent Validator
    unless repository policy or a newly discovered trigger requires one.

@@ -27,7 +27,7 @@ This Skill treats the main agent as a control plane and specialist agents as tem
 - four delivery routes: `no-delegation`, `single-worker`, `task-cell`, and `team-required`;
 - separate `C0-C3` complexity and `R0-R3` risk classification;
 - cost-aware model and reasoning routing that targets the lowest expected cost per accepted task, not the cheapest token or the strongest model by default;
-- Lean, Controlled, and Strict governance loaded only when justified;
+- canonical `Core`, `Controlled`, and explicit `Release Audit` routing;
 - business owner, producer/main agent, implementer, validator, and optional specialist boundaries;
 - one-owner-per-file and task-scoped write leases;
 - contract-first parallelism with branch/worktree/PR isolation;
@@ -81,7 +81,7 @@ no-delegation / single-worker / task-cell / team-required
         ↓
 main agent / economy / standard / advanced / frontier
         ↓
-Lean / Controlled / Strict governance
+Core / Controlled / explicit Release Audit
         ↓
 ownership + contracts + approvals + rollback
         ↓
@@ -113,19 +113,19 @@ accepted-task cost = execution + likely retry/rework + validation + coordination
 
 Model names are not hard-coded into the general workflow. Each project maps currently available models to the complexity levels, records an allowed fallback, and must not claim that a requested model ran when the runtime did not provide it. When evidence is weak, the workflow escalates capability or reasoning, decomposes the task, returns it to the main thread, or stops.
 
-The main agent remains the high-context information hub. `C0` does not automatically mean “use the main agent”: tiny control-plane work stays there, while delegated mechanical batches use the Economy/Low tier. Ordinary workers receive a bounded contract and do not reload the full team Skill.
+The main agent remains the high-context information hub. `C0/R0` micro work stays with the main agent, creates zero Agents, and creates zero mandatory governance files. A deterministic mechanical C0 batch may use one Economy/Low Worker when delegation has net value. Ordinary workers receive an exact task packet and do not reload the full team Skill; the packet records `worker_skill_loaded`, `worker_repo_wide_search_used`, and `worker_out_of_scope_reads`. Any true or unreviewable value fails context-isolation evidence, so no context or cost saving may be claimed.
 
 ## Proportional governance and measurable flow
 
-V2 replaces the monolithic governance reference with progressive profiles:
+V2 uses canonical layers with progressive controls:
 
-| Profile | Default use |
+| Layer | Default use |
 |---|---|
-| Lean | C0/C1, R0/R1, at most one Writer |
-| Controlled | C2, R2, behavior-changing task cells, contract-sensitive or parallel work |
-| Strict | C3, R3, production, security/privacy, migration, or public release |
+| Core | Default for C0/C1, R0/R1 work without a Controlled trigger |
+| Controlled | Material behavior, C2/C3, R2/R3, boundary changes, concurrency, or production/public action |
+| Release Audit | Only explicit stable-version qualification, formal efficiency comparison, historical-baseline qualification, or external evidence-freeze request |
 
-The main agent writes a minimal prospective ledger at `.ai-team/metrics/events.jsonl`. The CLI records lifecycle events and reports `READY → accepted` cycle time, `dev_complete → accepted` wait, accepted tasks per active Agent hour, governance share, low-cost C0/C1 routing, and hard-gate violations. “Accepted” means the exact validated change reached the stable branch.
+The legacy `lean|controlled|strict` values remain compatibility encodings only; Strict authority and recovery semantics are a Controlled R3 overlay. Ordinary release, deployment, and publication are Controlled/R3 with `release_audit=false`; the word “release” alone does not activate Release Audit. A ledger is optional and is enabled only for selected measurement, specific Controlled needs, or explicit Release Audit. When enabled, the CLI records lifecycle events and reports `READY → accepted` cycle time, `dev_complete → accepted` wait, accepted tasks per active Agent hour, governance share, low-cost C0/C1 routing, and hard-gate violations. “Accepted” means the exact validated change reached the stable branch.
 
 ## Why this is different
 
@@ -147,9 +147,10 @@ skills/bootstrap-ai-native-dev-team/
 ├── agents/openai.yaml
 ├── references/
 │   ├── routing-and-topologies.md
-│   ├── governance-lean.md
+│   ├── core.md
 │   ├── governance-controlled.md
-│   ├── governance-strict.md
+│   ├── controlled.md
+│   ├── release-audit.md
 │   ├── metrics.md
 │   ├── metrics-event.schema.json
 │   ├── release-anchor-closure.schema.json
@@ -169,6 +170,10 @@ skills/bootstrap-ai-native-dev-team/
     └── metrics-handoff.yaml
 ```
 
+The canonical governance references are `core.md`, `controlled.md`, and
+`release-audit.md`. The older `governance-lean.md`, `governance-controlled.md`,
+and `governance-strict.md` files are compatibility pointers only.
+
 `docs/images/social-preview.png` is the candidate asset for this repository's GitHub Social Preview; committing it does not change the repository setting.
 
 ## Validation
@@ -184,7 +189,7 @@ The repository includes a GitHub Actions workflow for the same structural checks
 
 ## Status
 
-`v1.0.0` is the frozen baseline. `v2.0.0-rc.1` added cost-aware execution routing, progressive governance, prospective metrics, and hard-gate audits. RC.2 anchored the first-five-task universe, linear receipts, source-complete ledgers, and final Manifest digest outside the Manifest. RC.3 froze every allowed V1 baseline identity, exact C/R/topology stratum, evidence digest, and comparison scope. The current local `v2.0.0-rc.4` candidate also content-addresses the source blobs supporting each baseline's task identity, stratum, and acceptance; a formal-efficiency baseline additionally requires a metrics source for its denominator. The verifier reads every source from the exact freeze Commit, so a baseline JSON without matching source blobs, a missing source, wrong digest, invented stratum, or unsupported denominator fails closed. This proves frozen-content integrity, not historical truth or remote protection. Stable `v2.0.0` still requires five unique comparable real tasks on the fixed RC.4 Commit; formal efficiency claims require 15–20 accepted tasks with reconstructable V1 denominators and human-qualified source evidence.
+`v1.0.0` is the frozen baseline. The local V2 development line is post-RC.5 and untagged; it is not stable-qualified. RC.5 fail-closed and Release Audit behavior remain subject to the exact validation and approval gates for the selected request. This status does not make efficiency, historical-baseline, or external-evidence claims.
 
 ## License
 

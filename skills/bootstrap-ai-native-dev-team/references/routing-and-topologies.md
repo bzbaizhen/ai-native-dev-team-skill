@@ -121,14 +121,17 @@ Give a Worker only the task-local packet:
 - objective and user value;
 - confirmed facts, baseline Commit, repository, native environment, and allowed paths;
 - frozen interface or an explicit statement that no interface change is allowed;
+- exact allowed read/write paths; no repository-wide search beyond the packet scope;
 - selected capability/reasoning tier;
 - required checks, immutable evidence, stop conditions, and rollback.
 
-Workers report `worker_skill_loaded=false` and never decide the team design or reload the
-complete Skill. One file has one Writer at a time. Do not open another Writer while work
-is at `DEV_COMPLETE`, `QA_PENDING`, or `MERGE_READY` unless the main agent records an
-override reason and validation capacity is available. Acceptance occurs only after the
-exact validated candidate enters the stable branch.
+Workers report `worker_skill_loaded=false`, `worker_repo_wide_search_used=false`, and
+`worker_out_of_scope_reads=false`; any true or unreviewable value fails context-isolation
+evidence and forbids a context or cost saving claim. Workers never decide the team design
+or reload the complete Skill. One file has one Writer at a time. Do not open another Writer
+while work is at `DEV_COMPLETE`, `QA_PENDING`, or `MERGE_READY` unless the main agent
+records an override reason and validation capacity is available. Acceptance occurs only
+after the exact validated candidate enters the stable branch.
 
 ## Evidence reuse and rerun triggers
 

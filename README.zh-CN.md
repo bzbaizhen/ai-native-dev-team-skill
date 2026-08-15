@@ -32,7 +32,7 @@ TypeScript：0 diagnostics
 | 常见问题 | 这个 Skill 的处理方式 |
 |---|---|
 | 一开始就创建完整角色池 | 先检查任务，只启用最小充分团队；简单任务可由主 Agent 单独完成 |
-| 每个小任务都加载完整团队治理 | 先路由为不委派、单 Worker、任务小组或完整团队，再按需加载 Lean / Controlled / Strict |
+| 每个小任务都加载完整团队治理 | 先路由为不委派、单 Worker、任务小组或完整团队，再按需进入 Core / Controlled / 显式 Release Audit |
 | 接口未冻结，前后端同时开工 | Contract 先于跨组件并行，边界不清时先停止拆分 |
 | 两个 Agent 修改同一文件 | 每个路径只有一个 Owner，写入权限随任务租约发放 |
 | QA 顺手修改自己正在验收的代码 | 实现与独立验证分离，QA 默认只读产品代码 |
@@ -115,7 +115,7 @@ Skill 默认使用 `proposal` 模式。除非相应范围得到批准，否则�
       ↓
 主 Agent / Economy / Standard / Advanced / Frontier
       ↓
-Lean / Controlled / Strict 治理
+Core / Controlled / 显式 Release Audit
       ↓
 文件 Owner + Contract + 审批 + 回退
       ↓
@@ -149,19 +149,19 @@ Lean / Controlled / Strict 治理
 
 通用规则不会把模型名称永久写死。每个项目按当前可用模型建立映射和允许的回退路径；如果运行时没有提供指定模型，就不能声称已经使用。证据不足时，应提高模型能力或推理强度、继续拆分任务、交回主线程，或者停止执行。
 
-主 Agent 仍然是高上下文的信息枢纽。`C0` 不等于一律由主 Agent 实现：控制平面的微型工作留在主线程；可批量委派的机械任务使用 Economy / Low。普通 Worker 只收到批准后的任务合同，不重新加载完整团队 Skill。
+主 Agent 仍然是高上下文的信息枢纽。`C0/R0` 微任务由主 Agent 完成，不创建 Agent，也不创建强制治理文件。确定性的机械 C0 批次只有在委派具有净收益时，才可以使用一个 Economy / Low Worker。普通 Worker 只收到包含准确允许读取/写入路径的任务包，不重新加载完整团队 Skill；任务包必须报告 `worker_skill_loaded`、`worker_repo_wide_search_used` 和 `worker_out_of_scope_reads`。任一值为 true 或无法核验时，隔离证据失败，不得声称节省上下文或成本。
 
 ## 渐进治理与可审计效率
 
-V2 不再让每个任务加载一份 1400 多行的完整治理基线，而是只读取当前所需的档位：
+V2 使用按需控制的规范层：
 
-| 治理档位 | 默认适用范围 |
+| 规范层 | 默认适用范围 |
 |---|---|
-| Lean | C0/C1、R0/R1、最多一个 Writer |
-| Controlled | C2、R2、行为变化小组、Contract 敏感或并行工作 |
-| Strict | C3、R3、生产、安全隐私、迁移或公开发布 |
+| Core | 没有 Controlled 触发条件的默认 C0/C1、R0/R1 工作 |
+| Controlled | 实质行为、C2/C3、R2/R3、边界变化、并发或生产/公开动作 |
+| Release Audit | 仅限显式的稳定版本资格、正式效率比较、历史基线资格或外部证据冻结请求 |
 
-主 Agent 维护最小事件账本 `.ai-team/metrics/events.jsonl`。标准库脚本会计算 `READY → accepted` 周期、`dev_complete → accepted` 集成等待、每活跃 Agent 小时的验收任务、治理时间占比、C0/C1 经济档路由和硬门禁违规。这里的 `accepted` 只指准确候选版本已经进入稳定分支。
+旧的 `lean|controlled|strict` 只保留为兼容编码；Strict 的权限与恢复语义已进入 Controlled 的 R3 overlay。普通 release、deploy、publish 都是 `Controlled/R3` 且 `release_audit=false`，不能仅因出现“release”一词就启动 Release Audit。事件账本按需启用：仅用于选定的度量、特定 Controlled 需求或显式 Release Audit。启用后，标准库脚本会计算 `READY → accepted` 周期、`dev_complete → accepted` 集成等待、每活跃 Agent 小时的验收任务、治理时间占比、C0/C1 经济档路由和硬门禁违规。这里的 `accepted` 只指准确候选版本已经进入稳定分支。
 
 ## 复杂度和风险为什么要分开
 
@@ -226,9 +226,10 @@ skills/bootstrap-ai-native-dev-team/
 ├── agents/openai.yaml
 ├── references/
 │   ├── routing-and-topologies.md
-│   ├── governance-lean.md
+│   ├── core.md
 │   ├── governance-controlled.md
-│   ├── governance-strict.md
+│   ├── controlled.md
+│   ├── release-audit.md
 │   ├── metrics.md
 │   ├── metrics-event.schema.json
 │   ├── release-anchor-closure.schema.json
@@ -248,9 +249,13 @@ skills/bootstrap-ai-native-dev-team/
     └── metrics-handoff.yaml
 ```
 
+规范治理入口是 `core.md`、`controlled.md` 和 `release-audit.md`。旧的
+`governance-lean.md`、`governance-controlled.md`、`governance-strict.md`
+仅作为兼容指针保留。
+
 - `SKILL.md`：工作流入口与决策规则；
 - `routing-and-topologies.md`：复杂度、风险、能力档与拓扑选择；
-- `governance-*.md`：按 Lean、Controlled、Strict 渐进加载的治理要求；
+- `core.md`、`controlled.md`、`release-audit.md`：按规范层按需加载的治理要求；旧 `governance-*.md` 文件仅为兼容指针；
 - `metrics.md`、Schema 与 CLI：前瞻事件记录、快照、硬门禁审计和版本对比；
 - `team-bootstrap-proposal.md`：建队提案模板；
 - `project-team-charter.md`：项目团队章程模板；
@@ -270,7 +275,7 @@ python -m unittest discover -s tests -p "test_*.py" -v
 
 仓库包含执行相同结构检查的 GitHub Actions。
 
-`v1.0.0` 是冻结基线。`v2.0.0-rc.1` 增加成本感知执行路由、渐进治理、前瞻指标和硬门禁审计；RC.2 将任务宇宙、线性 receipt、来源完整账本与最终 Manifest 摘要锚定在 Manifest 之外；RC.3 冻结每个允许使用的 V1 baseline identity、准确 C/R/topology stratum、证据摘要与比较范围。当前本地 `v2.0.0-rc.4` 候选进一步对支撑任务身份、分层和验收的底层来源逐份内容寻址；若声明正式效率可比，还必须由 metrics source 支撑分母。Verifier 会从准确 freeze Commit 回读每个 blob，因此没有匹配 source blob 的 baseline JSON、缺失来源、错误摘要、虚构 stratum 或无依据分母都会 fail closed。这能证明冻结内容完整一致，不能自动证明历史材料真实或远端已受保护。稳定版 `v2.0.0` 仍需在固定 RC.4 Commit 上完成前 5 个唯一、可比的真实任务；正式效率结论还需 15–20 个分母可重建且通过人工资格审核的验收任务。
+`v1.0.0` 是冻结基线。本地 V2 开发线位于 RC.5 之后、尚未打 Tag，尚未取得稳定版资格。RC.5 的 fail-closed 行为和 Release Audit 行为仍须针对具体请求通过准确版本与审批门禁验证。本状态不构成效率、历史基线或外部证据结论。
 
 ## 参考与致谢
 
@@ -295,7 +300,7 @@ python -m unittest discover -s tests -p "test_*.py" -v
 
 ## 状态
 
-`v1.0.0` 为冻结基线；当前本地候选为 `v2.0.0-rc.4`，尚无可计入冻结登记门的真实任务，也未把 RC 指标当作稳定版效率结论。英文发布短文与四张开发过程图见 [X](https://x.com/Bzbaizhen/status/2087828830627205527)。
+`v1.0.0` 为冻结基线；本地 V2 开发线位于 RC.5 之后、尚未打 Tag，尚未取得稳定版资格。这里不宣称效率、历史基线或外部证据结论。英文发布短文与四张开发过程图见 [X](https://x.com/Bzbaizhen/status/2087828830627205527)。
 
 ## License
 
