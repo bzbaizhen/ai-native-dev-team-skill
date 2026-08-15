@@ -3,8 +3,11 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import os
 from pathlib import Path
+import subprocess
 import sys
+import tempfile
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -119,6 +122,122 @@ def make_chains() -> tuple[list[dict[str, object]], list[dict[str, object]], byt
         envelopes.append(envelope)
         previous_envelope = p2_pregate.envelope_sha256(envelope)
     return bindings, envelopes, salt
+
+
+def make_manifest(bindings: list[dict[str, object]], *, disposition: str = "accepted") -> dict[str, object]:
+    candidate = str(bindings[0]["candidate_commit"])
+    trial: dict[str, object] = {
+        "trial_id": "TRIAL-001",
+        "registration_sequence": 1,
+        "source_id": "SOURCE-001",
+        "task_id": "TASK-001",
+        "skill_candidate_commit": candidate,
+        "request_evidence": "request.json",
+        "request_evidence_sha256": bindings[1]["private_object_sha256"],
+        "v1_baseline_id": "V1-BASELINE" if disposition == "accepted" else None,
+        "v1_baseline_stratum": "C1|R1|single-worker" if disposition == "accepted" else None,
+        "comparable": disposition == "accepted",
+        "disposition": disposition,
+        "genuine_request": True,
+        "synthetic": False,
+        "critical_defect_escape": False,
+        "material_quality_regression": False,
+        "scope_violation": False,
+        "write_conflict": False,
+        "recovery_executable": True,
+        "acceptance_evidence": "outcome.json",
+        "acceptance_evidence_sha256": bindings[2]["private_object_sha256"],
+        "notes": [],
+    }
+    if disposition == "accepted":
+        trial.update(
+            {
+                "candidate_commit": candidate,
+                "stable_commit": candidate,
+                "integration_proof": {"mode": "same_commit"},
+            }
+        )
+    else:
+        trial["exclusion_reason"] = "not comparable in this local proof vector"
+    return {
+        "schema_version": "2.0",
+        "candidate_version": "v2.0.0-rc.5",
+        "candidate_commit": candidate,
+        "candidate_frozen_at": "2026-08-15T00:00:00Z",
+        "registry_closed_at": "2026-08-15T01:00:00Z",
+        "source_registry": "registry.json",
+        "source_registry_sha256": "1" * 64,
+        "required_comparable_tasks": 5,
+        "sources": [
+            {
+                "source_id": "SOURCE-001",
+                "project_alias": "project-a",
+                "project_evidence_id": "project-a-evidence",
+                "project_repo": "project-a",
+                "stable_branch": "main",
+                "ledger": "ledger.jsonl",
+                "ledger_prefix_bytes": 0,
+                "ledger_prefix_sha256": "2" * 64,
+                "ledger_sha256": "3" * 64,
+            }
+        ],
+        "trials": [trial],
+    }
+
+
+def make_alignment(bindings: list[dict[str, object]]) -> dict[str, object]:
+    return {
+        "schema_version": "1.0",
+        "candidate_commit": bindings[0]["candidate_commit"],
+        "tasks": [
+            {
+                "task_id": "TASK-001",
+                "ready_binding_sequence": 2,
+                "outcome_binding_sequence": 3,
+            }
+        ],
+    }
+
+
+def git_run(repo: Path, *args: str, env: dict[str, str] | None = None) -> str:
+    result = subprocess.run(
+        ["git", "-C", str(repo), *args],
+        check=True,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        env=env,
+    )
+    return result.stdout.strip()
+
+
+def make_public_git_repo(envelopes: list[dict[str, object]]) -> tuple[tempfile.TemporaryDirectory[str], Path, str, str, dict[str, object]]:
+    temp = tempfile.TemporaryDirectory(prefix="p2-public-")
+    repo = Path(temp.name)
+    git_run(repo, "init", "-b", "main")
+    git_run(repo, "config", "user.email", "p2@example.invalid")
+    git_run(repo, "config", "user.name", "P2 Test")
+    git_run(repo, "commit", "--allow-empty", "-m", "freeze")
+    freeze = git_run(repo, "rev-parse", "HEAD")
+    receipts: list[dict[str, object]] = []
+    for index, envelope in enumerate(envelopes, start=1):
+        relative = Path("receipts") / f"{index:04d}.json"
+        target = repo / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(p2_pregate.canonicalize_value(envelope))
+        git_run(repo, "add", relative.as_posix())
+        git_run(repo, "commit", "-m", f"receipt {index}")
+        commit = git_run(repo, "rev-parse", "HEAD")
+        receipts.append(
+            {
+                "sequence": index,
+                "commit": commit,
+                "path": relative.as_posix(),
+                "envelope_sha256": p2_pregate.envelope_sha256(envelope),
+            }
+        )
+    head = git_run(repo, "rev-parse", "HEAD")
+    return temp, repo, freeze, head, {"schema_version": "1.0", "public_ref": "refs/heads/main", "freeze_commit": freeze, "head_commit": head, "receipts": receipts}
 
 
 class SchemaAndChainTests(unittest.TestCase):
@@ -246,18 +365,7 @@ class SchemaAndChainTests(unittest.TestCase):
         self.assertIn("manifest_alignment_unproven", arbitrary_codes)
         self.assertFalse(arbitrary["manifest_alignment_proven"])
 
-        valid_shape = {
-            "schema_version": "2.0",
-            "candidate_version": "candidate",
-            "candidate_commit": "b" * 40,
-            "candidate_frozen_at": "2026-08-15T00:00:00Z",
-            "registry_closed_at": "2026-08-16T00:00:00Z",
-            "source_registry": "registry.json",
-            "source_registry_sha256": "1" * 64,
-            "required_comparable_tasks": 5,
-            "sources": [{"source_id": "source-1"}],
-            "trials": [{"task_id": "task-1", "disposition": "accepted"}],
-        }
+        valid_shape = make_manifest(bindings)
         aligned = p2_pregate.evaluate_pregate(
             private_bindings=bindings,
             public_envelopes=envelopes,
@@ -361,6 +469,178 @@ class SchemaAndChainTests(unittest.TestCase):
                 invalid["retained_files"][0]["path"] = path
                 with self.assertRaises(p2_pregate.SchemaValidationError):
                     p2_pregate.validate_external_proof_package(invalid)
+
+
+class StrictCompletionTests(unittest.TestCase):
+    def test_public_anchor_manifest_positive_path_is_reachable(self) -> None:
+        bindings, envelopes, salt = make_chains()
+        temp, repo, freeze, head, anchor_manifest = make_public_git_repo(envelopes)
+        try:
+            result = p2_pregate.evaluate_pregate(
+                private_bindings=bindings,
+                public_envelopes=envelopes,
+                window_salt=salt,
+                public_anchor_repo=repo,
+                public_freeze_commit=freeze,
+                public_head_commit=head,
+                public_anchor_manifest=anchor_manifest,
+            )
+        finally:
+            temp.cleanup()
+        self.assertTrue(result["public_content_mapping_proven"])
+        self.assertTrue(result["public_chain_integral"])
+        self.assertFalse(result["public_control_proven"])
+        self.assertFalse(result["external_receipts_integral"])
+        self.assertFalse(result["eligible_for_v2_release_gate"])
+
+    def test_public_anchor_manifest_rejects_unsafe_ref_and_reordered_mapping(self) -> None:
+        bindings, envelopes, salt = make_chains()
+        temp, repo, freeze, head, anchor_manifest = make_public_git_repo(envelopes)
+        try:
+            unsafe = copy.deepcopy(anchor_manifest)
+            unsafe["public_ref"] = "refs/heads/main^"
+            unsafe_result = p2_pregate.evaluate_pregate(
+                private_bindings=bindings,
+                public_envelopes=envelopes,
+                window_salt=salt,
+                public_anchor_repo=repo,
+                public_freeze_commit=freeze,
+                public_head_commit=head,
+                public_anchor_manifest=unsafe,
+            )
+            reordered = copy.deepcopy(anchor_manifest)
+            reordered["receipts"] = list(reversed(reordered["receipts"]))
+            reordered_result = p2_pregate.evaluate_pregate(
+                private_bindings=bindings,
+                public_envelopes=envelopes,
+                window_salt=salt,
+                public_anchor_repo=repo,
+                public_freeze_commit=freeze,
+                public_head_commit=head,
+                public_anchor_manifest=reordered,
+            )
+        finally:
+            temp.cleanup()
+        self.assertFalse(unsafe_result["public_content_mapping_proven"])
+        self.assertIn("public_anchor_manifest_invalid", {issue["code"] for issue in unsafe_result["issues"]})
+        self.assertFalse(reordered_result["public_content_mapping_proven"])
+        self.assertIn("public_commit_sequence_mismatch", {issue["code"] for issue in reordered_result["issues"]})
+
+    def test_public_anchor_manifest_rejects_noncanonical_and_multi_file_commits(self) -> None:
+        bindings, envelopes, salt = make_chains()
+        temp, repo, freeze, head, anchor_manifest = make_public_git_repo(envelopes)
+        try:
+            last = anchor_manifest["receipts"][-1]
+            target = repo / str(last["path"])
+            target.write_text(json.dumps(envelopes[-1], indent=2), encoding="utf-8", newline="\n")
+            git_run(repo, "add", str(last["path"]))
+            git_run(repo, "commit", "--amend", "--no-edit")
+            new_head = git_run(repo, "rev-parse", "HEAD")
+            anchor_manifest["head_commit"] = new_head
+            last["commit"] = new_head
+            noncanonical_result = p2_pregate.evaluate_pregate(
+                private_bindings=bindings,
+                public_envelopes=envelopes,
+                window_salt=salt,
+                public_anchor_repo=repo,
+                public_freeze_commit=freeze,
+                public_head_commit=new_head,
+                public_anchor_manifest=anchor_manifest,
+            )
+        finally:
+            temp.cleanup()
+        self.assertFalse(noncanonical_result["public_content_mapping_proven"])
+        self.assertIn("public_envelope_noncanonical", {issue["code"] for issue in noncanonical_result["issues"]})
+
+    def test_manifest_alignment_positive_for_all_dispositions(self) -> None:
+        for disposition in ("accepted", "in_progress", "blocked", "cancelled", "rejected"):
+            with self.subTest(disposition=disposition):
+                bindings, envelopes, salt = make_chains()
+                result = p2_pregate.evaluate_pregate(
+                    private_bindings=bindings,
+                    public_envelopes=envelopes,
+                    window_salt=salt,
+                    final_manifest=make_manifest(bindings, disposition=disposition),
+                    manifest_alignment_index=make_alignment(bindings),
+                )
+                self.assertTrue(result["manifest_alignment_proven"])
+                self.assertFalse(result["eligible_for_v2_release_gate"])
+
+    def test_manifest_alignment_rejects_missing_duplicate_and_digest_mismatch(self) -> None:
+        bindings, envelopes, salt = make_chains()
+        manifest = make_manifest(bindings)
+        missing = p2_pregate.evaluate_pregate(
+            private_bindings=bindings,
+            public_envelopes=envelopes,
+            window_salt=salt,
+            final_manifest=manifest,
+            manifest_alignment_index={
+                "schema_version": "1.0",
+                "candidate_commit": bindings[0]["candidate_commit"],
+                "tasks": [],
+            },
+        )
+        duplicate = make_alignment(bindings)
+        duplicate["tasks"].append(copy.deepcopy(duplicate["tasks"][0]))
+        duplicate_result = p2_pregate.evaluate_pregate(
+            private_bindings=bindings,
+            public_envelopes=envelopes,
+            window_salt=salt,
+            final_manifest=manifest,
+            manifest_alignment_index=duplicate,
+        )
+        mismatch = make_alignment(bindings)
+        manifest_mismatch = copy.deepcopy(manifest)
+        manifest_mismatch["trials"][0]["acceptance_evidence_sha256"] = "f" * 64
+        mismatch_result = p2_pregate.evaluate_pregate(
+            private_bindings=bindings,
+            public_envelopes=envelopes,
+            window_salt=salt,
+            final_manifest=manifest_mismatch,
+            manifest_alignment_index=mismatch,
+        )
+        self.assertFalse(missing["manifest_alignment_proven"])
+        self.assertFalse(duplicate_result["manifest_alignment_proven"])
+        self.assertIn("manifest_alignment_invalid", {issue["code"] for issue in duplicate_result["issues"]})
+        self.assertFalse(mismatch_result["manifest_alignment_proven"])
+        self.assertIn(
+            "manifest_alignment_outcome_digest_mismatch",
+            {issue["code"] for issue in mismatch_result["issues"]},
+        )
+
+    def test_manifest_alignment_rejects_unknown_conditional_and_boolean_integer_fields(self) -> None:
+        bindings, envelopes, salt = make_chains()
+        manifest = make_manifest(bindings, disposition="blocked")
+        missing_outcome = copy.deepcopy(manifest)
+        del missing_outcome["trials"][0]["acceptance_evidence"]
+        missing_result = p2_pregate.evaluate_pregate(
+            private_bindings=bindings,
+            public_envelopes=envelopes,
+            window_salt=salt,
+            final_manifest=missing_outcome,
+            manifest_alignment_index=make_alignment(bindings),
+        )
+        unknown = copy.deepcopy(manifest)
+        unknown["trials"][0]["unexpected"] = True
+        unknown_result = p2_pregate.evaluate_pregate(
+            private_bindings=bindings,
+            public_envelopes=envelopes,
+            window_salt=salt,
+            final_manifest=unknown,
+            manifest_alignment_index=make_alignment(bindings),
+        )
+        bool_sequence = copy.deepcopy(make_alignment(bindings))
+        bool_sequence["tasks"][0]["ready_binding_sequence"] = True
+        with self.assertRaises(p2_pregate.SchemaValidationError):
+            p2_pregate.validate_manifest_alignment_index(bool_sequence)
+        uppercase_candidate = copy.deepcopy(make_alignment(bindings))
+        uppercase_candidate["candidate_commit"] = str(uppercase_candidate["candidate_commit"]).upper()
+        with self.assertRaises(p2_pregate.SchemaValidationError):
+            p2_pregate.validate_manifest_alignment_index(uppercase_candidate)
+        self.assertFalse(missing_result["manifest_alignment_proven"])
+        self.assertFalse(unknown_result["manifest_alignment_proven"])
+        self.assertIn("manifest_invalid", {issue["code"] for issue in missing_result["issues"]})
+        self.assertIn("manifest_invalid", {issue["code"] for issue in unknown_result["issues"]})
 
 
 if __name__ == "__main__":

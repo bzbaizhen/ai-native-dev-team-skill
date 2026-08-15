@@ -17,22 +17,29 @@ When an approved prospective task explicitly selects the P2 contract stage, load
 local-only [P2 pre-gate verifier](../scripts/p2_pregate.py) and its three strict
 schemas: [private binding](p2-private-binding.schema.json),
 [opaque envelope](p2-opaque-envelope.schema.json), and
-[retained external proof package](p2-external-proof-package.schema.json).
+[retained external proof package](p2-external-proof-package.schema.json), plus the
+[public anchor manifest](p2-public-anchor-manifest.schema.json) and
+[Manifest alignment index](p2-manifest-alignment.schema.json) when the two strict
+positive proof paths are supplied.
 These are progressive-disclosure contract material; they do not change the existing
 Release Audit schemas or invoke the V2 release gate.
 
 The P2 verifier uses the dependency-free `ai-native-cj-1` profile and checks private
-and public chain integrity, commitments, allowlists, and local evidence inventories.
+and public chain integrity, commitments, allowlists, exact local public-ref/Commit
+mapping, strict Manifest shape, and one-to-one private ready/outcome alignment.
+The positive local mapping paths require `--public-anchor-manifest` and
+`--manifest-alignment-index` (or the corresponding API inputs); omitted or invalid
+indexes remain blocking and fail closed.
 It remains fail-closed until a separately approved P3 adapter can cryptographically
 verify retained time/transparency material. Missing, invalid, or merely self-reported
 external proof therefore produces the stable blocking issue `trusted_time_missing`.
 No Git author/committer timestamp, URL, API identifier, screenshot, or proof JSON
 field named `verified` qualifies as trusted time. P2 implementation does not authorize
 P3 submission, public repository creation, Push, Tag, Release, or Skill installation.
-The local contract also refuses to infer exact public-ref/Commit-to-envelope mapping,
-private event-anchor endpoints, recovery from caller-declared digests, or one-to-one
-Manifest outcome/acceptance alignment. Those booleans remain false with explicit
-machine-readable issues until separately approved evidence and verifiers exist.
+The local verifier does not infer missing mapping/alignment evidence, private event
+anchor endpoints, or recovery from caller-declared digests. `public_control_proven`,
+`external_receipts_integral`, `pre_outcome_order_proven`, `recovery_demonstrated`, and
+`eligible_for_v2_release_gate` remain false even when local mapping/alignment passes.
 
 ## Freeze the audit inputs
 

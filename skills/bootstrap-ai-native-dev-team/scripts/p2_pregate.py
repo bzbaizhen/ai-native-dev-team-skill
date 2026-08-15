@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Iterable, Mapping
+from datetime import datetime
 import hashlib
 import json
 from pathlib import Path
@@ -304,6 +305,39 @@ _PROVIDER = re.compile(r"^[a-z][a-z0-9_-]{0,63}$")
 _TOKEN = re.compile(r"^[a-zA-Z0-9._-]{1,96}$")
 _PROTOCOL_VERSION = re.compile(r"^[a-zA-Z0-9._-]{1,64}$")
 _RELATIVE_PROOF_PATH = re.compile(r"^[a-zA-Z0-9._/-]+$")
+_PUBLIC_REF = re.compile(r"^refs/(?:heads|tags)/[A-Za-z0-9][A-Za-z0-9._/-]*$")
+_PUBLIC_RECEIPT_PATH = re.compile(
+    r"^[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*\.json$"
+)
+_PRINTABLE_TOKEN = re.compile(r"^[!-~]+$")
+_LOWER_SHA1 = re.compile(r"^[0-9a-f]{40}$")
+_MANIFEST_SHA1 = re.compile(r"^[0-9a-fA-F]{40}$")
+_MANIFEST_SHA256 = re.compile(r"^[0-9a-fA-F]{64}$")
+_SAFE_REF = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]*$")
+
+PUBLIC_ANCHOR_MANIFEST_FIELDS = {
+    "schema_version",
+    "public_ref",
+    "freeze_commit",
+    "head_commit",
+    "receipts",
+}
+PUBLIC_ANCHOR_RECEIPT_FIELDS = {
+    "sequence",
+    "commit",
+    "path",
+    "envelope_sha256",
+}
+MANIFEST_ALIGNMENT_FIELDS = {
+    "schema_version",
+    "candidate_commit",
+    "tasks",
+}
+MANIFEST_ALIGNMENT_TASK_FIELDS = {
+    "task_id",
+    "ready_binding_sequence",
+    "outcome_binding_sequence",
+}
 
 
 def _is_normalized_relative_posix_path(path: str) -> bool:
@@ -316,6 +350,161 @@ def _is_normalized_relative_posix_path(path: str) -> bool:
     if not pure.parts or pure.is_absolute() or pure.as_posix() != path:
         return False
     return all(part not in {"", ".", ".."} for part in pure.parts)
+
+
+def _is_public_receipt_path(path: str) -> bool:
+    """Accept one normalized relative POSIX JSON path for a public receipt."""
+
+    if not isinstance(path, str) or not _PUBLIC_RECEIPT_PATH.fullmatch(path):
+        return False
+    return _is_normalized_relative_posix_path(path)
+
+
+def _require_manifest_string(value: Any, field: str, location: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise SchemaValidationError(f"{location}.{field}: non-empty string required")
+    return value
+
+
+def _require_manifest_sha(value: Any, field: str, location: str, pattern: re.Pattern[str]) -> str:
+    if not isinstance(value, str) or not pattern.fullmatch(value):
+        raise SchemaValidationError(f"{location}.{field}: invalid digest")
+    return value
+
+
+def _manifest_time(value: Any, field: str, location: str) -> datetime:
+    text = _require_manifest_string(value, field, location)
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise SchemaValidationError(f"{location}.{field}: invalid RFC 3339 date-time") from exc
+    if parsed.tzinfo is None:
+        raise SchemaValidationError(f"{location}.{field}: timezone is required")
+    return parsed
+
+
+def _validate_integration_proof_local(value: Any, location: str) -> dict[str, Any]:
+    """Mirror the validation-only shape contract of v2_release_gate."""
+
+    if not isinstance(value, dict):
+        raise SchemaValidationError(f"{location}: object required")
+    mode = value.get("mode")
+    if mode == "same_commit":
+        if set(value) != {"mode"}:
+            raise SchemaValidationError(f"{location}: same_commit fields differ")
+        return value
+    if mode != "same_tree" or set(value) != {
+        "mode",
+        "candidate_ref",
+        "candidate_tree",
+        "stable_tree",
+        "tree_scope",
+    }:
+        raise SchemaValidationError(f"{location}: integration proof fields differ")
+    candidate_ref = value["candidate_ref"]
+    if (
+        not isinstance(candidate_ref, str)
+        or not re.fullmatch(r"^refs/(?:heads|tags)/.+$", candidate_ref)
+        or any(token in candidate_ref for token in ("^", "~", "@{"))
+    ):
+        raise SchemaValidationError(f"{location}.candidate_ref: invalid full Git ref")
+    _require_manifest_sha(value["candidate_tree"], "candidate_tree", location, _MANIFEST_SHA1)
+    _require_manifest_sha(value["stable_tree"], "stable_tree", location, _MANIFEST_SHA1)
+    tree_scope = value["tree_scope"]
+    if not isinstance(tree_scope, dict) or set(tree_scope) != {
+        "history_sensitive",
+        "non_tree_dependencies",
+    }:
+        raise SchemaValidationError(f"{location}.tree_scope: fields differ")
+    if tree_scope["history_sensitive"] is not False:
+        raise SchemaValidationError(f"{location}.tree_scope.history_sensitive: must be false")
+    dependencies = tree_scope["non_tree_dependencies"]
+    if not isinstance(dependencies, list) or any(not isinstance(item, str) for item in dependencies):
+        raise SchemaValidationError(f"{location}.tree_scope.non_tree_dependencies: string array required")
+    if dependencies:
+        raise SchemaValidationError(f"{location}.tree_scope.non_tree_dependencies: must be empty")
+    return value
+
+
+def validate_public_anchor_manifest(
+    value: Any,
+    location: str = "public_anchor_manifest",
+) -> dict[str, Any]:
+    """Validate the explicit public ref and one-envelope-per-Commit index."""
+
+    _validate_cj_value(value, location)
+    obj = _require_exact_fields(value, PUBLIC_ANCHOR_MANIFEST_FIELDS, location)
+    if obj["schema_version"] != SCHEMA_VERSION:
+        raise SchemaValidationError(f"{location}.schema_version: unsupported version")
+    public_ref = obj["public_ref"]
+    if (
+        not isinstance(public_ref, str)
+        or not _PUBLIC_REF.fullmatch(public_ref)
+        or any(token in public_ref for token in ("^", "~", "@{"))
+    ):
+        raise SchemaValidationError(f"{location}.public_ref: unsafe Git ref")
+    _require_manifest_sha(obj["freeze_commit"], "freeze_commit", location, SHA1_HEX)
+    _require_manifest_sha(obj["head_commit"], "head_commit", location, SHA1_HEX)
+    receipts = obj["receipts"]
+    if not isinstance(receipts, list) or not receipts:
+        raise SchemaValidationError(f"{location}.receipts: non-empty array required")
+    seen_sequences: set[int] = set()
+    seen_commits: set[str] = set()
+    seen_paths: set[str] = set()
+    for index, item in enumerate(receipts):
+        item_location = f"{location}.receipts[{index}]"
+        _validate_cj_value(item, item_location)
+        receipt = _require_exact_fields(item, PUBLIC_ANCHOR_RECEIPT_FIELDS, item_location)
+        sequence = _require_int(receipt["sequence"], "sequence", item_location, positive=True)
+        if sequence in seen_sequences:
+            raise SchemaValidationError(f"{item_location}.sequence: duplicate sequence")
+        seen_sequences.add(sequence)
+        commit = _require_manifest_sha(receipt["commit"], "commit", item_location, SHA1_HEX)
+        if commit in seen_commits:
+            raise SchemaValidationError(f"{item_location}.commit: duplicate Commit")
+        seen_commits.add(commit)
+        path = receipt["path"]
+        if not _is_public_receipt_path(path):
+            raise SchemaValidationError(f"{item_location}.path: normalized relative JSON path required")
+        if path in seen_paths:
+            raise SchemaValidationError(f"{item_location}.path: duplicate path")
+        seen_paths.add(path)
+        _require_manifest_sha(receipt["envelope_sha256"], "envelope_sha256", item_location, SHA256_HEX)
+    if sorted(seen_sequences) != list(range(1, len(receipts) + 1)):
+        raise SchemaValidationError(f"{location}.receipts: sequence must be gap-free from 1")
+    return obj
+
+
+def validate_manifest_alignment_index(
+    value: Any,
+    location: str = "manifest_alignment",
+) -> dict[str, Any]:
+    """Validate the task-to-private-binding sequence index."""
+
+    _validate_cj_value(value, location)
+    obj = _require_exact_fields(value, MANIFEST_ALIGNMENT_FIELDS, location)
+    if obj["schema_version"] != SCHEMA_VERSION:
+        raise SchemaValidationError(f"{location}.schema_version: unsupported version")
+    _require_manifest_sha(obj["candidate_commit"], "candidate_commit", location, _LOWER_SHA1)
+    tasks = obj["tasks"]
+    if not isinstance(tasks, list):
+        raise SchemaValidationError(f"{location}.tasks: array required")
+    seen_task_ids: set[str] = set()
+    for index, item in enumerate(tasks):
+        item_location = f"{location}.tasks[{index}]"
+        _validate_cj_value(item, item_location)
+        task = _require_exact_fields(item, MANIFEST_ALIGNMENT_TASK_FIELDS, item_location)
+        task_id = task["task_id"]
+        if not isinstance(task_id, str) or not _PRINTABLE_TOKEN.fullmatch(task_id):
+            raise SchemaValidationError(f"{item_location}.task_id: printable ASCII token required")
+        if task_id in seen_task_ids:
+            raise SchemaValidationError(f"{item_location}.task_id: duplicate task_id")
+        seen_task_ids.add(task_id)
+        ready = _require_int(task["ready_binding_sequence"], "ready_binding_sequence", item_location, positive=True)
+        outcome = _require_int(task["outcome_binding_sequence"], "outcome_binding_sequence", item_location, positive=True)
+        if outcome <= ready:
+            raise SchemaValidationError(f"{item_location}.outcome_binding_sequence: must follow ready sequence")
+    return obj
 
 
 def validate_external_proof_package(value: Any, location: str = "proof_package") -> dict[str, Any]:
@@ -636,6 +825,206 @@ def _verify_private_binding_anchors(
     return valid
 
 
+def _run_git_text(repo: Path, *args: str) -> subprocess.CompletedProcess[str] | None:
+    try:
+        return subprocess.run(
+            ["git", "-C", str(repo), *args],
+            check=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+    except (OSError, TypeError, ValueError):
+        return None
+
+
+def _git_blob_bytes(repo: Path, commit: str, path: str) -> bytes | None:
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(repo), "show", f"{commit}:{path}"],
+            check=False,
+            capture_output=True,
+        )
+    except (OSError, TypeError, ValueError):
+        return None
+    if result.returncode != 0:
+        return None
+    return result.stdout
+
+
+def _git_name_status(repo: Path, *args: str) -> list[tuple[str, str]] | None:
+    result = _run_git_text(repo, *args)
+    if result is None or result.returncode != 0:
+        return None
+    entries: list[tuple[str, str]] = []
+    for line in result.stdout.splitlines():
+        if not line.strip():
+            continue
+        status, separator, path = line.partition("\t")
+        if not separator:
+            return None
+        entries.append((status, path))
+    return entries
+
+
+def _verify_public_ref(
+    repo: Path,
+    public_ref: str,
+    expected_head: str,
+    issues: list[dict[str, str]],
+) -> bool:
+    valid = True
+    checked = _run_git_text(repo, "check-ref-format", public_ref)
+    if checked is None or checked.returncode != 0:
+        _add_issue(issues, "public_ref_invalid", "public ref fails git check-ref-format")
+        return False
+    resolved = _run_git_text(repo, "rev-parse", "--verify", f"{public_ref}^{{commit}}")
+    target = resolved.stdout.strip() if resolved is not None else ""
+    if resolved is None or resolved.returncode != 0 or not SHA1_HEX.fullmatch(target):
+        _add_issue(issues, "public_ref_missing", "public ref does not resolve to a Commit")
+        return False
+    if target != expected_head:
+        _add_issue(issues, "public_ref_head_mismatch", "public ref does not resolve to trusted head Commit")
+        valid = False
+    return valid
+
+
+def _verify_public_anchor_manifest(
+    repo: Any,
+    source: Any,
+    public_values: list[dict[str, Any]],
+    trusted_freeze: Any,
+    trusted_head: Any,
+    issues: list[dict[str, str]],
+) -> bool:
+    """Verify exact public ref, history, Git changes and envelope bytes."""
+
+    if source is None:
+        _add_issue(issues, "public_anchor_unproven", "explicit public ref and Commit-to-envelope manifest are required")
+        return False
+    if not isinstance(repo, (str, Path)) or not isinstance(trusted_freeze, str) or not isinstance(trusted_head, str):
+        _add_issue(issues, "public_anchor_unproven", "public anchor repo and trusted freeze/head are required")
+        return False
+    try:
+        manifest = _load_single_object(source, "public_anchor_manifest")
+        manifest = validate_public_anchor_manifest(manifest)
+    except P2PregateError as exc:
+        _add_issue(issues, "public_anchor_manifest_invalid", str(exc))
+        return False
+    if manifest["freeze_commit"] != trusted_freeze or manifest["head_commit"] != trusted_head:
+        _add_issue(issues, "public_anchor_manifest_endpoint_mismatch", "public anchor freeze/head differs from trusted inputs")
+        return False
+    repo_path = Path(repo)
+    root = _run_git_text(repo_path, "rev-parse", "--show-toplevel")
+    if root is None or root.returncode != 0 or Path(root.stdout.strip()).resolve() != repo_path.resolve():
+        _add_issue(issues, "public_anchor_repo_not_root", "public_anchor_repo must be the Git root")
+        return False
+    if not _verify_public_ref(repo_path, manifest["public_ref"], trusted_head, issues):
+        return False
+
+    receipt_commits = [receipt["commit"] for receipt in manifest["receipts"]]
+    history = _run_git_text(
+        repo_path,
+        "rev-list",
+        "--reverse",
+        "--first-parent",
+        f"{trusted_freeze}..{trusted_head}",
+    )
+    if history is None or history.returncode != 0:
+        _add_issue(issues, "public_history_unreadable", "public first-parent history could not be read")
+        return False
+    history_commits = [line.strip() for line in history.stdout.splitlines() if line.strip()]
+    count_result = _run_git_text(repo_path, "rev-list", "--count", f"{trusted_freeze}..{trusted_head}")
+    try:
+        all_count = int(count_result.stdout.strip()) if count_result is not None and count_result.returncode == 0 else -1
+    except ValueError:
+        all_count = -1
+    valid = True
+    if all_count != len(history_commits):
+        _add_issue(issues, "public_history_side_branch", "public history contains side-history outside first-parent chain")
+        valid = False
+    if history_commits != receipt_commits:
+        _add_issue(issues, "public_commit_sequence_mismatch", "public Git history does not equal manifest receipt Commit sequence")
+        valid = False
+    previous = trusted_freeze
+    for commit in history_commits:
+        parents_result = _run_git_text(repo_path, "show", "-s", "--format=%P", commit)
+        parents = parents_result.stdout.split() if parents_result is not None and parents_result.returncode == 0 else []
+        if parents != [previous]:
+            _add_issue(issues, "public_history_nonlinear", "public history contains a merge or discontinuity")
+            valid = False
+        previous = commit
+
+    values_by_sequence = {value["sequence"]: value for value in public_values}
+    if len(values_by_sequence) != len(public_values) or len(public_values) != len(manifest["receipts"]):
+        _add_issue(issues, "public_mapping_count_mismatch", "public anchor receipts and supplied envelopes differ in count")
+        valid = False
+    for receipt in manifest["receipts"]:
+        sequence = receipt["sequence"]
+        commit = receipt["commit"]
+        path = receipt["path"]
+        changes = _git_name_status(
+            repo_path,
+            "diff-tree",
+            "--no-commit-id",
+            "--name-status",
+            "--no-renames",
+            "-r",
+            commit,
+        )
+        if changes != [("A", path)]:
+            _add_issue(issues, "public_commit_change_invalid", "each public receipt Commit must add only its mapped path")
+            valid = False
+        if _git_blob_bytes(repo_path, trusted_freeze, path) is not None:
+            _add_issue(issues, "public_freeze_contains_receipt", "public freeze tree already contains a mapped receipt path")
+            valid = False
+        raw = _git_blob_bytes(repo_path, commit, path)
+        if raw is None:
+            _add_issue(issues, "public_envelope_blob_missing", "mapped envelope bytes are absent from Commit")
+            valid = False
+            continue
+        try:
+            parsed = parse_json_bytes(raw)
+            validate_opaque_envelope(parsed, f"public_git[{sequence}]")
+            canonical = canonicalize_value(parsed)
+        except P2PregateError as exc:
+            _add_issue(issues, "public_envelope_noncanonical", str(exc))
+            valid = False
+            continue
+        if raw != canonical:
+            _add_issue(issues, "public_envelope_noncanonical", "mapped Git envelope bytes are not canonical")
+            valid = False
+        if hashlib.sha256(raw).hexdigest() != receipt["envelope_sha256"]:
+            _add_issue(issues, "public_envelope_digest_mismatch", "mapped Git envelope digest differs from manifest")
+            valid = False
+        supplied = values_by_sequence.get(sequence)
+        if supplied is None:
+            _add_issue(issues, "public_envelope_sequence_missing", "mapped Commit has no supplied same-sequence envelope")
+            valid = False
+        else:
+            try:
+                supplied_bytes = canonicalize_value(supplied)
+            except P2PregateError:
+                supplied_bytes = b""
+            if supplied_bytes != raw or envelope_sha256(supplied) != receipt["envelope_sha256"]:
+                _add_issue(issues, "public_commit_envelope_mismatch", "mapped Commit bytes differ from supplied envelope")
+                valid = False
+    final_changes = _git_name_status(
+        repo_path,
+        "diff",
+        "--name-status",
+        "--no-renames",
+        trusted_freeze,
+        trusted_head,
+    )
+    expected_changes = sorted(("A", receipt["path"]) for receipt in manifest["receipts"])
+    if final_changes is None or sorted(final_changes) != expected_changes:
+        _add_issue(issues, "public_final_diff_invalid", "public freeze-to-head diff is not exactly the mapped additions")
+        valid = False
+    return valid
+
+
 def _proof_documents(source: Any, issues: list[dict[str, str]]) -> list[dict[str, Any]]:
     try:
         documents = _load_documents(source, "proof_packages")
@@ -697,50 +1086,366 @@ MANIFEST_REQUIRED_FIELDS = {
     "trials",
 }
 MANIFEST_DISPOSITIONS = {"accepted", "in_progress", "blocked", "cancelled", "rejected"}
+MANIFEST_SOURCE_FIELDS = {
+    "source_id",
+    "project_alias",
+    "project_evidence_id",
+    "project_repo",
+    "stable_branch",
+    "ledger",
+    "ledger_prefix_bytes",
+    "ledger_prefix_sha256",
+    "ledger_sha256",
+}
+MANIFEST_REQUIRED_TRIAL_FIELDS = {
+    "trial_id",
+    "registration_sequence",
+    "source_id",
+    "task_id",
+    "skill_candidate_commit",
+    "request_evidence",
+    "request_evidence_sha256",
+    "v1_baseline_id",
+    "v1_baseline_stratum",
+    "comparable",
+    "disposition",
+    "genuine_request",
+    "synthetic",
+    "critical_defect_escape",
+    "material_quality_regression",
+    "scope_violation",
+    "write_conflict",
+    "recovery_executable",
+}
+MANIFEST_ACCEPTED_FIELDS = {
+    "candidate_commit",
+    "stable_commit",
+    "acceptance_evidence",
+    "acceptance_evidence_sha256",
+    "integration_proof",
+}
+MANIFEST_OPTIONAL_TRIAL_FIELDS = {"exclusion_reason", "notes"}
+MANIFEST_TRIAL_FIELDS = (
+    MANIFEST_REQUIRED_TRIAL_FIELDS
+    | MANIFEST_ACCEPTED_FIELDS
+    | MANIFEST_OPTIONAL_TRIAL_FIELDS
+)
+MANIFEST_QUALITY_FIELDS = {
+    "critical_defect_escape",
+    "material_quality_regression",
+    "scope_violation",
+    "write_conflict",
+    "recovery_executable",
+}
+
+
+def _validate_manifest_object(
+    value: Any,
+    expected_candidate: str | None,
+    location: str,
+    *,
+    p2_overlay: bool,
+) -> dict[str, Any]:
+    """Validate the frozen Manifest boundary without importing the V2 gate."""
+
+    if not isinstance(value, dict):
+        raise SchemaValidationError(f"{location}: object required")
+    unknown = set(value) - MANIFEST_REQUIRED_FIELDS
+    missing = MANIFEST_REQUIRED_FIELDS - set(value)
+    if unknown or missing:
+        raise SchemaValidationError(
+            f"{location} fields differ; missing={sorted(missing)}, unknown={sorted(unknown)}"
+        )
+    if value["schema_version"] != "2.0":
+        raise SchemaValidationError(f"{location}.schema_version: unsupported version")
+    _require_manifest_string(value["candidate_version"], "candidate_version", location)
+    candidate = _require_manifest_sha(value["candidate_commit"], "candidate_commit", location, _MANIFEST_SHA1)
+    if expected_candidate is not None and candidate.casefold() != expected_candidate.casefold():
+        raise SchemaValidationError(f"{location}.candidate_commit: differs from trusted candidate")
+    frozen = _manifest_time(value["candidate_frozen_at"], "candidate_frozen_at", location)
+    closed = _manifest_time(value["registry_closed_at"], "registry_closed_at", location)
+    if closed <= frozen:
+        raise SchemaValidationError(f"{location}.registry_closed_at: must be after candidate_frozen_at")
+    _require_manifest_string(value["source_registry"], "source_registry", location)
+    _require_manifest_sha(value["source_registry_sha256"], "source_registry_sha256", location, _MANIFEST_SHA256)
+    required_count = value["required_comparable_tasks"]
+    if isinstance(required_count, bool) or not isinstance(required_count, int) or required_count < 5:
+        raise SchemaValidationError(f"{location}.required_comparable_tasks: integer of at least 5 required")
+
+    sources = value["sources"]
+    if not isinstance(sources, list) or not sources:
+        raise SchemaValidationError(f"{location}.sources: non-empty array required")
+    source_ids: set[str] = set()
+    project_ids: set[str] = set()
+    source_project_ids: dict[str, str] = {}
+    for index, source in enumerate(sources):
+        source_location = f"{location}.sources[{index}]"
+        if not isinstance(source, dict):
+            raise SchemaValidationError(f"{source_location}: object required")
+        source_unknown = set(source) - MANIFEST_SOURCE_FIELDS
+        source_missing = MANIFEST_SOURCE_FIELDS - set(source)
+        if source_unknown or source_missing:
+            raise SchemaValidationError(
+                f"{source_location} fields differ; missing={sorted(source_missing)}, unknown={sorted(source_unknown)}"
+            )
+        source_id = _require_manifest_string(source["source_id"], "source_id", source_location)
+        project_id = _require_manifest_string(source["project_evidence_id"], "project_evidence_id", source_location)
+        if source_id in source_ids:
+            raise SchemaValidationError(f"{source_location}.source_id: duplicate source_id")
+        if project_id in project_ids:
+            raise SchemaValidationError(f"{source_location}.project_evidence_id: duplicate project evidence identity")
+        source_ids.add(source_id)
+        project_ids.add(project_id)
+        source_project_ids[source_id] = project_id
+        for field in ("project_alias", "project_repo", "stable_branch", "ledger"):
+            text = _require_manifest_string(source[field], field, source_location)
+            if field == "stable_branch" and not _SAFE_REF.fullmatch(text):
+                raise SchemaValidationError(f"{source_location}.stable_branch: unsafe Git ref")
+        prefix_bytes = source["ledger_prefix_bytes"]
+        if isinstance(prefix_bytes, bool) or not isinstance(prefix_bytes, int) or prefix_bytes < 0:
+            raise SchemaValidationError(f"{source_location}.ledger_prefix_bytes: non-negative integer required")
+        _require_manifest_sha(source["ledger_prefix_sha256"], "ledger_prefix_sha256", source_location, _MANIFEST_SHA256)
+        _require_manifest_sha(source["ledger_sha256"], "ledger_sha256", source_location, _MANIFEST_SHA256)
+
+    trials = value["trials"]
+    if not isinstance(trials, list):
+        raise SchemaValidationError(f"{location}.trials: array required")
+    trial_ids: set[str] = set()
+    identities: set[tuple[str, str, str]] = set()
+    registration_sequences: set[int] = set()
+    request_digests: set[str] = set()
+    acceptance_digests: set[str] = set()
+    for index, trial in enumerate(trials):
+        trial_location = f"{location}.trials[{index}]"
+        if not isinstance(trial, dict):
+            raise SchemaValidationError(f"{trial_location}: object required")
+        trial_unknown = set(trial) - MANIFEST_TRIAL_FIELDS
+        trial_missing = MANIFEST_REQUIRED_TRIAL_FIELDS - set(trial)
+        if trial_unknown or trial_missing:
+            raise SchemaValidationError(
+                f"{trial_location} fields differ; missing={sorted(trial_missing)}, unknown={sorted(trial_unknown)}"
+            )
+        for field in (
+            "trial_id",
+            "source_id",
+            "task_id",
+            "request_evidence",
+            "request_evidence_sha256",
+            "disposition",
+        ):
+            _require_manifest_string(trial[field], field, trial_location)
+        trial_id = trial["trial_id"]
+        if trial_id in trial_ids:
+            raise SchemaValidationError(f"{trial_location}.trial_id: duplicate trial_id")
+        trial_ids.add(trial_id)
+        source_id = trial["source_id"]
+        if source_id not in source_ids:
+            raise SchemaValidationError(f"{trial_location}.source_id: source is not declared")
+        identity = (candidate.casefold(), source_project_ids[source_id], trial["task_id"])
+        if identity in identities:
+            raise SchemaValidationError(f"{trial_location}: duplicate trial task identity")
+        identities.add(identity)
+        sequence = _require_int(trial["registration_sequence"], "registration_sequence", trial_location, positive=True)
+        if sequence in registration_sequences:
+            raise SchemaValidationError(f"{trial_location}.registration_sequence: duplicate sequence")
+        registration_sequences.add(sequence)
+        if trial["skill_candidate_commit"].casefold() != candidate.casefold():
+            raise SchemaValidationError(f"{trial_location}.skill_candidate_commit: differs from candidate")
+        request_digest = _require_manifest_sha(
+            trial["request_evidence_sha256"], "request_evidence_sha256", trial_location, _MANIFEST_SHA256
+        ).casefold()
+        if request_digest in request_digests:
+            raise SchemaValidationError(f"{trial_location}.request_evidence_sha256: duplicate digest")
+        request_digests.add(request_digest)
+        for field in {"comparable", "genuine_request", "synthetic"} | MANIFEST_QUALITY_FIELDS:
+            if not isinstance(trial[field], bool):
+                raise SchemaValidationError(f"{trial_location}.{field}: boolean required")
+        if trial["disposition"] not in MANIFEST_DISPOSITIONS:
+            raise SchemaValidationError(f"{trial_location}.disposition: invalid disposition")
+        if trial["comparable"]:
+            _require_manifest_string(trial["v1_baseline_id"], "v1_baseline_id", trial_location)
+            stratum = _require_manifest_string(trial["v1_baseline_stratum"], "v1_baseline_stratum", trial_location)
+            if not re.fullmatch(r"^C[0-3]\|R[0-3]\|(no-delegation|single-worker|task-cell|team-required)$", stratum):
+                raise SchemaValidationError(f"{trial_location}.v1_baseline_stratum: invalid stratum")
+        else:
+            if trial["v1_baseline_id"] is not None or trial["v1_baseline_stratum"] is not None:
+                raise SchemaValidationError(f"{trial_location}: non-comparable baseline fields must be null")
+            _require_manifest_string(trial.get("exclusion_reason"), "exclusion_reason", trial_location)
+
+        if trial["disposition"] == "accepted":
+            accepted_missing = MANIFEST_ACCEPTED_FIELDS - set(trial)
+            if accepted_missing:
+                raise SchemaValidationError(f"{trial_location}: accepted fields missing {sorted(accepted_missing)}")
+            _require_manifest_sha(trial["candidate_commit"], "candidate_commit", trial_location, _MANIFEST_SHA1)
+            _require_manifest_sha(trial["stable_commit"], "stable_commit", trial_location, _MANIFEST_SHA1)
+            if expected_candidate is not None and trial["candidate_commit"].casefold() != expected_candidate.casefold():
+                raise SchemaValidationError(f"{trial_location}.candidate_commit: differs from trusted candidate")
+            _require_manifest_string(trial["acceptance_evidence"], "acceptance_evidence", trial_location)
+            acceptance_digest = _require_manifest_sha(
+                trial["acceptance_evidence_sha256"], "acceptance_evidence_sha256", trial_location, _MANIFEST_SHA256
+            ).casefold()
+            _validate_integration_proof_local(trial["integration_proof"], f"{trial_location}.integration_proof")
+            if acceptance_digest in acceptance_digests:
+                raise SchemaValidationError(f"{trial_location}.acceptance_evidence_sha256: duplicate digest")
+            acceptance_digests.add(acceptance_digest)
+        elif p2_overlay:
+            # The P2 overlay retains an outcome artifact for every disposition;
+            # candidate/stable/integration fields remain accepted-only fields.
+            forbidden = {"candidate_commit", "stable_commit", "integration_proof"} & set(trial)
+            if forbidden:
+                raise SchemaValidationError(f"{trial_location}: non-accepted trial has accepted-only fields {sorted(forbidden)}")
+            if "acceptance_evidence" not in trial or "acceptance_evidence_sha256" not in trial:
+                raise SchemaValidationError(f"{trial_location}: P2 outcome evidence is required for every disposition")
+            _require_manifest_string(trial["acceptance_evidence"], "acceptance_evidence", trial_location)
+            acceptance_digest = _require_manifest_sha(
+                trial["acceptance_evidence_sha256"], "acceptance_evidence_sha256", trial_location, _MANIFEST_SHA256
+            ).casefold()
+            if acceptance_digest in acceptance_digests:
+                raise SchemaValidationError(f"{trial_location}.acceptance_evidence_sha256: duplicate digest")
+            acceptance_digests.add(acceptance_digest)
+        elif set(trial) & MANIFEST_ACCEPTED_FIELDS:
+            raise SchemaValidationError(f"{trial_location}: non-accepted trial has acceptance-only fields")
+
+        if "notes" in trial:
+            notes = trial["notes"]
+            if not isinstance(notes, list) or any(not isinstance(note, str) for note in notes):
+                raise SchemaValidationError(f"{trial_location}.notes: string array required")
+    return value
+
+
+def _load_single_object(source: Any, label: str) -> dict[str, Any] | None:
+    documents = _load_documents(source, label)
+    if len(documents) != 1 or not isinstance(documents[0][1], dict):
+        raise P2PregateError(f"{label}: exactly one JSON object is required")
+    return documents[0][1]
+
+
+def _validated_final_manifest(
+    source: Any,
+    expected_candidate: str | None,
+    issues: list[dict[str, str]],
+    *,
+    p2_overlay: bool,
+) -> dict[str, Any] | None:
+    if source is None:
+        _add_issue(issues, "manifest_missing", "final private trial Manifest is required")
+        return None
+    try:
+        value = _load_single_object(source, "final_manifest")
+        return _validate_manifest_object(
+            value,
+            expected_candidate,
+            "final_manifest",
+            p2_overlay=p2_overlay,
+        )
+    except P2PregateError as exc:
+        _add_issue(issues, "manifest_invalid", str(exc))
+        return None
 
 
 def _validate_final_manifest(source: Any, expected_candidate: str | None, issues: list[dict[str, str]]) -> bool:
-    """Validate only the manifest boundary; never claim outcome alignment here."""
+    """Compatibility wrapper for strict base Manifest validation."""
 
-    if source is None:
-        _add_issue(issues, "manifest_missing", "final private trial Manifest is required")
-        _add_issue(issues, "manifest_alignment_unproven", "outcomes and acceptance evidence are not one-to-one aligned")
+    return _validated_final_manifest(source, expected_candidate, issues, p2_overlay=False) is not None
+
+
+def _verify_manifest_alignment(
+    final_manifest: Any,
+    alignment_source: Any,
+    expected_candidate: str | None,
+    private_values: list[dict[str, Any]],
+    issues: list[dict[str, str]],
+) -> bool:
+    """Bind every Manifest trial to exactly one ready/outcome binding pair."""
+
+    start = len(issues)
+    manifest = _validated_final_manifest(
+        final_manifest,
+        expected_candidate,
+        issues,
+        p2_overlay=True,
+    )
+    if alignment_source is None:
+        _add_issue(issues, "manifest_alignment_missing", "explicit Manifest alignment index is required")
         return False
     try:
-        documents = _load_documents(source, "final_manifest")
+        alignment = validate_manifest_alignment_index(
+            _load_single_object(alignment_source, "manifest_alignment")
+        )
     except P2PregateError as exc:
-        _add_issue(issues, "manifest_invalid", str(exc))
-        _add_issue(issues, "manifest_alignment_unproven", "outcomes and acceptance evidence are not one-to-one aligned")
+        _add_issue(issues, "manifest_alignment_invalid", str(exc))
         return False
-    if len(documents) != 1 or not isinstance(documents[0][1], dict):
-        _add_issue(issues, "manifest_invalid", "final Manifest must be exactly one object")
-        _add_issue(issues, "manifest_alignment_unproven", "outcomes and acceptance evidence are not one-to-one aligned")
+    if manifest is None:
         return False
-    manifest = documents[0][1]
-    missing = MANIFEST_REQUIRED_FIELDS - set(manifest)
-    if missing:
-        _add_issue(issues, "manifest_invalid", f"final Manifest is missing fields {sorted(missing)}")
-    if manifest.get("schema_version") != "2.0":
-        _add_issue(issues, "manifest_invalid", "final Manifest schema_version must be 2.0")
-    if not isinstance(manifest.get("candidate_commit"), str) or not SHA1_HEX.fullmatch(manifest.get("candidate_commit", "")):
-        _add_issue(issues, "manifest_invalid", "final Manifest candidate_commit is invalid")
-    if expected_candidate is not None and manifest.get("candidate_commit") != expected_candidate:
-        _add_issue(issues, "manifest_candidate_mismatch", "final Manifest candidate differs from trusted candidate")
-    if not isinstance(manifest.get("sources"), list) or not manifest["sources"]:
-        _add_issue(issues, "manifest_invalid", "final Manifest sources must be a non-empty list")
-    if not isinstance(manifest.get("trials"), list):
-        _add_issue(issues, "manifest_invalid", "final Manifest trials must be a list")
-    else:
-        for index, trial in enumerate(manifest["trials"]):
-            if not isinstance(trial, dict) or not isinstance(trial.get("task_id"), str) or not trial["task_id"]:
-                _add_issue(issues, "manifest_invalid", f"final Manifest trial {index} has no task_id")
-            if isinstance(trial, dict) and trial.get("disposition") not in MANIFEST_DISPOSITIONS:
-                _add_issue(issues, "manifest_invalid", f"final Manifest trial {index} has invalid disposition")
-    # The private binding intentionally carries no task identity.  Without a
-    # separately approved alignment input, accepting this Manifest would be a
-    # false claim about outcome/acceptance coverage.
-    _add_issue(issues, "manifest_alignment_unproven", "outcomes and acceptance evidence are not one-to-one aligned")
-    return False
+    if expected_candidate is not None and alignment["candidate_commit"] != expected_candidate:
+        _add_issue(issues, "manifest_alignment_candidate_mismatch", "alignment candidate differs from trusted candidate")
+    if alignment["candidate_commit"] != manifest["candidate_commit"].casefold():
+        _add_issue(issues, "manifest_alignment_candidate_mismatch", "alignment candidate differs from Manifest")
+
+    trials = manifest["trials"]
+    trial_by_task: dict[str, dict[str, Any]] = {}
+    for trial in trials:
+        task_id = trial["task_id"]
+        if task_id in trial_by_task:
+            _add_issue(issues, "manifest_alignment_task_duplicate", "Manifest task_id is ambiguous for alignment")
+        trial_by_task[task_id] = trial
+    alignment_by_task = {task["task_id"]: task for task in alignment["tasks"]}
+    if set(alignment_by_task) != set(trial_by_task) or len(alignment_by_task) != len(trial_by_task):
+        _add_issue(issues, "manifest_alignment_task_set_mismatch", "alignment tasks must equal Manifest trials one-to-one")
+
+    ready_by_sequence: dict[int, dict[str, Any]] = {}
+    outcome_by_sequence: dict[int, dict[str, Any]] = {}
+    for binding in private_values:
+        sequence = binding["sequence"]
+        if binding["record_kind"] == "task_ready":
+            if sequence in ready_by_sequence:
+                _add_issue(issues, "manifest_alignment_ready_duplicate", "task_ready binding sequence is duplicated")
+            ready_by_sequence[sequence] = binding
+        elif binding["record_kind"] == "task_outcome":
+            if sequence in outcome_by_sequence:
+                _add_issue(issues, "manifest_alignment_outcome_duplicate", "task_outcome binding sequence is duplicated")
+            outcome_by_sequence[sequence] = binding
+    referenced_ready: set[int] = set()
+    referenced_outcome: set[int] = set()
+    for task_id, trial in trial_by_task.items():
+        task = alignment_by_task.get(task_id)
+        if task is None:
+            continue
+        ready_sequence = task["ready_binding_sequence"]
+        outcome_sequence = task["outcome_binding_sequence"]
+        referenced_ready.add(ready_sequence)
+        referenced_outcome.add(outcome_sequence)
+        ready = ready_by_sequence.get(ready_sequence)
+        outcome = outcome_by_sequence.get(outcome_sequence)
+        if ready is None:
+            _add_issue(issues, "manifest_alignment_ready_missing", f"task {task_id} ready binding is missing")
+        elif ready["private_object_sha256"].casefold() != trial["request_evidence_sha256"].casefold():
+            _add_issue(issues, "manifest_alignment_request_digest_mismatch", f"task {task_id} request evidence digest differs")
+        if outcome is None:
+            _add_issue(issues, "manifest_alignment_outcome_missing", f"task {task_id} outcome binding is missing")
+        elif outcome["private_object_sha256"].casefold() != trial["acceptance_evidence_sha256"].casefold():
+            _add_issue(issues, "manifest_alignment_outcome_digest_mismatch", f"task {task_id} outcome evidence digest differs")
+        if ready_sequence >= outcome_sequence:
+            _add_issue(issues, "manifest_alignment_order_invalid", f"task {task_id} outcome does not follow ready")
+    if referenced_ready != set(ready_by_sequence) or len(referenced_ready) != len(ready_by_sequence):
+        _add_issue(issues, "manifest_alignment_ready_set_mismatch", "every task_ready binding must be used exactly once")
+    if referenced_outcome != set(outcome_by_sequence) or len(referenced_outcome) != len(outcome_by_sequence):
+        _add_issue(issues, "manifest_alignment_outcome_set_mismatch", "every task_outcome binding must be used exactly once")
+
+    pending = 0
+    for binding in private_values:
+        if binding["record_kind"] == "task_ready":
+            pending += 1
+        elif binding["record_kind"] == "task_outcome":
+            if pending == 0:
+                _add_issue(issues, "manifest_alignment_prefix_invalid", "outcome appears without a pending ready binding")
+            else:
+                pending -= 1
+        elif binding["record_kind"] == "window_closure" and pending:
+            _add_issue(issues, "manifest_alignment_prefix_invalid", "closure has pending task-ready bindings")
+    if pending:
+        _add_issue(issues, "manifest_alignment_prefix_invalid", "bindings end with pending task-ready records")
+    return len(issues) == start
 
 
 def evaluate_pregate(
@@ -755,7 +1460,9 @@ def evaluate_pregate(
     public_anchor_repo: Any = None,
     public_freeze_commit: Any = None,
     public_head_commit: Any = None,
+    public_anchor_manifest: Any = None,
     final_manifest: Any = None,
+    manifest_alignment_index: Any = None,
     recovery_inventory: Any = None,
     expected_candidate_commit: str | None = None,
 ) -> dict[str, Any]:
@@ -817,11 +1524,14 @@ def evaluate_pregate(
         issues,
         "public",
     )
-    # The current input contract does not carry an exact public ref, a
-    # one-envelope-per-Commit manifest, or a Commit-to-envelope content map.
-    # Keep the public chain fail-closed until those inputs are separately frozen.
-    public_content_mapping_proven = False
-    _add_issue(issues, "public_anchor_unproven", "exact public ref and Commit-to-envelope mapping are not supplied")
+    public_content_mapping_proven = _verify_public_anchor_manifest(
+        public_anchor_repo,
+        public_anchor_manifest,
+        public_values,
+        public_freeze_commit,
+        public_head_commit,
+        issues,
+    )
     if salt is None:
         _add_issue(issues, "salt_missing", "private window salt is required to recompute commitments")
     if salt is not None and window_id is not None:
@@ -866,7 +1576,19 @@ def evaluate_pregate(
         _add_issue(issues, "privacy_allowlist_failed", "public envelope allowlist is absent or invalid")
     _validate_recovery_inventory(recovery_inventory, issues)
 
-    _validate_final_manifest(final_manifest, expected_candidate_commit or candidate_commit, issues)
+    manifest_alignment_proven = _verify_manifest_alignment(
+        final_manifest,
+        manifest_alignment_index,
+        expected_candidate_commit or candidate_commit,
+        private_values,
+        issues,
+    )
+    if not manifest_alignment_proven:
+        _add_issue(
+            issues,
+            "manifest_alignment_unproven",
+            "Manifest outcomes and private ready/outcome bindings are not one-to-one aligned",
+        )
 
     issues.sort(key=lambda item: item["code"])
     return {
@@ -881,7 +1603,7 @@ def evaluate_pregate(
         "pre_outcome_order_proven": False,
         "privacy_allowlist_passed": privacy_allowlist_ok,
         "recovery_demonstrated": False,
-        "manifest_alignment_proven": False,
+        "manifest_alignment_proven": manifest_alignment_proven,
         "eligible_for_v2_release_gate": False,
         "trusted_private_freeze_commit": private_freeze_commit if private_anchor_ok and private_event_anchor_ok else None,
         "trusted_private_head_commit": private_head_commit if private_anchor_ok and private_event_anchor_ok else None,
@@ -902,7 +1624,9 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--public-anchor-repo")
     parser.add_argument("--public-freeze-commit")
     parser.add_argument("--public-head-commit")
+    parser.add_argument("--public-anchor-manifest")
     parser.add_argument("--final-manifest")
+    parser.add_argument("--manifest-alignment-index")
     parser.add_argument("--recovery-inventory")
     parser.add_argument("--expected-candidate-commit")
     parser.add_argument("--output")
@@ -922,7 +1646,9 @@ def main(argv: list[str] | None = None) -> int:
         public_anchor_repo=args.public_anchor_repo,
         public_freeze_commit=args.public_freeze_commit,
         public_head_commit=args.public_head_commit,
+        public_anchor_manifest=args.public_anchor_manifest,
         final_manifest=args.final_manifest,
+        manifest_alignment_index=args.manifest_alignment_index,
         recovery_inventory=args.recovery_inventory,
         expected_candidate_commit=args.expected_candidate_commit,
     )

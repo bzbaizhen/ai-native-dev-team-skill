@@ -34,6 +34,8 @@ required = [
     SKILL / "references" / "p2-private-binding.schema.json",
     SKILL / "references" / "p2-opaque-envelope.schema.json",
     SKILL / "references" / "p2-external-proof-package.schema.json",
+    SKILL / "references" / "p2-public-anchor-manifest.schema.json",
+    SKILL / "references" / "p2-manifest-alignment.schema.json",
     SKILL / "references" / "team-governance-template.zh-CN.md",
     SKILL / "assets" / "team-bootstrap-proposal.md",
     SKILL / "assets" / "project-team-charter.md",
@@ -207,6 +209,18 @@ p2_schema_fields = {
         "verification_policy",
         "acquired_at",
     },
+    "p2-public-anchor-manifest.schema.json": {
+        "schema_version",
+        "public_ref",
+        "freeze_commit",
+        "head_commit",
+        "receipts",
+    },
+    "p2-manifest-alignment.schema.json": {
+        "schema_version",
+        "candidate_commit",
+        "tasks",
+    },
 }
 for name, expected_fields in p2_schema_fields.items():
     schema_path = SKILL / "references" / name
@@ -229,6 +243,8 @@ for pointer in (
     "p2-private-binding.schema.json",
     "p2-opaque-envelope.schema.json",
     "p2-external-proof-package.schema.json",
+    "p2-public-anchor-manifest.schema.json",
+    "p2-manifest-alignment.schema.json",
     "trusted_time_missing",
 ):
     if pointer not in release_audit_text:
