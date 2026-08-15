@@ -399,6 +399,10 @@ def _require_manifest_sha(value: Any, field: str, location: str, pattern: re.Pat
     return value
 
 
+def _is_valid_expected_candidate(value: Any) -> bool:
+    return value is None or (isinstance(value, str) and _LOWER_SHA1.fullmatch(value) is not None)
+
+
 def _manifest_time(value: Any, field: str, location: str) -> datetime:
     text = _require_manifest_string(value, field, location)
     try:
@@ -796,9 +800,18 @@ def _git_commit_exists(repo: Path, commit: str) -> bool:
     if not isinstance(commit, str) or not SHA1_HEX.fullmatch(commit):
         return False
     result = _run_git(repo, "cat-file", "-e", f"{commit}^{{commit}}")
-    if result is None or getattr(result, "stdout", None) is None or getattr(result, "stderr", None) is None:
+    try:
+        return_code = getattr(result, "returncode")
+        stdout = getattr(result, "stdout")
+        stderr = getattr(result, "stderr")
+    except Exception:
         return False
-    return result.returncode == 0
+    return (
+        type(return_code) is int
+        and isinstance(stdout, (bytes, bytearray, memoryview))
+        and isinstance(stderr, (bytes, bytearray, memoryview))
+        and return_code == 0
+    )
 
 
 def _verify_git_chain(repo: Any, freeze: Any, head: Any, issues: list[dict[str, str]], prefix: str) -> bool:
@@ -1229,7 +1242,7 @@ def _validate_manifest_object(
     candidate = _require_manifest_sha(value["candidate_commit"], "candidate_commit", location, _MANIFEST_SHA1)
     trusted_candidate = None
     if expected_candidate is not None:
-        trusted_candidate = _require_manifest_sha(expected_candidate, "expected_candidate", location, _MANIFEST_SHA1).casefold()
+        trusted_candidate = _require_manifest_sha(expected_candidate, "expected_candidate", location, _LOWER_SHA1).casefold()
     if trusted_candidate is not None and candidate.casefold() != trusted_candidate:
         raise SchemaValidationError(f"{location}.candidate_commit: differs from trusted candidate")
     frozen = _manifest_time(value["candidate_frozen_at"], "candidate_frozen_at", location)
@@ -1560,6 +1573,10 @@ def evaluate_pregate(
     """
 
     issues: list[dict[str, str]] = []
+    expected_candidate_valid = _is_valid_expected_candidate(expected_candidate_commit)
+    if not expected_candidate_valid:
+        _add_issue(issues, "expected_candidate_invalid", "expected_candidate_commit must be a full lowercase SHA-1 string")
+        _add_issue(issues, "manifest_invalid", "expected_candidate_commit: invalid full lowercase SHA-1")
     try:
         salt = _salt_bytes(window_salt)
     except P2PregateError as exc:
@@ -1593,7 +1610,10 @@ def evaluate_pregate(
     public_chain_ok, _opaque_window, public_hashes = _public_chain(
         public_values, issues, input_complete=public_input_complete
     )
-    if expected_candidate_commit is not None and candidate_commit != expected_candidate_commit:
+    if not expected_candidate_valid:
+        _add_issue(issues, "candidate_mismatch", "private binding candidate differs from trusted candidate")
+        private_chain_ok = False
+    elif expected_candidate_commit is not None and candidate_commit != expected_candidate_commit:
         _add_issue(issues, "candidate_mismatch", "private binding candidate differs from trusted candidate")
         private_chain_ok = False
 
@@ -1681,10 +1701,11 @@ def evaluate_pregate(
         _add_issue(issues, "privacy_allowlist_failed", "public envelope allowlist is absent or invalid")
     _validate_recovery_inventory(recovery_inventory, issues)
 
+    alignment_expected_candidate = expected_candidate_commit if expected_candidate_commit is not None else candidate_commit
     manifest_alignment_proven = _verify_manifest_alignment(
         final_manifest,
         manifest_alignment_index,
-        expected_candidate_commit or candidate_commit,
+        alignment_expected_candidate,
         private_values,
         issues,
         private_input_complete=private_input_complete,

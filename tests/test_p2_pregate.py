@@ -397,7 +397,7 @@ class SchemaAndChainTests(unittest.TestCase):
 
         def fake_run(args: list[str], **_kwargs: object) -> SimpleNamespace:
             if "cat-file" in args:
-                return SimpleNamespace(returncode=0, stdout="", stderr="")
+                return SimpleNamespace(returncode=0, stdout=b"", stderr=b"")
             if "merge-base" in args:
                 return SimpleNamespace(returncode=0, stdout="", stderr="")
             if "rev-list" in args:
@@ -776,6 +776,62 @@ class StrictCompletionTests(unittest.TestCase):
         self.assertFalse(result["manifest_alignment_proven"])
         self.assertIn("manifest_invalid", {issue["code"] for issue in result["issues"]})
 
+    def test_expected_candidate_commit_rejects_all_malformed_values_and_preserves_valid_path(self) -> None:
+        bindings, envelopes, salt = make_chains()
+        temp, repo, freeze, head, anchor_manifest = make_public_git_repo(envelopes)
+        try:
+            malformed_values: tuple[object, ...] = (
+                "",
+                0,
+                False,
+                [],
+                {},
+                "not-a-sha",
+                "A" * 40,
+                "b" * 39,
+                {"malformed": True},
+            )
+            for malformed in malformed_values:
+                with self.subTest(malformed=repr(malformed)):
+                    result = p2_pregate.evaluate_pregate(
+                        private_bindings=bindings,
+                        public_envelopes=envelopes,
+                        window_salt=salt,
+                        public_anchor_repo=repo,
+                        public_freeze_commit=freeze,
+                        public_head_commit=head,
+                        public_anchor_manifest=anchor_manifest,
+                        final_manifest=make_manifest(bindings),
+                        manifest_alignment_index=make_alignment(bindings),
+                        expected_candidate_commit=malformed,  # type: ignore[arg-type]
+                    )
+                    codes = {issue["code"] for issue in result["issues"]}
+                    self.assertIn("expected_candidate_invalid", codes)
+                    self.assertIn("manifest_invalid", codes)
+                    self.assertIn("candidate_mismatch", codes)
+                    self.assertIn("public_mapping_private_chain_unproven", codes)
+                    self.assertFalse(result["public_content_mapping_proven"])
+                    self.assertFalse(result["manifest_alignment_proven"])
+
+            valid = p2_pregate.evaluate_pregate(
+                private_bindings=bindings,
+                public_envelopes=envelopes,
+                window_salt=salt,
+                public_anchor_repo=repo,
+                public_freeze_commit=freeze,
+                public_head_commit=head,
+                public_anchor_manifest=anchor_manifest,
+                final_manifest=make_manifest(bindings),
+                manifest_alignment_index=make_alignment(bindings),
+                expected_candidate_commit=str(bindings[0]["candidate_commit"]),
+            )
+        finally:
+            temp.cleanup()
+        self.assertNotIn("expected_candidate_invalid", {issue["code"] for issue in valid["issues"]})
+        self.assertTrue(valid["public_content_mapping_proven"])
+        self.assertTrue(valid["manifest_alignment_proven"])
+        self.assertFalse(valid["eligible_for_v2_release_gate"])
+
     def test_same_tree_refs_reject_unsafe_shapes_and_escaped_nul_file_input(self) -> None:
         bindings, envelopes, salt = make_chains()
         unsafe_refs = (
@@ -843,6 +899,30 @@ class StrictCompletionTests(unittest.TestCase):
             self.assertIsNone(p2_pregate._run_git_text(Path("."), "rev-parse", "HEAD"))
             self.assertFalse(p2_pregate._git_commit_exists(Path("."), "a" * 40))
             self.assertIsNone(p2_pregate._git_blob_bytes(Path("."), "a" * 40, "receipt.json"))
+
+        valid_outputs = ((b"", b""), (bytearray(), bytearray()), (memoryview(b""), memoryview(b"")))
+        for stdout, stderr in valid_outputs:
+            with self.subTest(stdout_type=type(stdout).__name__, stderr_type=type(stderr).__name__):
+                result = subprocess.CompletedProcess(["git"], 0, stdout=stdout, stderr=stderr)
+                with patch.object(p2_pregate.subprocess, "run", return_value=result):
+                    self.assertTrue(p2_pregate._git_commit_exists(Path("."), "a" * 40))
+
+        malformed_returncodes = (None, False, True, 0.0, "0", [], {})
+        for returncode in malformed_returncodes:
+            with self.subTest(returncode=repr(returncode)):
+                result = subprocess.CompletedProcess(["git"], returncode, stdout=b"", stderr=b"")
+                with patch.object(p2_pregate.subprocess, "run", return_value=result):
+                    self.assertFalse(p2_pregate._git_commit_exists(Path("."), "a" * 40))
+
+        malformed_outputs = (None, "", 0, False, [], {}, object())
+        for output in malformed_outputs:
+            with self.subTest(output_type=type(output).__name__):
+                stdout_result = subprocess.CompletedProcess(["git"], 0, stdout=output, stderr=b"")
+                with patch.object(p2_pregate.subprocess, "run", return_value=stdout_result):
+                    self.assertFalse(p2_pregate._git_commit_exists(Path("."), "a" * 40))
+                stderr_result = subprocess.CompletedProcess(["git"], 0, stdout=b"", stderr=output)
+                with patch.object(p2_pregate.subprocess, "run", return_value=stderr_result):
+                    self.assertFalse(p2_pregate._git_commit_exists(Path("."), "a" * 40))
 
 
 if __name__ == "__main__":
