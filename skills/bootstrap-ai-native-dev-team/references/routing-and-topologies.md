@@ -2,6 +2,16 @@
 
 Use this reference only in the main control plane. Do not send it to ordinary Workers.
 
+## Contents
+
+- [Score complexity and risk independently](#score-complexity-and-risk-independently)
+- [Layer selector](#layer-selector)
+- [Legacy profile encoding](#legacy-profile-encoding)
+- [Route and topology](#route-and-topology)
+- [Cost-aware capability routing](#cost-aware-capability-routing)
+- [Delegation packet](#delegation-packet)
+- [Evidence reuse and rerun triggers](#evidence-reuse-and-rerun-triggers)
+
 ## Score complexity and risk independently
 
 | Level | Evidence | Capability and reasoning |
@@ -49,6 +59,22 @@ The selector is fail-closed around ambiguity: ask the main agent to resolve a mi
 fact rather than silently assuming Core. Ordinary release/deployment/publication is
 Controlled/R3 with `release_audit=false`; the word “release” is not an explicit audit
 request.
+
+## Legacy profile encoding
+
+The canonical product selector is `layer=core|controlled|release-audit`. The persisted
+scenario/metrics field `profile` and the unchanged CLI field `governance_profile` retain
+the first-phase legacy enum `lean|controlled|strict`:
+
+| Canonical layer and condition | Legacy `profile` / `governance_profile` |
+|---|---|
+| Core | `lean` |
+| Ordinary Controlled | `controlled` |
+| Controlled with a C3 or R3 overlay | `strict` |
+| Release Audit | `strict` |
+
+This is a compatibility encoding only. It does not make Lean or Strict separate V2
+product layers, and it does not change the unchanged CLI or metrics schema.
 
 ## Route and topology
 

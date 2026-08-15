@@ -13,31 +13,36 @@ audit scope and any external write before activating this layer.
 
 ## Freeze the audit inputs
 
-At the approved audit boundary, freeze the candidate, source roster, eligible V1
-baseline identities, and trusted Git freeze/head identities. Hash every frozen baseline
-object using [release-v1-baseline-evidence.schema.json](release-v1-baseline-evidence.schema.json)
-and enumerate content-addressed source blobs from the same freeze Commit that support
-task identity, stratum, and acceptance. Require a metrics source supporting the
-denominator before marking a baseline formally efficiency-comparable. Frozen-content
-integrity is evidence about the snapshot, not automatic proof that historical claims are
-true; retain human qualification.
+At the approved audit boundary before the trial window, freeze the candidate, source
+roster, eligible V1 baseline identities, and the trusted Git freeze Commit. The final
+closed head does not exist yet and must not be implied by this pre-window freeze. Hash
+every frozen baseline object using the bundled resource
+`release-v1-baseline-evidence.schema.json` and enumerate content-addressed source blobs
+from the same freeze Commit that support task identity, stratum, and acceptance. Require
+a metrics source supporting the denominator before marking a baseline formally
+efficiency-comparable. Frozen-content integrity is evidence about the snapshot, not
+automatic proof that historical claims are true; retain human qualification.
 
-Use [release-source-registry.schema.json](release-source-registry.schema.json) for the
-source roster and [release-trial-manifest.schema.json](release-trial-manifest.schema.json)
-for the candidate trial universe. Keep the trusted freeze/head SHAs outside the Manifest
-so they identify the snapshot without defining the task universe or rewriting it.
+Use the bundled resources `release-source-registry.schema.json` and
+`release-trial-manifest.schema.json` for the source roster and candidate trial universe.
+These schemas are verifier inputs, not additional references to load into the ordinary
+model context. Keep the trusted freeze Commit outside the Manifest. After the cutoff,
+form the final closed head from the closure Commit and provide that closed-head SHA as a
+separate trusted input; it identifies the completed window without defining or rewriting
+the task universe.
 
 ## Register and close each outcome
 
 Before each outcome, append exactly one new linear task-ready Commit using
-[release-registration-receipt.schema.json](release-registration-receipt.schema.json).
+the bundled resource `release-registration-receipt.schema.json`.
 Register the task universe before outcomes are known. Close with
-[release-anchor-closure.schema.json](release-anchor-closure.schema.json), including the
-final Manifest digest. Preserve failed, unfinished, and non-comparable trials; do not
+the bundled resource `release-anchor-closure.schema.json`, including the
+final Manifest digest. The closure Commit creates the final closed head after the cutoff;
+it is not a value known at the initial freeze. Preserve failed, unfinished, and non-comparable trials; do not
 omit them or count synthetic work or one task more than once.
 
-Use [release-trial-evidence.schema.json](release-trial-evidence.schema.json) for each
-acceptance result. Accepted trials must carry the same strict `integration_proof` in the
+Use the bundled resource `release-trial-evidence.schema.json` for each acceptance result.
+Accepted trials must carry the same strict `integration_proof` in the
 Manifest and acceptance evidence:
 
 - `same_commit` requires candidate/stable SHA equality.

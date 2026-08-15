@@ -48,6 +48,7 @@ required = [
     ROOT / "benchmarks" / "v2-prospective" / "v1-task-contract.example.md",
     ROOT / "benchmarks" / "v2-prospective" / "v1-qa-report.example.md",
     ROOT / "tests" / "routing-scenarios.json",
+    ROOT / "tests" / "test_routing_policy.py",
     ROOT / "tests" / "test_team_metrics.py",
     ROOT / "tests" / "test_v2_release_gate.py",
     ROOT / "releases" / "v2.0.0-rc.1.md",

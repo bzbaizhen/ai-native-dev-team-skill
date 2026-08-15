@@ -14,6 +14,15 @@ timestamp.
 
 The schema is [metrics-event.schema.json](metrics-event.schema.json). The standard-library CLI is `scripts/team_metrics.py`.
 
+## Legacy profile encoding
+
+The canonical routing field is `layer=core|controlled|release-audit`. The unchanged
+metrics schema and CLI still call their persisted field `governance_profile` and accept
+only `lean|controlled|strict`. Encode the canonical layer as follows: Core -> `lean`,
+ordinary Controlled -> `controlled`, Controlled C3/R3 overlay -> `strict`, and Release
+Audit -> `strict`. This is a first-phase compatibility encoding, not a claim that Lean
+or Strict remain V2 product layers.
+
 ## Optional delivery measurement
 
 For a selected prospective measurement run, record the material-task lifecycle:
