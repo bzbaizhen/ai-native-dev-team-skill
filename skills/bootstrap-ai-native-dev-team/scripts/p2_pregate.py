@@ -314,6 +314,7 @@ _LOWER_SHA1 = re.compile(r"^[0-9a-f]{40}$")
 _MANIFEST_SHA1 = re.compile(r"^[0-9a-fA-F]{40}$")
 _MANIFEST_SHA256 = re.compile(r"^[0-9a-fA-F]{64}$")
 _SAFE_REF = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]*$")
+GIT_TIMEOUT_SECONDS = 5.0
 
 PUBLIC_ANCHOR_MANIFEST_FIELDS = {
     "schema_version",
@@ -360,6 +361,32 @@ def _is_public_receipt_path(path: str) -> bool:
     return _is_normalized_relative_posix_path(path)
 
 
+def _is_strict_full_git_ref(value: Any) -> bool:
+    """Apply the RC.5 full-ref boundary without relying on a caller's Git repo."""
+
+    if not isinstance(value, str) or not _PUBLIC_REF.fullmatch(value):
+        return False
+    if any(ord(char) < 0x20 or ord(char) == 0x7F or char.isspace() for char in value):
+        return False
+    if any(token in value for token in ("^", "~", "@{")):
+        return False
+    prefix = "refs/heads/" if value.startswith("refs/heads/") else "refs/tags/"
+    name = value[len(prefix) :]
+    if not name or ".." in name or "//" in name or name.endswith(("/", ".")):
+        return False
+    segments = name.split("/")
+    if any(
+        not segment
+        or segment in {".", ".."}
+        or segment.startswith(".")
+        or segment.endswith(".")
+        or segment.endswith(".lock")
+        for segment in segments
+    ):
+        return False
+    return True
+
+
 def _require_manifest_string(value: Any, field: str, location: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise SchemaValidationError(f"{location}.{field}: non-empty string required")
@@ -402,11 +429,7 @@ def _validate_integration_proof_local(value: Any, location: str) -> dict[str, An
     }:
         raise SchemaValidationError(f"{location}: integration proof fields differ")
     candidate_ref = value["candidate_ref"]
-    if (
-        not isinstance(candidate_ref, str)
-        or not re.fullmatch(r"^refs/(?:heads|tags)/.+$", candidate_ref)
-        or any(token in candidate_ref for token in ("^", "~", "@{"))
-    ):
+    if not _is_strict_full_git_ref(candidate_ref):
         raise SchemaValidationError(f"{location}.candidate_ref: invalid full Git ref")
     _require_manifest_sha(value["candidate_tree"], "candidate_tree", location, _MANIFEST_SHA1)
     _require_manifest_sha(value["stable_tree"], "stable_tree", location, _MANIFEST_SHA1)
@@ -437,11 +460,7 @@ def validate_public_anchor_manifest(
     if obj["schema_version"] != SCHEMA_VERSION:
         raise SchemaValidationError(f"{location}.schema_version: unsupported version")
     public_ref = obj["public_ref"]
-    if (
-        not isinstance(public_ref, str)
-        or not _PUBLIC_REF.fullmatch(public_ref)
-        or any(token in public_ref for token in ("^", "~", "@{"))
-    ):
+    if not _is_strict_full_git_ref(public_ref):
         raise SchemaValidationError(f"{location}.public_ref: unsafe Git ref")
     _require_manifest_sha(obj["freeze_commit"], "freeze_commit", location, SHA1_HEX)
     _require_manifest_sha(obj["head_commit"], "head_commit", location, SHA1_HEX)
@@ -589,19 +608,25 @@ def _load_documents(source: Any, label: str) -> list[tuple[str, Any, bytes]]:
     if isinstance(source, Mapping):
         return [(label, dict(source), canonicalize_value(dict(source)))]
     if isinstance(source, (str, Path)):
-        path = Path(source)
-        if path.is_file():
-            raw = path.read_bytes()
-            return [(str(path), parse_json_bytes(raw), raw)]
-        if path.is_dir():
-            # Preserve the caller/file enumeration order.  Sorting here would
-            # silently repair a reversed receipt chain before sequence checks.
-            children = list(path.iterdir())
-            if any(not item.is_file() or item.suffix.lower() != ".json" for item in children):
-                raise P2PregateError(f"{label}_path_invalid: directory contains a non-JSON child")
-            files = children
-            return [(str(item), parse_json_bytes(item.read_bytes()), item.read_bytes()) for item in files]
-        raise P2PregateError(f"{label}_path_missing: supplied path does not exist")
+        try:
+            path = Path(source)
+            if path.is_file():
+                raw = path.read_bytes()
+                return [(str(path), parse_json_bytes(raw), raw)]
+            if path.is_dir():
+                # Preserve the caller/file enumeration order.  Sorting here would
+                # silently repair a reversed receipt chain before sequence checks.
+                children = list(path.iterdir())
+                if any(not item.is_file() or item.suffix.lower() != ".json" for item in children):
+                    raise P2PregateError(f"{label}_path_invalid: directory contains a non-JSON child")
+                result: list[tuple[str, Any, bytes]] = []
+                for item in children:
+                    raw = item.read_bytes()
+                    result.append((str(item), parse_json_bytes(raw), raw))
+                return result
+            raise P2PregateError(f"{label}_path_missing: supplied path does not exist")
+        except (OSError, TypeError, ValueError) as exc:
+            raise P2PregateError(f"{label}_path_invalid: {exc}") from exc
     if isinstance(source, Iterable) and not isinstance(source, (str, bytes, bytearray)):
         result: list[tuple[str, Any, bytes]] = []
         for index, item in enumerate(source):
@@ -621,31 +646,54 @@ def _add_issue(issues: list[dict[str, str]], code: str, message: str) -> None:
         issues.append({"code": code, "message": message})
 
 
-def _validate_private_documents(documents: list[tuple[str, Any, bytes]], issues: list[dict[str, str]]) -> list[dict[str, Any]]:
+def _validate_private_documents(
+    documents: list[tuple[str, Any, bytes]], issues: list[dict[str, str]]
+) -> tuple[list[dict[str, Any]], bool]:
     values: list[dict[str, Any]] = []
+    complete = True
     for label, value, _raw in documents:
         try:
-            values.append(validate_private_binding(value, label))
+            validated = validate_private_binding(value, label)
+            if _raw != canonicalize_value(validated):
+                _add_issue(issues, "private_binding_noncanonical", f"{label}: raw bytes are not canonical")
+                complete = False
+            values.append(validated)
         except P2PregateError as exc:
             _add_issue(issues, "private_binding_invalid", str(exc))
-    return values
+            complete = False
+    return values, complete
 
 
-def _validate_public_documents(documents: list[tuple[str, Any, bytes]], issues: list[dict[str, str]]) -> list[dict[str, Any]]:
+def _validate_public_documents(
+    documents: list[tuple[str, Any, bytes]], issues: list[dict[str, str]]
+) -> tuple[list[dict[str, Any]], list[bytes], bool]:
     values: list[dict[str, Any]] = []
+    raw_values: list[bytes] = []
+    complete = True
     for label, value, _raw in documents:
         try:
-            values.append(validate_opaque_envelope(value, label))
+            validated = validate_opaque_envelope(value, label)
+            if _raw != canonicalize_value(validated):
+                _add_issue(issues, "public_envelope_noncanonical", f"{label}: raw bytes are not canonical")
+                complete = False
+            values.append(validated)
+            raw_values.append(_raw)
         except P2PregateError as exc:
             _add_issue(issues, "public_envelope_invalid", str(exc))
-    return values
+            complete = False
+    return values, raw_values, complete
 
 
-def _private_chain(values: list[dict[str, Any]], issues: list[dict[str, str]]) -> tuple[bool, str | None, str | None, list[str]]:
+def _private_chain(
+    values: list[dict[str, Any]], issues: list[dict[str, str]], *, input_complete: bool = True
+) -> tuple[bool, str | None, str | None, list[str]]:
     if not values:
         _add_issue(issues, "private_chain_missing", "no valid private bindings were supplied")
         return False, None, None, []
     valid = True
+    if not input_complete:
+        _add_issue(issues, "private_input_incomplete", "invalid or non-canonical private input cannot be ignored")
+        valid = False
     window = values[0]["window_id"]
     candidate = values[0]["candidate_commit"]
     hashes: list[str] = []
@@ -696,11 +744,16 @@ def _private_chain(values: list[dict[str, Any]], issues: list[dict[str, str]]) -
     return valid, window, candidate, hashes
 
 
-def _public_chain(values: list[dict[str, Any]], issues: list[dict[str, str]]) -> tuple[bool, str | None, list[str]]:
+def _public_chain(
+    values: list[dict[str, Any]], issues: list[dict[str, str]], *, input_complete: bool = True
+) -> tuple[bool, str | None, list[str]]:
     if not values:
         _add_issue(issues, "public_chain_missing", "no valid public envelopes were supplied")
         return False, None, []
     valid = True
+    if not input_complete:
+        _add_issue(issues, "public_input_incomplete", "invalid or non-canonical public input cannot be ignored")
+        valid = False
     opaque_window = values[0]["opaque_window_id"]
     hashes: list[str] = []
     for index, value in enumerate(values, start=1):
@@ -722,17 +775,28 @@ def _public_chain(values: list[dict[str, Any]], issues: list[dict[str, str]]) ->
     return valid, opaque_window, hashes
 
 
-def _git_commit_exists(repo: Path, commit: str) -> bool:
-    if not SHA1_HEX.fullmatch(commit):
-        return False
+def _run_git(repo: Any, *args: str, text: bool = False) -> subprocess.CompletedProcess[Any] | None:
+    """Run one bounded Git read and convert process failures into no-result."""
+
     try:
-        result = subprocess.run(
-            ["git", "-C", str(repo), "cat-file", "-e", f"{commit}^{{commit}}"],
-            check=False,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-    except OSError:
+        command = ["git", "-C", str(repo), *args]
+        kwargs: dict[str, Any] = {
+            "check": False,
+            "capture_output": True,
+            "timeout": GIT_TIMEOUT_SECONDS,
+        }
+        if text:
+            kwargs.update({"text": True, "encoding": "utf-8", "errors": "replace"})
+        return subprocess.run(command, **kwargs)
+    except (OSError, TypeError, ValueError, subprocess.TimeoutExpired):
+        return None
+
+
+def _git_commit_exists(repo: Path, commit: str) -> bool:
+    if not isinstance(commit, str) or not SHA1_HEX.fullmatch(commit):
+        return False
+    result = _run_git(repo, "cat-file", "-e", f"{commit}^{{commit}}")
+    if result is None or getattr(result, "stdout", None) is None or getattr(result, "stderr", None) is None:
         return False
     return result.returncode == 0
 
@@ -741,31 +805,19 @@ def _verify_git_chain(repo: Any, freeze: Any, head: Any, issues: list[dict[str, 
     if not isinstance(repo, (str, Path)) or not isinstance(freeze, str) or not isinstance(head, str):
         _add_issue(issues, f"{prefix}_anchor_missing", f"{prefix} Git root and trusted freeze/head are required")
         return False
-    repo_path = Path(repo)
+    try:
+        repo_path = Path(repo)
+    except (OSError, TypeError, ValueError) as exc:
+        _add_issue(issues, f"{prefix}_anchor_invalid", f"{prefix} Git root is invalid: {exc}")
+        return False
     if not repo_path.is_dir() or not _git_commit_exists(repo_path, freeze) or not _git_commit_exists(repo_path, head):
         _add_issue(issues, f"{prefix}_anchor_invalid", f"{prefix} trusted Git commits are not available")
         return False
-    try:
-        ancestor = subprocess.run(
-            ["git", "-C", str(repo_path), "merge-base", "--is-ancestor", freeze, head],
-            check=False,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-    except OSError:
-        ancestor = None
+    ancestor = _run_git_text(repo_path, "merge-base", "--is-ancestor", freeze, head)
     if ancestor is None or ancestor.returncode != 0:
         _add_issue(issues, f"{prefix}_anchor_disconnected", f"{prefix} freeze is not an ancestor of head")
         return False
-    try:
-        nonlinear = subprocess.run(
-            ["git", "-C", str(repo_path), "rev-list", "--merges", f"{freeze}..{head}"],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-    except OSError:
-        nonlinear = None
+    nonlinear = _run_git_text(repo_path, "rev-list", "--merges", f"{freeze}..{head}")
     if nonlinear is None or nonlinear.returncode != 0:
         _add_issue(issues, f"{prefix}_anchor_history_unreadable", f"{prefix} history could not be inspected")
         return False
@@ -797,12 +849,17 @@ def _verify_private_binding_anchors(
     if anchors[0] != freeze or anchors[-1] != head:
         _add_issue(issues, "private_anchor_endpoint_mismatch", "first/last private anchors do not match trusted freeze/head")
         return False
-    if not isinstance(repo, (str, Path)) or not Path(repo).is_dir():
+    try:
+        repo_path = Path(repo)
+    except (OSError, TypeError, ValueError) as exc:
+        _add_issue(issues, "private_anchor_unproven", f"private Git root is invalid: {exc}")
+        return False
+    if not repo_path.is_dir():
         _add_issue(issues, "private_anchor_unproven", "private Git root is required for event anchor verification")
         return False
     valid = True
     for anchor in anchors:
-        if not isinstance(anchor, str) or not _git_commit_exists(Path(repo), anchor):
+        if not isinstance(anchor, str) or not _git_commit_exists(repo_path, anchor):
             _add_issue(issues, "private_anchor_commit_missing", "a private event anchor commit is unavailable")
             valid = False
     for previous, current in zip(anchors, anchors[1:]):
@@ -810,15 +867,7 @@ def _verify_private_binding_anchors(
             _add_issue(issues, "private_anchor_repeated", "private event anchors must advance by sequence")
             valid = False
             continue
-        try:
-            connected = subprocess.run(
-                ["git", "-C", str(repo), "merge-base", "--is-ancestor", previous, current],
-                check=False,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-        except (OSError, TypeError):
-            connected = None
+        connected = _run_git_text(repo_path, "merge-base", "--is-ancestor", previous, current)
         if connected is None or connected.returncode != 0:
             _add_issue(issues, "private_anchor_disconnected", "private event anchors are not ordered ancestors")
             valid = False
@@ -826,31 +875,23 @@ def _verify_private_binding_anchors(
 
 
 def _run_git_text(repo: Path, *args: str) -> subprocess.CompletedProcess[str] | None:
-    try:
-        return subprocess.run(
-            ["git", "-C", str(repo), *args],
-            check=False,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-        )
-    except (OSError, TypeError, ValueError):
+    result = _run_git(repo, *args, text=True)
+    if result is None or not isinstance(getattr(result, "stdout", None), str) or not isinstance(
+        getattr(result, "stderr", None), str
+    ):
         return None
+    return result
 
 
 def _git_blob_bytes(repo: Path, commit: str, path: str) -> bytes | None:
-    try:
-        result = subprocess.run(
-            ["git", "-C", str(repo), "show", f"{commit}:{path}"],
-            check=False,
-            capture_output=True,
-        )
-    except (OSError, TypeError, ValueError):
+    result = _run_git(repo, "show", f"{commit}:{path}")
+    if result is None or not isinstance(getattr(result, "stdout", None), (bytes, bytearray)) or not isinstance(
+        getattr(result, "stderr", None), (bytes, bytearray)
+    ):
         return None
     if result.returncode != 0:
         return None
-    return result.stdout
+    return bytes(result.stdout)
 
 
 def _git_name_status(repo: Path, *args: str) -> list[tuple[str, str]] | None:
@@ -894,9 +935,16 @@ def _verify_public_anchor_manifest(
     repo: Any,
     source: Any,
     public_values: list[dict[str, Any]],
+    public_raw_values: list[bytes],
     trusted_freeze: Any,
     trusted_head: Any,
     issues: list[dict[str, str]],
+    *,
+    public_input_complete: bool,
+    public_chain_ok: bool,
+    public_git_chain_ok: bool,
+    private_chain_ok: bool,
+    private_commitments_ok: bool,
 ) -> bool:
     """Verify exact public ref, history, Git changes and envelope bytes."""
 
@@ -915,7 +963,26 @@ def _verify_public_anchor_manifest(
     if manifest["freeze_commit"] != trusted_freeze or manifest["head_commit"] != trusted_head:
         _add_issue(issues, "public_anchor_manifest_endpoint_mismatch", "public anchor freeze/head differs from trusted inputs")
         return False
-    repo_path = Path(repo)
+    if not public_input_complete:
+        _add_issue(issues, "public_mapping_input_incomplete", "public mapping requires every supplied envelope to be valid and canonical")
+        return False
+    if not public_chain_ok:
+        _add_issue(issues, "public_mapping_chain_unproven", "public mapping requires the supplied envelope chain in caller order")
+        return False
+    if not public_git_chain_ok:
+        _add_issue(issues, "public_mapping_git_chain_unproven", "public mapping requires an integral trusted Git chain")
+        return False
+    if not private_chain_ok:
+        _add_issue(issues, "public_mapping_private_chain_unproven", "public mapping requires an integral private binding chain")
+        return False
+    if not private_commitments_ok:
+        _add_issue(issues, "public_mapping_commitments_unproven", "public mapping requires private commitment alignment")
+        return False
+    try:
+        repo_path = Path(repo)
+    except (OSError, TypeError, ValueError) as exc:
+        _add_issue(issues, "public_anchor_repo_not_root", f"public Git root is invalid: {exc}")
+        return False
     root = _run_git_text(repo_path, "rev-parse", "--show-toplevel")
     if root is None or root.returncode != 0 or Path(root.stdout.strip()).resolve() != repo_path.resolve():
         _add_issue(issues, "public_anchor_repo_not_root", "public_anchor_repo must be the Git root")
@@ -957,6 +1024,9 @@ def _verify_public_anchor_manifest(
         previous = commit
 
     values_by_sequence = {value["sequence"]: value for value in public_values}
+    raw_by_sequence = {
+        value["sequence"]: raw for value, raw in zip(public_values, public_raw_values, strict=True)
+    }
     if len(values_by_sequence) != len(public_values) or len(public_values) != len(manifest["receipts"]):
         _add_issue(issues, "public_mapping_count_mismatch", "public anchor receipts and supplied envelopes differ in count")
         valid = False
@@ -1003,11 +1073,8 @@ def _verify_public_anchor_manifest(
             _add_issue(issues, "public_envelope_sequence_missing", "mapped Commit has no supplied same-sequence envelope")
             valid = False
         else:
-            try:
-                supplied_bytes = canonicalize_value(supplied)
-            except P2PregateError:
-                supplied_bytes = b""
-            if supplied_bytes != raw or envelope_sha256(supplied) != receipt["envelope_sha256"]:
+            supplied_raw = raw_by_sequence.get(sequence)
+            if supplied_raw is None or supplied_raw != raw or envelope_sha256(supplied) != receipt["envelope_sha256"]:
                 _add_issue(issues, "public_commit_envelope_mismatch", "mapped Commit bytes differ from supplied envelope")
                 valid = False
     final_changes = _git_name_status(
@@ -1160,7 +1227,10 @@ def _validate_manifest_object(
         raise SchemaValidationError(f"{location}.schema_version: unsupported version")
     _require_manifest_string(value["candidate_version"], "candidate_version", location)
     candidate = _require_manifest_sha(value["candidate_commit"], "candidate_commit", location, _MANIFEST_SHA1)
-    if expected_candidate is not None and candidate.casefold() != expected_candidate.casefold():
+    trusted_candidate = None
+    if expected_candidate is not None:
+        trusted_candidate = _require_manifest_sha(expected_candidate, "expected_candidate", location, _MANIFEST_SHA1).casefold()
+    if trusted_candidate is not None and candidate.casefold() != trusted_candidate:
         raise SchemaValidationError(f"{location}.candidate_commit: differs from trusted candidate")
     frozen = _manifest_time(value["candidate_frozen_at"], "candidate_frozen_at", location)
     closed = _manifest_time(value["registry_closed_at"], "registry_closed_at", location)
@@ -1249,7 +1319,10 @@ def _validate_manifest_object(
         if sequence in registration_sequences:
             raise SchemaValidationError(f"{trial_location}.registration_sequence: duplicate sequence")
         registration_sequences.add(sequence)
-        if trial["skill_candidate_commit"].casefold() != candidate.casefold():
+        skill_candidate = _require_manifest_sha(
+            trial["skill_candidate_commit"], "skill_candidate_commit", trial_location, _MANIFEST_SHA1
+        )
+        if skill_candidate.casefold() != candidate.casefold():
             raise SchemaValidationError(f"{trial_location}.skill_candidate_commit: differs from candidate")
         request_digest = _require_manifest_sha(
             trial["request_evidence_sha256"], "request_evidence_sha256", trial_location, _MANIFEST_SHA256
@@ -1278,7 +1351,7 @@ def _validate_manifest_object(
                 raise SchemaValidationError(f"{trial_location}: accepted fields missing {sorted(accepted_missing)}")
             _require_manifest_sha(trial["candidate_commit"], "candidate_commit", trial_location, _MANIFEST_SHA1)
             _require_manifest_sha(trial["stable_commit"], "stable_commit", trial_location, _MANIFEST_SHA1)
-            if expected_candidate is not None and trial["candidate_commit"].casefold() != expected_candidate.casefold():
+            if trusted_candidate is not None and trial["candidate_commit"].casefold() != trusted_candidate:
                 raise SchemaValidationError(f"{trial_location}.candidate_commit: differs from trusted candidate")
             _require_manifest_string(trial["acceptance_evidence"], "acceptance_evidence", trial_location)
             acceptance_digest = _require_manifest_sha(
@@ -1355,6 +1428,9 @@ def _verify_manifest_alignment(
     expected_candidate: str | None,
     private_values: list[dict[str, Any]],
     issues: list[dict[str, str]],
+    *,
+    private_input_complete: bool,
+    private_chain_ok: bool,
 ) -> bool:
     """Bind every Manifest trial to exactly one ready/outcome binding pair."""
 
@@ -1377,6 +1453,16 @@ def _verify_manifest_alignment(
         return False
     if manifest is None:
         return False
+    if not private_input_complete:
+        _add_issue(issues, "manifest_alignment_private_input_incomplete", "alignment cannot ignore invalid or non-canonical private input")
+    if not private_chain_ok:
+        _add_issue(issues, "manifest_alignment_private_chain_invalid", "alignment requires an integral private binding chain")
+    if not manifest["trials"] or not alignment["tasks"]:
+        _add_issue(issues, "manifest_alignment_empty", "Manifest and alignment must contain at least one task")
+    if not any(binding["record_kind"] == "task_ready" for binding in private_values) or not any(
+        binding["record_kind"] == "task_outcome" for binding in private_values
+    ):
+        _add_issue(issues, "manifest_alignment_no_task_pair", "alignment requires at least one task-ready/task-outcome pair")
     if expected_candidate is not None and alignment["candidate_commit"] != expected_candidate:
         _add_issue(issues, "manifest_alignment_candidate_mismatch", "alignment candidate differs from trusted candidate")
     if alignment["candidate_commit"] != manifest["candidate_commit"].casefold():
@@ -1479,26 +1565,34 @@ def evaluate_pregate(
     except P2PregateError as exc:
         salt = None
         _add_issue(issues, "salt_invalid", str(exc))
+    private_load_ok = private_bindings is not None
     try:
         private_docs = _load_documents(private_bindings, "private_bindings")
     except P2PregateError as exc:
         private_docs = []
+        private_load_ok = False
         _add_issue(issues, "private_binding_missing", str(exc))
+    public_load_ok = public_envelopes is not None
     try:
         public_docs = _load_documents(public_envelopes, "public_envelopes")
     except P2PregateError as exc:
         public_docs = []
+        public_load_ok = False
         _add_issue(issues, "public_envelope_missing", str(exc))
-    private_values = _validate_private_documents(private_docs, issues)
-    public_values = _validate_public_documents(public_docs, issues)
-    private_chain_ok, window_id, candidate_commit, _private_hashes = _private_chain(private_values, issues)
-    public_chain_ok, _opaque_window, public_hashes = _public_chain(public_values, issues)
-    if len(private_values) != len(private_docs):
+    private_values, private_validation_complete = _validate_private_documents(private_docs, issues)
+    public_values, public_raw_values, public_validation_complete = _validate_public_documents(public_docs, issues)
+    private_input_complete = private_load_ok and private_validation_complete and len(private_values) == len(private_docs)
+    public_input_complete = public_load_ok and public_validation_complete and len(public_values) == len(public_docs)
+    if not private_input_complete:
         _add_issue(issues, "private_input_incomplete", "invalid private bindings cannot be dropped or repaired")
-        private_chain_ok = False
-    if len(public_values) != len(public_docs):
+    if not public_input_complete:
         _add_issue(issues, "public_input_incomplete", "invalid public envelopes cannot be dropped or repaired")
-        public_chain_ok = False
+    private_chain_ok, window_id, candidate_commit, _private_hashes = _private_chain(
+        private_values, issues, input_complete=private_input_complete
+    )
+    public_chain_ok, _opaque_window, public_hashes = _public_chain(
+        public_values, issues, input_complete=public_input_complete
+    )
     if expected_candidate_commit is not None and candidate_commit != expected_candidate_commit:
         _add_issue(issues, "candidate_mismatch", "private binding candidate differs from trusted candidate")
         private_chain_ok = False
@@ -1524,33 +1618,44 @@ def evaluate_pregate(
         issues,
         "public",
     )
-    public_content_mapping_proven = _verify_public_anchor_manifest(
-        public_anchor_repo,
-        public_anchor_manifest,
-        public_values,
-        public_freeze_commit,
-        public_head_commit,
-        issues,
-    )
     if salt is None:
         _add_issue(issues, "salt_missing", "private window salt is required to recompute commitments")
+    private_commitments_ok = False
     if salt is not None and window_id is not None:
+        private_commitments_ok = True
         expected_opaque = opaque_window_id(window_id, salt)
         for value in public_values:
             if value["opaque_window_id"] != expected_opaque:
                 _add_issue(issues, "opaque_window_mismatch", "public opaque window does not bind the private window")
                 public_chain_ok = False
+                private_commitments_ok = False
                 break
         if len(private_values) != len(public_values):
             _add_issue(issues, "receipt_count_mismatch", "private and public chains have different record counts")
             public_chain_ok = False
+            private_commitments_ok = False
         by_sequence = {value["sequence"]: value for value in private_values}
         for envelope in public_values:
             binding = by_sequence.get(envelope["sequence"])
             if binding is None or commitment_sha256(binding, salt) != envelope["commitment_sha256"]:
                 _add_issue(issues, "commitment_mismatch", "public commitment does not bind private bytes")
                 public_chain_ok = False
+                private_commitments_ok = False
                 break
+    public_content_mapping_proven = _verify_public_anchor_manifest(
+        public_anchor_repo,
+        public_anchor_manifest,
+        public_values,
+        public_raw_values,
+        public_freeze_commit,
+        public_head_commit,
+        issues,
+        public_input_complete=public_input_complete,
+        public_chain_ok=public_chain_ok,
+        public_git_chain_ok=public_anchor_ok,
+        private_chain_ok=private_chain_ok,
+        private_commitments_ok=private_commitments_ok,
+    )
     proofs = _proof_documents(proof_packages, issues)
     if not proofs:
         _add_issue(issues, "trusted_time_missing", "no retained external proof package is available")
@@ -1582,6 +1687,8 @@ def evaluate_pregate(
         expected_candidate_commit or candidate_commit,
         private_values,
         issues,
+        private_input_complete=private_input_complete,
+        private_chain_ok=private_chain_ok,
     )
     if not manifest_alignment_proven:
         _add_issue(

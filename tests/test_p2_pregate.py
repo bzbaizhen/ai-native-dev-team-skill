@@ -397,11 +397,11 @@ class SchemaAndChainTests(unittest.TestCase):
 
         def fake_run(args: list[str], **_kwargs: object) -> SimpleNamespace:
             if "cat-file" in args:
-                return SimpleNamespace(returncode=0, stdout="")
+                return SimpleNamespace(returncode=0, stdout="", stderr="")
             if "merge-base" in args:
-                return SimpleNamespace(returncode=0, stdout="")
+                return SimpleNamespace(returncode=0, stdout="", stderr="")
             if "rev-list" in args:
-                return SimpleNamespace(returncode=0, stdout="deadbeef\n")
+                return SimpleNamespace(returncode=0, stdout="deadbeef\n", stderr="")
             raise AssertionError(args)
 
         with patch.object(p2_pregate.subprocess, "run", side_effect=fake_run):
@@ -526,6 +526,62 @@ class StrictCompletionTests(unittest.TestCase):
         self.assertFalse(reordered_result["public_content_mapping_proven"])
         self.assertIn("public_commit_sequence_mismatch", {issue["code"] for issue in reordered_result["issues"]})
 
+    def test_public_mapping_requires_caller_order_and_complete_input(self) -> None:
+        bindings, envelopes, salt = make_chains()
+        temp, repo, freeze, head, anchor_manifest = make_public_git_repo(envelopes)
+        try:
+            reversed_result = p2_pregate.evaluate_pregate(
+                private_bindings=bindings,
+                public_envelopes=list(reversed(envelopes)),
+                window_salt=salt,
+                public_anchor_repo=repo,
+                public_freeze_commit=freeze,
+                public_head_commit=head,
+                public_anchor_manifest=anchor_manifest,
+            )
+            with_extra = copy.deepcopy(envelopes)
+            with_extra.append({"schema_version": "1.0"})
+            extra_result = p2_pregate.evaluate_pregate(
+                private_bindings=bindings,
+                public_envelopes=with_extra,
+                window_salt=salt,
+                public_anchor_repo=repo,
+                public_freeze_commit=freeze,
+                public_head_commit=head,
+                public_anchor_manifest=anchor_manifest,
+            )
+        finally:
+            temp.cleanup()
+        self.assertFalse(reversed_result["public_content_mapping_proven"])
+        self.assertIn("public_mapping_chain_unproven", {issue["code"] for issue in reversed_result["issues"]})
+        self.assertFalse(extra_result["public_content_mapping_proven"])
+        self.assertIn("public_input_incomplete", {issue["code"] for issue in extra_result["issues"]})
+
+    def test_public_mapping_requires_exact_supplied_file_bytes(self) -> None:
+        bindings, envelopes, salt = make_chains()
+        temp, repo, freeze, head, anchor_manifest = make_public_git_repo(envelopes)
+        supplied = repo / "supplied-public"
+        supplied.mkdir()
+        try:
+            for index, envelope in enumerate(envelopes, start=1):
+                (supplied / f"{index:04d}.json").write_bytes(p2_pregate.canonicalize_value(envelope) + b"\n")
+            result = p2_pregate.evaluate_pregate(
+                private_bindings=bindings,
+                public_envelopes=supplied,
+                window_salt=salt,
+                public_anchor_repo=repo,
+                public_freeze_commit=freeze,
+                public_head_commit=head,
+                public_anchor_manifest=anchor_manifest,
+            )
+        finally:
+            temp.cleanup()
+        codes = {issue["code"] for issue in result["issues"]}
+        self.assertFalse(result["public_content_mapping_proven"])
+        self.assertFalse(result["public_chain_integral"])
+        self.assertIn("public_envelope_noncanonical", codes)
+        self.assertIn("public_input_incomplete", codes)
+
     def test_public_anchor_manifest_rejects_noncanonical_and_multi_file_commits(self) -> None:
         bindings, envelopes, salt = make_chains()
         temp, repo, freeze, head, anchor_manifest = make_public_git_repo(envelopes)
@@ -608,6 +664,57 @@ class StrictCompletionTests(unittest.TestCase):
             {issue["code"] for issue in mismatch_result["issues"]},
         )
 
+    def test_manifest_alignment_requires_complete_private_input_and_chain(self) -> None:
+        bindings, envelopes, salt = make_chains()
+        manifest = make_manifest(bindings)
+        extra = copy.deepcopy(bindings)
+        extra.append({"not": "a binding"})
+        extra_result = p2_pregate.evaluate_pregate(
+            private_bindings=extra,
+            public_envelopes=envelopes,
+            window_salt=salt,
+            final_manifest=manifest,
+            manifest_alignment_index=make_alignment(bindings),
+        )
+        broken = copy.deepcopy(bindings)
+        broken[2]["previous_private_binding_sha256"] = "0" * 64
+        broken_result = p2_pregate.evaluate_pregate(
+            private_bindings=broken,
+            public_envelopes=envelopes,
+            window_salt=salt,
+            final_manifest=manifest,
+            manifest_alignment_index=make_alignment(bindings),
+        )
+        self.assertFalse(extra_result["manifest_alignment_proven"])
+        self.assertIn("manifest_alignment_private_input_incomplete", {issue["code"] for issue in extra_result["issues"]})
+        self.assertFalse(broken_result["manifest_alignment_proven"])
+        self.assertIn("manifest_alignment_private_chain_invalid", {issue["code"] for issue in broken_result["issues"]})
+
+    def test_manifest_alignment_rejects_empty_and_boundary_only_inputs(self) -> None:
+        bindings, envelopes, salt = make_chains()
+        empty_manifest = make_manifest(bindings)
+        empty_manifest["trials"] = []
+        empty_alignment = make_alignment(bindings)
+        empty_alignment["tasks"] = []
+        empty_result = p2_pregate.evaluate_pregate(
+            private_bindings=bindings,
+            public_envelopes=envelopes,
+            window_salt=salt,
+            final_manifest=empty_manifest,
+            manifest_alignment_index=empty_alignment,
+        )
+        boundary_result = p2_pregate.evaluate_pregate(
+            private_bindings=[bindings[0], bindings[-1]],
+            public_envelopes=envelopes,
+            window_salt=salt,
+            final_manifest=make_manifest(bindings),
+            manifest_alignment_index=make_alignment(bindings),
+        )
+        self.assertFalse(empty_result["manifest_alignment_proven"])
+        self.assertIn("manifest_alignment_empty", {issue["code"] for issue in empty_result["issues"]})
+        self.assertFalse(boundary_result["manifest_alignment_proven"])
+        self.assertIn("manifest_alignment_no_task_pair", {issue["code"] for issue in boundary_result["issues"]})
+
     def test_manifest_alignment_rejects_unknown_conditional_and_boolean_integer_fields(self) -> None:
         bindings, envelopes, salt = make_chains()
         manifest = make_manifest(bindings, disposition="blocked")
@@ -641,6 +748,101 @@ class StrictCompletionTests(unittest.TestCase):
         self.assertFalse(unknown_result["manifest_alignment_proven"])
         self.assertIn("manifest_invalid", {issue["code"] for issue in missing_result["issues"]})
         self.assertIn("manifest_invalid", {issue["code"] for issue in unknown_result["issues"]})
+
+    def test_manifest_alignment_rejects_non_string_skill_candidate_without_leak(self) -> None:
+        bindings, envelopes, salt = make_chains()
+        malformed = make_manifest(bindings)
+        malformed["trials"][0]["skill_candidate_commit"] = {"not": "a string"}
+        result = p2_pregate.evaluate_pregate(
+            private_bindings=bindings,
+            public_envelopes=envelopes,
+            window_salt=salt,
+            final_manifest=malformed,
+            manifest_alignment_index=make_alignment(bindings),
+        )
+        self.assertFalse(result["manifest_alignment_proven"])
+        self.assertIn("manifest_invalid", {issue["code"] for issue in result["issues"]})
+
+    def test_manifest_alignment_rejects_non_string_expected_candidate_without_leak(self) -> None:
+        bindings, envelopes, salt = make_chains()
+        result = p2_pregate.evaluate_pregate(
+            private_bindings=bindings,
+            public_envelopes=envelopes,
+            window_salt=salt,
+            final_manifest=make_manifest(bindings),
+            manifest_alignment_index=make_alignment(bindings),
+            expected_candidate_commit={"not": "a string"},
+        )
+        self.assertFalse(result["manifest_alignment_proven"])
+        self.assertIn("manifest_invalid", {issue["code"] for issue in result["issues"]})
+
+    def test_same_tree_refs_reject_unsafe_shapes_and_escaped_nul_file_input(self) -> None:
+        bindings, envelopes, salt = make_chains()
+        unsafe_refs = (
+            "main",
+            "a" * 40,
+            "refs/heads/foo\x00bar",
+            "refs/heads/foo bar",
+            "refs/heads/foo..bar",
+            "refs/heads/foo//bar",
+            "refs/heads/.foo",
+            "refs/heads/foo.lock",
+            "refs/heads/foo/",
+            "refs/heads/foo.",
+        )
+        for candidate_ref in unsafe_refs:
+            with self.subTest(candidate_ref=repr(candidate_ref)):
+                malformed = make_manifest(bindings)
+                malformed["trials"][0]["integration_proof"] = {
+                    "mode": "same_tree",
+                    "candidate_ref": candidate_ref,
+                    "candidate_tree": "a" * 40,
+                    "stable_tree": "a" * 40,
+                    "tree_scope": {"history_sensitive": False, "non_tree_dependencies": []},
+                }
+                result = p2_pregate.evaluate_pregate(
+                    private_bindings=bindings,
+                    public_envelopes=envelopes,
+                    window_salt=salt,
+                    final_manifest=malformed,
+                    manifest_alignment_index=make_alignment(bindings),
+                )
+                self.assertFalse(result["manifest_alignment_proven"])
+                self.assertIn("manifest_invalid", {issue["code"] for issue in result["issues"]})
+
+        with tempfile.TemporaryDirectory(prefix="p2-manifest-") as directory:
+            path = Path(directory) / "manifest.json"
+            malformed = make_manifest(bindings)
+            malformed["trials"][0]["integration_proof"] = {
+                "mode": "same_tree",
+                "candidate_ref": "refs/heads/escaped\x00ref",
+                "candidate_tree": "a" * 40,
+                "stable_tree": "a" * 40,
+                "tree_scope": {"history_sensitive": False, "non_tree_dependencies": []},
+            }
+            path.write_text(json.dumps(malformed, ensure_ascii=True), encoding="utf-8")
+            result = p2_pregate.evaluate_pregate(
+                private_bindings=bindings,
+                public_envelopes=envelopes,
+                window_salt=salt,
+                final_manifest=path,
+                manifest_alignment_index=make_alignment(bindings),
+            )
+        self.assertFalse(result["manifest_alignment_proven"])
+        self.assertIn("manifest_invalid", {issue["code"] for issue in result["issues"]})
+
+    def test_git_helpers_bound_timeout_and_reject_unreadable_process_output(self) -> None:
+        with patch.object(
+            p2_pregate.subprocess,
+            "run",
+            side_effect=subprocess.TimeoutExpired(["git"], p2_pregate.GIT_TIMEOUT_SECONDS),
+        ):
+            self.assertIsNone(p2_pregate._run_git_text(Path("."), "rev-parse", "HEAD"))
+        unreadable = subprocess.CompletedProcess(["git"], 0, stdout=None, stderr=None)
+        with patch.object(p2_pregate.subprocess, "run", return_value=unreadable):
+            self.assertIsNone(p2_pregate._run_git_text(Path("."), "rev-parse", "HEAD"))
+            self.assertFalse(p2_pregate._git_commit_exists(Path("."), "a" * 40))
+            self.assertIsNone(p2_pregate._git_blob_bytes(Path("."), "a" * 40, "receipt.json"))
 
 
 if __name__ == "__main__":
