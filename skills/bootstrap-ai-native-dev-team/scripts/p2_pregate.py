@@ -2,9 +2,10 @@
 """Dependency-free, fail-closed local P2 hybrid pre-gate.
 
 This module implements only the local contract selected by the P2 task.  It does
-not contain a Rekor, TSA, OpenTimestamps, or other P3 verifier, and it never
-invokes the existing V2 release gate.  A retained proof package is an inventory
-of evidence until a separately approved adapter verifies it cryptographically.
+never invokes the existing V2 release gate. A generic retained proof package
+remains an inventory only. When strict local verification requests are supplied,
+it invokes the profile-specific P3 adapter against retained bytes and pinned
+offline trust material; no submission or live-provider path is present.
 """
 
 from __future__ import annotations
@@ -20,6 +21,8 @@ import re
 import subprocess
 import sys
 from typing import Any
+
+import p3_sigstore_github_adapter as p3_adapter
 
 
 PROFILE = "ai-native-cj-1"
@@ -1113,8 +1116,8 @@ def _proof_documents(source: Any, issues: list[dict[str, str]]) -> list[dict[str
         return []
     values: list[dict[str, Any]] = []
     for label, value, _raw in documents:
-        if isinstance(value, dict) and "verified" in value:
-            _add_issue(issues, "proof_self_reported_verification", "proof package self-reports verified and is rejected")
+        if isinstance(value, dict) and any(field in value for field in ("verified", "passed", "eligible")):
+            _add_issue(issues, "proof_self_reported_verification", "proof package self-reports a trust result and is rejected")
         try:
             values.append(validate_external_proof_package(value, label))
         except P2PregateError as exc:
@@ -1547,11 +1550,198 @@ def _verify_manifest_alignment(
     return len(issues) == start
 
 
+P3_REQUEST_FIELDS = {"inventory", "proof_root", "tool_paths"}
+P3_RESULT_FIELDS = {
+    "profile_id",
+    "submitted_envelope_sha256",
+    "sigstore_signed_time",
+    "github_signed_time",
+    "artifact_binding_proven",
+    "rekor_inclusion_proven",
+    "sigstore_timestamp_proven",
+    "github_timestamp_proven",
+    "two_operator_policy_proven",
+    "offline_verification_proven",
+    "privacy_allowlist_passed",
+    "proof_set_integral",
+    "issues",
+}
+P3_PROOF_BOOLEANS = (
+    "artifact_binding_proven",
+    "rekor_inclusion_proven",
+    "sigstore_timestamp_proven",
+    "github_timestamp_proven",
+    "two_operator_policy_proven",
+    "offline_verification_proven",
+    "privacy_allowlist_passed",
+)
+
+
+def _load_p3_requests(source: Any) -> list[dict[str, Any]]:
+    """Load operational local requests without treating their paths as public evidence."""
+
+    if source is None:
+        return []
+    values: list[Any]
+    if isinstance(source, Mapping):
+        values = [dict(source)]
+    elif isinstance(source, (str, Path)):
+        path = Path(source)
+        try:
+            if path.is_file():
+                parsed = p3_adapter.parse_json_bytes(path.read_bytes())
+                values = parsed if isinstance(parsed, list) else [parsed]
+            elif path.is_dir():
+                children = list(path.iterdir())
+                if any(not item.is_file() or item.suffix.lower() != ".json" for item in children):
+                    raise P2PregateError("p3_request_path_invalid")
+                values = [p3_adapter.parse_json_bytes(item.read_bytes()) for item in children]
+            else:
+                raise P2PregateError("p3_request_path_missing")
+        except (OSError, TypeError, ValueError, p3_adapter.AdapterError) as exc:
+            raise P2PregateError("p3_request_invalid") from exc
+    elif isinstance(source, Iterable) and not isinstance(source, (str, bytes, bytearray)):
+        values = list(source)
+    else:
+        raise P2PregateError("p3_request_invalid")
+
+    requests: list[dict[str, Any]] = []
+    for value in values:
+        if not isinstance(value, Mapping) or set(value) != P3_REQUEST_FIELDS:
+            raise P2PregateError("p3_request_fields_invalid")
+        request = dict(value)
+        if not isinstance(request["inventory"], (Mapping, str, Path, bytes)):
+            raise P2PregateError("p3_request_inventory_invalid")
+        if not isinstance(request["proof_root"], (str, Path)):
+            raise P2PregateError("p3_request_root_invalid")
+        if not isinstance(request["tool_paths"], Mapping):
+            raise P2PregateError("p3_request_tools_invalid")
+        requests.append(request)
+    return requests
+
+
+def _valid_p3_result(value: Any) -> bool:
+    if not isinstance(value, dict) or set(value) != P3_RESULT_FIELDS:
+        return False
+    if value.get("profile_id") != p3_adapter.PROFILE_ID:
+        return False
+    digest = value.get("submitted_envelope_sha256")
+    if not isinstance(digest, str) or not SHA256_HEX.fullmatch(digest):
+        return False
+    for field in P3_PROOF_BOOLEANS + ("proof_set_integral",):
+        if not isinstance(value.get(field), bool):
+            return False
+    if not isinstance(value.get("issues"), list):
+        return False
+    for issue in value["issues"]:
+        if not isinstance(issue, dict) or set(issue) != {"code", "message"}:
+            return False
+        if not isinstance(issue["code"], str) or not isinstance(issue["message"], str):
+            return False
+    expected_integral = all(value[field] for field in P3_PROOF_BOOLEANS) and not value["issues"]
+    if value["proof_set_integral"] is not expected_integral:
+        return False
+    for field in ("sigstore_signed_time", "github_signed_time"):
+        signed_time = value.get(field)
+        if value["proof_set_integral"]:
+            if not isinstance(signed_time, str) or not TIMESTAMP.fullmatch(signed_time):
+                return False
+        elif signed_time is not None and (not isinstance(signed_time, str) or not TIMESTAMP.fullmatch(signed_time)):
+            return False
+    return True
+
+
+def _compute_p3_results(
+    source: Any,
+    public_raw_values: list[bytes],
+    issues: list[dict[str, str]],
+    *,
+    public_input_complete: bool,
+) -> tuple[list[dict[str, Any]], bool]:
+    if source is None:
+        return [], False
+    if not public_input_complete:
+        _add_issue(issues, "external_receipt_unverified", "P3 verification requires complete public input")
+        return [], False
+    try:
+        requests = _load_p3_requests(source)
+    except P2PregateError:
+        _add_issue(issues, "external_receipt_unverified", "P3 verification requests are invalid")
+        return [], False
+    if len(requests) != len(public_raw_values):
+        _add_issue(issues, "proof_count_mismatch", "each public envelope requires one P3 verification request")
+        return [], False
+    results: list[dict[str, Any]] = []
+    valid = True
+    for request, envelope_bytes in zip(requests, public_raw_values):
+        computed = p3_adapter.verify_proof(
+            request["inventory"],
+            envelope_bytes,
+            proof_root=request["proof_root"],
+            tool_paths=request["tool_paths"],
+        )
+        if not _valid_p3_result(computed):
+            valid = False
+            _add_issue(issues, "external_receipt_unverified", "P3 adapter returned an invalid or failed computed result")
+        results.append(computed)
+    return results, valid
+
+
+def _p3_receipts_integral(
+    results: list[dict[str, Any]],
+    public_hashes: list[str],
+    *,
+    computed_results_valid: bool,
+) -> bool:
+    if not computed_results_valid or not public_hashes or len(results) != len(public_hashes):
+        return False
+    digests = [result.get("submitted_envelope_sha256") for result in results]
+    return bool(
+        len(set(digests)) == len(digests)
+        and digests == public_hashes
+        and all(result.get("proof_set_integral") is True for result in results)
+    )
+
+
+def _p3_order_proven(
+    private_values: list[dict[str, Any]],
+    results: list[dict[str, Any]],
+    *,
+    receipts_integral: bool,
+    chain_integral: bool,
+) -> bool:
+    if not receipts_integral or not chain_integral or len(private_values) != len(results):
+        return False
+    ordered: list[datetime] = []
+    seen_ready = False
+    seen_outcome = False
+    seen_closure = False
+    try:
+        for binding, result in zip(private_values, results):
+            kind = binding["record_kind"]
+            if kind not in {"task_ready", "task_outcome", "window_closure"}:
+                continue
+            current = datetime.strptime(result["github_signed_time"], "%Y-%m-%dT%H:%M:%SZ")
+            ordered.append(current)
+            seen_ready = seen_ready or kind == "task_ready"
+            seen_outcome = seen_outcome or kind == "task_outcome"
+            seen_closure = seen_closure or kind == "window_closure"
+    except (KeyError, TypeError, ValueError):
+        return False
+    return bool(
+        seen_ready
+        and seen_outcome
+        and seen_closure
+        and len(ordered) >= 3
+        and all(later > earlier for earlier, later in zip(ordered, ordered[1:]))
+    )
+
 def evaluate_pregate(
     *,
     private_bindings: Any = None,
     public_envelopes: Any = None,
     proof_packages: Any = None,
+    p3_verification_requests: Any = None,
     window_salt: bytes | str | None = None,
     private_anchor_repo: Any = None,
     private_freeze_commit: Any = None,
@@ -1567,9 +1757,10 @@ def evaluate_pregate(
 ) -> dict[str, Any]:
     """Evaluate local P2 inputs and return stable machine-readable status.
 
-    ``eligible_for_v2_release_gate`` is intentionally false for every invocation
-    in this implementation because no Owner-approved P3 cryptographic adapter is
-    present.  The function never imports or executes the existing release gate.
+    The profile-specific adapter may prove retained external receipts and their
+    signed order, but this function never imports or executes the existing release
+    gate. Total eligibility remains false until public control and fresh recovery
+    are independently implemented and supplied under their own approvals.
     """
 
     issues: list[dict[str, str]] = []
@@ -1677,9 +1868,7 @@ def evaluate_pregate(
         private_commitments_ok=private_commitments_ok,
     )
     proofs = _proof_documents(proof_packages, issues)
-    if not proofs:
-        _add_issue(issues, "trusted_time_missing", "no retained external proof package is available")
-    else:
+    if proofs:
         expected_public_digests = set(public_hashes)
         proof_digests = [proof["submitted_digest_sha256"] for proof in proofs]
         if len(proofs) != len(public_values):
@@ -1689,14 +1878,38 @@ def evaluate_pregate(
         for proof in proofs:
             if proof["submitted_digest_sha256"] not in expected_public_digests:
                 _add_issue(issues, "proof_digest_mismatch", "proof package digest does not match a public envelope")
-        # Presence and schema validity are deliberately not qualification.  A P3
-        # adapter must be separately approved and implemented before this turns true.
-        _add_issue(issues, "trusted_time_missing", "retained proof is not cryptographically qualified by a P3 adapter")
-    _add_issue(issues, "external_receipts_unproven", "external receipt time and transparency are not verified")
-    _add_issue(issues, "pre_outcome_order_unproven", "task-ready to outcome order lacks trusted external time")
+
+    p3_results, p3_results_valid = _compute_p3_results(
+        p3_verification_requests,
+        public_raw_values,
+        issues,
+        public_input_complete=public_input_complete,
+    )
+    external_receipts_integral = _p3_receipts_integral(
+        p3_results,
+        public_hashes,
+        computed_results_valid=p3_results_valid,
+    )
+    pre_outcome_order_proven = _p3_order_proven(
+        private_values,
+        p3_results,
+        receipts_integral=external_receipts_integral,
+        chain_integral=bool(private_chain_ok and public_chain_ok and private_commitments_ok),
+    )
+    if not external_receipts_integral:
+        _add_issue(issues, "trusted_time_missing", "retained proof is not cryptographically qualified by the P3 adapter")
+        _add_issue(issues, "external_receipts_unproven", "external receipt time and transparency are not verified")
+    if not pre_outcome_order_proven:
+        _add_issue(issues, "pre_outcome_order_unproven", "task-ready to outcome order lacks trusted external time")
     _add_issue(issues, "public_control_unproven", "local evidence cannot prove public append-only controls")
 
     privacy_allowlist_ok = bool(public_values) and not any(issue["code"] == "public_envelope_invalid" for issue in issues)
+    if p3_verification_requests is not None:
+        privacy_allowlist_ok = bool(
+            privacy_allowlist_ok
+            and external_receipts_integral
+            and all(result.get("privacy_allowlist_passed") is True for result in p3_results)
+        )
     if not privacy_allowlist_ok:
         _add_issue(issues, "privacy_allowlist_failed", "public envelope allowlist is absent or invalid")
     _validate_recovery_inventory(recovery_inventory, issues)
@@ -1727,8 +1940,8 @@ def evaluate_pregate(
         "public_chain_integral": bool(public_chain_ok and public_anchor_ok and public_content_mapping_proven),
         "public_control_proven": False,
         "public_content_mapping_proven": public_content_mapping_proven,
-        "external_receipts_integral": False,
-        "pre_outcome_order_proven": False,
+        "external_receipts_integral": external_receipts_integral,
+        "pre_outcome_order_proven": pre_outcome_order_proven,
         "privacy_allowlist_passed": privacy_allowlist_ok,
         "recovery_demonstrated": False,
         "manifest_alignment_proven": manifest_alignment_proven,
@@ -1745,6 +1958,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--private-bindings", required=True)
     parser.add_argument("--public-envelopes", required=True)
     parser.add_argument("--proof-packages")
+    parser.add_argument("--p3-verification-requests")
     parser.add_argument("--window-salt-hex")
     parser.add_argument("--private-anchor-repo")
     parser.add_argument("--private-freeze-commit")
@@ -1767,6 +1981,7 @@ def main(argv: list[str] | None = None) -> int:
         private_bindings=args.private_bindings,
         public_envelopes=args.public_envelopes,
         proof_packages=args.proof_packages,
+        p3_verification_requests=args.p3_verification_requests,
         window_salt=args.window_salt_hex,
         private_anchor_repo=args.private_anchor_repo,
         private_freeze_commit=args.private_freeze_commit,

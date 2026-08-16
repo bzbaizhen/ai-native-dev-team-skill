@@ -11,7 +11,7 @@ The word “release”, “deploy”, or “publish” alone is not enough. Ordi
 in [Controlled](controlled.md) with `release_audit=false`. Obtain Owner approval for the
 audit scope and any external write before activating this layer.
 
-## P2 hybrid pre-gate (local contract, P3 not qualified)
+## P2 hybrid pre-gate and local P3 retained-proof adapter
 
 When an approved prospective task explicitly selects the P2 contract stage, load the
 local-only [P2 pre-gate verifier](../scripts/p2_pregate.py) and its three strict
@@ -20,7 +20,9 @@ schemas: [private binding](p2-private-binding.schema.json),
 [retained external proof package](p2-external-proof-package.schema.json), plus the
 [public anchor manifest](p2-public-anchor-manifest.schema.json) and
 [Manifest alignment index](p2-manifest-alignment.schema.json) when the two strict
-positive proof paths are supplied.
+positive proof paths are supplied. For the qualified retained-proof profile, also load
+the strict [P3 proof inventory](p3-sigstore-github-proof.schema.json) and the local-only
+[P3 adapter](../scripts/p3_sigstore_github_adapter.py).
 These are progressive-disclosure contract material; they do not change the existing
 Release Audit schemas or invoke the V2 release gate.
 
@@ -30,16 +32,20 @@ mapping, strict Manifest shape, and one-to-one private ready/outcome alignment.
 The positive local mapping paths require `--public-anchor-manifest` and
 `--manifest-alignment-index` (or the corresponding API inputs); omitted or invalid
 indexes remain blocking and fail closed.
-It remains fail-closed until a separately approved P3 adapter can cryptographically
-verify retained time/transparency material. Missing, invalid, or merely self-reported
-external proof therefore produces the stable blocking issue `trusted_time_missing`.
-No Git author/committer timestamp, URL, API identifier, screenshot, or proof JSON
-field named `verified` qualifies as trusted time. P2 implementation does not authorize
-P3 submission, public repository creation, Push, Tag, Release, or Skill installation.
+A generic proof package remains an inventory and can never qualify itself. Only the
+strict `--p3-verification-requests` channel calls the profile-specific adapter against
+the corresponding public envelopes, retained bytes, pinned local tools and offline
+trust roots. Missing, invalid, surplus, duplicated, failed or merely self-reported proof
+produces the stable blocking issue `trusted_time_missing`. No Git author/committer
+timestamp, URL, API identifier, screenshot, or proof JSON field named `verified`,
+`passed` or `eligible` qualifies as trusted time. P2 implementation does not authorize
+P3 submission, public repository creation, Push, Tag, Release or Skill installation.
 The local verifier does not infer missing mapping/alignment evidence, private event
-anchor endpoints, or recovery from caller-declared digests. `public_control_proven`,
-`external_receipts_integral`, `pre_outcome_order_proven`, `recovery_demonstrated`, and
-`eligible_for_v2_release_gate` remain false even when local mapping/alignment passes.
+anchor endpoints, or recovery from caller-declared digests. Computed P3 results can set
+`external_receipts_integral` only with exact one-to-one digest coverage and can set
+`pre_outcome_order_proven` only from a strictly increasing complete ready/outcome/closure
+sequence. `public_control_proven`, `recovery_demonstrated`, and
+`eligible_for_v2_release_gate` remain false until their independent later gates pass.
 
 ## Freeze the audit inputs
 

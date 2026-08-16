@@ -924,6 +924,177 @@ class StrictCompletionTests(unittest.TestCase):
                 with patch.object(p2_pregate.subprocess, "run", return_value=stderr_result):
                     self.assertFalse(p2_pregate._git_commit_exists(Path("."), "a" * 40))
 
+class P3ComputedAdapterIntegrationTests(unittest.TestCase):
+    @staticmethod
+    def requests(count: int) -> list[dict[str, object]]:
+        return [
+            {
+                "inventory": {"request": index},
+                "proof_root": f"proof-{index}",
+                "tool_paths": {
+                    "cosign": "cosign",
+                    "timestamp_cli": "timestamp-cli",
+                    "openssl": "openssl",
+                    "openssl_config": "openssl.cnf",
+                },
+            }
+            for index in range(count)
+        ]
+
+    @staticmethod
+    def result_for(envelope: bytes, index: int, *, digest: str | None = None, second: int | None = None) -> dict[str, object]:
+        timestamp_second = index if second is None else second
+        value: dict[str, object] = {
+            "profile_id": p2_pregate.p3_adapter.PROFILE_ID,
+            "submitted_envelope_sha256": digest or hashlib.sha256(envelope).hexdigest(),
+            "sigstore_signed_time": f"2026-08-15T00:00:{timestamp_second:02d}Z",
+            "github_signed_time": f"2026-08-15T00:00:{timestamp_second:02d}Z",
+            "artifact_binding_proven": True,
+            "rekor_inclusion_proven": True,
+            "sigstore_timestamp_proven": True,
+            "github_timestamp_proven": True,
+            "two_operator_policy_proven": True,
+            "offline_verification_proven": True,
+            "privacy_allowlist_passed": True,
+            "proof_set_integral": True,
+            "issues": [],
+        }
+        return value
+
+    def test_pregate_calls_adapter_and_computes_integrity_and_order(self) -> None:
+        bindings, envelopes, salt = make_chains()
+        calls: list[bytes] = []
+
+        def computed(_inventory, envelope, *, proof_root, tool_paths):
+            calls.append(envelope)
+            return self.result_for(envelope, len(calls))
+
+        with patch.object(p2_pregate.p3_adapter, "verify_proof", side_effect=computed):
+            result = p2_pregate.evaluate_pregate(
+                private_bindings=bindings,
+                public_envelopes=envelopes,
+                p3_verification_requests=self.requests(len(envelopes)),
+                window_salt=salt,
+                expected_candidate_commit="b" * 40,
+            )
+        self.assertEqual(len(calls), len(envelopes))
+        self.assertTrue(result["external_receipts_integral"])
+        self.assertTrue(result["pre_outcome_order_proven"])
+        self.assertTrue(result["privacy_allowlist_passed"])
+        self.assertFalse(result["public_control_proven"])
+        self.assertFalse(result["recovery_demonstrated"])
+        self.assertFalse(result["eligible_for_v2_release_gate"])
+        codes = {issue["code"] for issue in result["issues"]}
+        self.assertNotIn("trusted_time_missing", codes)
+        self.assertNotIn("external_receipts_unproven", codes)
+        self.assertNotIn("pre_outcome_order_unproven", codes)
+
+    def test_count_digest_failure_and_surplus_fail_closed(self) -> None:
+        bindings, envelopes, salt = make_chains()
+        with patch.object(p2_pregate.p3_adapter, "verify_proof") as verifier:
+            result = p2_pregate.evaluate_pregate(
+                private_bindings=bindings,
+                public_envelopes=envelopes,
+                p3_verification_requests=self.requests(len(envelopes) + 1),
+                window_salt=salt,
+                expected_candidate_commit="b" * 40,
+            )
+        verifier.assert_not_called()
+        self.assertFalse(result["external_receipts_integral"])
+        self.assertIn("proof_count_mismatch", {issue["code"] for issue in result["issues"]})
+
+        calls = 0
+
+        def wrong_digest(_inventory, envelope, *, proof_root, tool_paths):
+            nonlocal calls
+            calls += 1
+            digest = "0" * 64 if calls == 2 else None
+            return self.result_for(envelope, calls, digest=digest)
+
+        with patch.object(p2_pregate.p3_adapter, "verify_proof", side_effect=wrong_digest):
+            result = p2_pregate.evaluate_pregate(
+                private_bindings=bindings,
+                public_envelopes=envelopes,
+                p3_verification_requests=self.requests(len(envelopes)),
+                window_salt=salt,
+                expected_candidate_commit="b" * 40,
+            )
+        self.assertFalse(result["external_receipts_integral"])
+        self.assertFalse(result["pre_outcome_order_proven"])
+        self.assertIn("trusted_time_missing", {issue["code"] for issue in result["issues"]})
+
+    def test_equal_or_reversed_signed_time_never_proves_order(self) -> None:
+        bindings, envelopes, salt = make_chains()
+        for times in ((1, 2, 2, 4), (4, 3, 2, 1)):
+            calls = 0
+
+            def timestamped(_inventory, envelope, *, proof_root, tool_paths):
+                nonlocal calls
+                current = calls
+                calls += 1
+                return self.result_for(envelope, current + 1, second=times[current])
+
+            with self.subTest(times=times), patch.object(
+                p2_pregate.p3_adapter, "verify_proof", side_effect=timestamped
+            ):
+                result = p2_pregate.evaluate_pregate(
+                    private_bindings=bindings,
+                    public_envelopes=envelopes,
+                    p3_verification_requests=self.requests(len(envelopes)),
+                    window_salt=salt,
+                    expected_candidate_commit="b" * 40,
+                )
+                self.assertTrue(result["external_receipts_integral"])
+                self.assertFalse(result["pre_outcome_order_proven"])
+
+    def test_broken_chain_never_proves_order_even_with_integral_receipts(self) -> None:
+        bindings, envelopes, salt = make_chains()
+        envelopes[2]["previous_envelope_sha256"] = "0" * 64
+        calls = 0
+
+        def computed(_inventory, envelope, *, proof_root, tool_paths):
+            nonlocal calls
+            calls += 1
+            return self.result_for(envelope, calls)
+
+        with patch.object(p2_pregate.p3_adapter, "verify_proof", side_effect=computed):
+            result = p2_pregate.evaluate_pregate(
+                private_bindings=bindings,
+                public_envelopes=envelopes,
+                p3_verification_requests=self.requests(len(envelopes)),
+                window_salt=salt,
+                expected_candidate_commit="b" * 40,
+            )
+        self.assertTrue(result["external_receipts_integral"])
+        self.assertFalse(result["pre_outcome_order_proven"])
+        self.assertIn("pre_outcome_order_unproven", {issue["code"] for issue in result["issues"]})
+    def test_generic_self_reports_never_enter_computed_channel(self) -> None:
+        bindings, envelopes, salt = make_chains()
+        base = {
+            "schema_version": "1.0",
+            "proof_type": "rfc3161",
+            "provider": "provider",
+            "protocol_version": "1",
+            "submitted_digest_sha256": p2_pregate.envelope_sha256(envelopes[0]),
+            "retained_files": [{"path": "proof.json", "sha256": "a" * 64, "bytes": 1}],
+            "verification_policy": "local-only",
+            "acquired_at": "2026-08-15T00:00:00Z",
+        }
+        for field in ("verified", "passed", "eligible"):
+            proof = dict(base)
+            proof[field] = True
+            with self.subTest(field=field):
+                result = p2_pregate.evaluate_pregate(
+                    private_bindings=bindings,
+                    public_envelopes=envelopes,
+                    proof_packages=[proof],
+                    window_salt=salt,
+                    expected_candidate_commit="b" * 40,
+                )
+                self.assertFalse(result["external_receipts_integral"])
+                self.assertIn("proof_self_reported_verification", {issue["code"] for issue in result["issues"]})
+
+
 
 if __name__ == "__main__":
     unittest.main()

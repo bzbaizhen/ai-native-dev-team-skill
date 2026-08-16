@@ -1,0 +1,2 @@
+# Retained proof fixtures are content-addressed bytes; never apply EOL filters.
+* -text

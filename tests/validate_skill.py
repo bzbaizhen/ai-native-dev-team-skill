@@ -36,6 +36,7 @@ required = [
     SKILL / "references" / "p2-external-proof-package.schema.json",
     SKILL / "references" / "p2-public-anchor-manifest.schema.json",
     SKILL / "references" / "p2-manifest-alignment.schema.json",
+    SKILL / "references" / "p3-sigstore-github-proof.schema.json",
     SKILL / "references" / "team-governance-template.zh-CN.md",
     SKILL / "assets" / "team-bootstrap-proposal.md",
     SKILL / "assets" / "project-team-charter.md",
@@ -45,6 +46,7 @@ required = [
     SKILL / "scripts" / "team_metrics.py",
     SKILL / "scripts" / "v2_release_gate.py",
     SKILL / "scripts" / "p2_pregate.py",
+    SKILL / "scripts" / "p3_sigstore_github_adapter.py",
     ROOT / "benchmarks" / "v2-prospective" / "README.md",
     ROOT / "benchmarks" / "v2-prospective" / "anchor-closure.example.json",
     ROOT / "benchmarks" / "v2-prospective" / "registration-000001.example.json",
@@ -58,6 +60,17 @@ required = [
     ROOT / "tests" / "test_team_metrics.py",
     ROOT / "tests" / "test_v2_release_gate.py",
     ROOT / "tests" / "test_p2_pregate.py",
+    ROOT / "tests" / "test_p3_sigstore_github_adapter.py",
+    ROOT / "tests" / "fixtures" / "p3-public" / "inventory.json",
+    ROOT / "tests" / "fixtures" / "p3-public" / "opaque-commitment.txt",
+    ROOT / "tests" / "fixtures" / "p3-public" / "proof" / "p3-submitted.bundle.json",
+    ROOT / "tests" / "fixtures" / "p3-public" / "proof" / "disposable-cosign.pub",
+    ROOT / "tests" / "fixtures" / "p3-public" / "proof" / "trusted-root.json",
+    ROOT / "tests" / "fixtures" / "p3-public" / "proof" / "signature.raw",
+    ROOT / "tests" / "fixtures" / "p3-public" / "proof" / "github-tsa-signature.tsr",
+    ROOT / "tests" / "fixtures" / "p3-public" / "proof" / "github-tsa-leaf.pem",
+    ROOT / "tests" / "fixtures" / "p3-public" / "proof" / "github-tsa-intermediate.pem",
+    ROOT / "tests" / "fixtures" / "p3-public" / "proof" / "github-tsa-root.pem",
     ROOT / "tests" / "fixtures" / "p2" / "private-binding-vector.json",
     ROOT / "tests" / "fixtures" / "p2" / "duplicate-key.json",
     ROOT / "tests" / "fixtures" / "p2" / "public-leak.json",
@@ -237,6 +250,115 @@ for name, expected_fields in p2_schema_fields.items():
     if set(p2_schema.get("properties", {})) != expected_fields:
         fail(f"{name} properties do not match the frozen P2 contract")
 
+p3_schema_path = SKILL / "references" / "p3-sigstore-github-proof.schema.json"
+try:
+    p3_schema = json.loads(p3_schema_path.read_text(encoding="utf-8"))
+except json.JSONDecodeError as exc:
+    fail(f"P3 proof inventory schema is invalid JSON: {exc}")
+p3_fields = {
+    "schema_version",
+    "profile_id",
+    "submitted_envelope_sha256",
+    "cosign_bundle",
+    "cosign_public_key",
+    "sigstore_trusted_root",
+    "raw_signature",
+    "github_timestamp_token",
+    "github_leaf",
+    "github_intermediate",
+    "github_root",
+    "verification_policy_id",
+    "tool_inventory",
+    "acquired_at",
+}
+if p3_schema.get("$schema") != "https://json-schema.org/draft/2020-12/schema":
+    fail("P3 proof inventory schema must declare JSON Schema 2020-12")
+if p3_schema.get("additionalProperties") is not False:
+    fail("P3 proof inventory schema must reject unknown fields")
+if set(p3_schema.get("required", [])) != p3_fields or set(p3_schema.get("properties", {})) != p3_fields:
+    fail("P3 proof inventory fields differ from the frozen contract")
+p3_schema_text = json.dumps(p3_schema, sort_keys=True)
+for forbidden in ("verified", "passed", "eligible", "proof_set_integral"):
+    if forbidden in p3_schema_text:
+        fail(f"P3 proof inventory schema contains forbidden result field: {forbidden}")
+tool_variants = p3_schema.get("$defs", {}).get("tool", {}).get("oneOf", [])
+if len(tool_variants) != 5:
+    fail("P3 proof inventory must pin exactly five tool identities")
+p3_provider_identities = {
+    "github_leaf": (790, "06940aa850c0912e7cf8d893b6bf509c719060f94eaa0a8b5deb5d7194e4bc77"),
+    "github_intermediate": (802, "ebfcb01e412d295adcfd67fe3e7546a1f01b033074da03abdde0de9e99c96eac"),
+    "github_root": (741, "6d6734c76d4280033315c30f63d20b7a8d5d4dd6d77c7446b08c93443beec26e"),
+}
+for name, (expected_bytes, expected_sha) in p3_provider_identities.items():
+    definition = p3_schema.get("$defs", {}).get(name, {})
+    layers = definition.get("allOf")
+    if not isinstance(layers, list) or len(layers) != 2:
+        fail(f"P3 provider certificate definition is not strict: {name}")
+    properties = layers[1].get("properties", {}) if isinstance(layers[1], dict) else {}
+    if properties.get("bytes", {}).get("const") != expected_bytes:
+        fail(f"P3 provider certificate byte identity drifted: {name}")
+    if properties.get("sha256", {}).get("const") != expected_sha:
+        fail(f"P3 provider certificate digest identity drifted: {name}")
+
+p3_fixture_root = ROOT / "tests" / "fixtures" / "p3-public"
+expected_p3_fixture_files = {
+    ".gitattributes",
+    "inventory.json",
+    "opaque-commitment.txt",
+    "proof/p3-submitted.bundle.json",
+    "proof/disposable-cosign.pub",
+    "proof/trusted-root.json",
+    "proof/signature.raw",
+    "proof/github-tsa-signature.tsr",
+    "proof/github-tsa-leaf.pem",
+    "proof/github-tsa-intermediate.pem",
+    "proof/github-tsa-root.pem",
+}
+actual_p3_fixture_files = {
+    path.relative_to(p3_fixture_root).as_posix()
+    for path in p3_fixture_root.rglob("*")
+    if path.is_file()
+}
+if actual_p3_fixture_files != expected_p3_fixture_files:
+    fail("P3 public fixture allowlist differs from ten evidence files plus transport metadata")
+for path in p3_fixture_root.rglob("*"):
+    if path.is_symlink() or getattr(path.stat(), "st_reparse_tag", 0):
+        fail(f"P3 public fixture contains a link or reparse point: {path.name}")
+for forbidden in ("dpapi", "password", "private", "window-salt", "disposable-input", ".key"):
+    if any(forbidden in relative.casefold() for relative in actual_p3_fixture_files):
+        fail(f"P3 public fixture contains forbidden material: {forbidden}")
+try:
+    p3_inventory = json.loads((p3_fixture_root / "inventory.json").read_text(encoding="utf-8"))
+except json.JSONDecodeError as exc:
+    fail(f"P3 public fixture inventory is invalid JSON: {exc}")
+artifact_fields = {
+    "cosign_bundle",
+    "cosign_public_key",
+    "sigstore_trusted_root",
+    "raw_signature",
+    "github_timestamp_token",
+    "github_leaf",
+    "github_intermediate",
+    "github_root",
+}
+listed_proof_files = set()
+for field in artifact_fields:
+    item = p3_inventory.get(field)
+    if not isinstance(item, dict):
+        fail(f"P3 public fixture inventory entry is missing: {field}")
+    relative = item.get("path")
+    if not isinstance(relative, str):
+        fail(f"P3 public fixture path is invalid: {field}")
+    listed_proof_files.add("proof/" + relative)
+    file_path = p3_fixture_root / "proof" / relative
+    data = file_path.read_bytes()
+    if len(data) != item.get("bytes") or hashlib.sha256(data).hexdigest() != item.get("sha256"):
+        fail(f"P3 public fixture bytes differ from inventory: {field}")
+if listed_proof_files != {path for path in expected_p3_fixture_files if path.startswith("proof/")}:
+    fail("P3 proof root is not an exact inventory set")
+envelope_bytes = (p3_fixture_root / "opaque-commitment.txt").read_bytes()
+if hashlib.sha256(envelope_bytes).hexdigest() != p3_inventory.get("submitted_envelope_sha256"):
+    fail("P3 public envelope digest differs from inventory")
 release_audit_text = (SKILL / "references" / "release-audit.md").read_text(encoding="utf-8")
 for pointer in (
     "../scripts/p2_pregate.py",
@@ -245,6 +367,9 @@ for pointer in (
     "p2-external-proof-package.schema.json",
     "p2-public-anchor-manifest.schema.json",
     "p2-manifest-alignment.schema.json",
+    "p3-sigstore-github-proof.schema.json",
+    "../scripts/p3_sigstore_github_adapter.py",
+    "--p3-verification-requests",
     "trusted_time_missing",
 ):
     if pointer not in release_audit_text:
@@ -272,6 +397,35 @@ if re.search(r"(?:import|from)\s+v2_release_gate|subprocess\.[^\n]*v2_release_ga
     fail("p2_pregate.py must not import or invoke v2_release_gate.py")
 if "trusted_time_missing" not in p2_script_text:
     fail("p2_pregate.py must emit trusted_time_missing")
+if "p3_verification_requests" not in p2_script_text or "p3_adapter.verify_proof" not in p2_script_text:
+    fail("p2_pregate.py must compute P3 results through the adapter")
+
+p3_script_path = SKILL / "scripts" / "p3_sigstore_github_adapter.py"
+try:
+    p3_script_text = p3_script_path.read_text(encoding="utf-8")
+    compile(p3_script_text, str(p3_script_path), "exec")
+except SyntaxError as exc:
+    fail(f"p3_sigstore_github_adapter.py has a syntax error: {exc}")
+if re.search(r"(?:import|from)\s+(?:socket|urllib|http|requests)\b", p3_script_text):
+    fail("P3 adapter must not import a network client")
+if "v2_release_gate" in p3_script_text:
+    fail("P3 adapter must not invoke the release gate")
+urls = set(re.findall(r"https?://[^\"\s]+", p3_script_text))
+if urls - {"http://127.0.0.1:9"}:
+    fail("P3 adapter must not contain a non-loopback URL")
+for required_code in (
+    "provider_profile_drift",
+    "proof_path_unsafe",
+    "cosign_signature_invalid",
+    "rekor_inclusion_invalid",
+    "sigstore_timestamp_invalid",
+    "github_timestamp_invalid",
+    "message_imprint_mismatch",
+    "signed_time_order_invalid",
+    "privacy_allowlist_violation",
+):
+    if required_code not in p3_script_text:
+        fail(f"P3 adapter is missing stable issue code: {required_code}")
 
 try:
     example_manifest = json.loads(
