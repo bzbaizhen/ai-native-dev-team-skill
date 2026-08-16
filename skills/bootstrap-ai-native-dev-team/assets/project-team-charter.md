@@ -9,14 +9,14 @@
 - Business owner:
 - Main agent:
 - Effective date:
-- Governance baseline version:
+- Development workflow version:
 
 ## Scope and success
 
 - In scope:
 - Out of scope:
-- Success metrics:
-- Completion means: exact accepted change is present in the stable branch
+- Product success criteria:
+- Completion means: the exact accepted change is present in the stable branch
 
 ## Sources of truth
 
@@ -27,20 +27,17 @@
 | Code and stable branch | | |
 | Contracts | | |
 | Decisions and risks | | |
-| Evidence | | |
-| Metrics | `.ai-team/metrics/events.jsonl` or project equivalent | Main agent |
+| Validation evidence | | |
 
-## Repositories and environment fingerprints
+## Repositories and environments
 
-| Component | Unique editable source | Native platform | Stable branch | Baseline | Build / test | Preflight fingerprint |
+| Component | Unique editable source | Native platform | Stable branch | Task baseline | Build / test | Preflight fingerprint |
 |---|---|---|---|---|---|---|
 | | | | | | | |
 
-Re-run preflight only after host, root, runtime, lockfile, entry point, permission, or an assumption changes.
+## Routing and model mapping
 
-## Routing and capability mapping
-
-| Complexity | Capability tier | Reasoning tier | Current model mapping | Fallback |
+| Complexity | Capability | Reasoning | Current model mapping | Fallback |
 |---|---|---|---|---|
 | C0 micro | main-agent | current | | |
 | C0 batch | economy | low | | |
@@ -48,21 +45,18 @@ Re-run preflight only after host, root, runtime, lockfile, entry point, permissi
 | C2 | advanced | high | | |
 | C3 | frontier | max | | main agent or stop |
 
-- Risk scale: `R0-R3` controls gates, not capability.
-- Every frontier escalation requires a reason.
-- Runtime model must be recorded when observable; never infer it.
+- Risk `R0-R3` controls gates, not capability.
+- Never claim a model was used when the runtime did not expose it.
 
 ## Team and authority
 
 | Role | Activation | Responsibility | Prohibited actions | Handoff |
 |---|---|---|---|---|
 | Business owner | always | | | |
-| Main agent | always | facts, task graph, routing, integration, acceptance | | |
+| Main agent | always | facts, routing, integration, acceptance | | |
 | Writer | per approved task | | scope expansion | |
 | Independent validator | material behavior or risk | | silent product fix | |
 | Specialist | by domain/risk | | replacing Owner approval | |
-
-Workers receive task contracts and the selected governance constraints, not the complete team Skill.
 
 ## Parallelism and integration
 
@@ -86,14 +80,6 @@ Workers receive task contracts and the selected governance constraints, not the 
 - Remote copy:
 - Independent archive/recovery drill:
 
-## Metrics and audit
-
-- Main-agent ledger writer:
-- Handoff format:
-- Snapshot cadence:
-- Comparison strata:
-- Environment attribution exclusions:
-
 ## Confirmed facts
 
 -
@@ -107,7 +93,5 @@ Workers receive task contracts and the selected governance constraints, not the 
 -
 
 ## Accepted exceptions
-
-Link each durable exception to an ADR with owner, impact, and reversal condition.
 
 -

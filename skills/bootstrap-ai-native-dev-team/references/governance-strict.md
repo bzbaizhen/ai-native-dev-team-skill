@@ -1,7 +1,6 @@
 # Legacy compatibility pointer
 
-The former Strict profile is retained as a pointer. Apply its authority, security,
-privacy, production, approval, and recovery controls through the [Controlled R3
-overlay](controlled.md). Do not treat C3 alone as a Release Audit trigger; use
-[Release Audit](release-audit.md) only for an explicit stable qualification, formal
-efficiency comparison, historical-baseline qualification, or external evidence freeze.
+The former Strict profile maps to the R3 overlay in [Controlled](controlled.md). Apply
+least privilege, specialist review when relevant, explicit Owner approval, exact
+validation, stable-state readback, rollback, and recovery. It is not a separate V2
+product layer.

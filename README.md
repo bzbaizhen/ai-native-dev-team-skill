@@ -1,41 +1,58 @@
-# AI-Native Dev Team Skill
+# AI-Native Development Team Skill
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-**Bootstrap the smallest AI software team that can ship safely — with explicit ownership, independent validation, version-bound evidence, and recovery built in.**
+**Decide whether the work needs a team, then bootstrap the smallest team that can ship it safely.**
 
-![More agents does not equal a team: approval-gated AI-native delivery](docs/images/ai-native-dev-team-hero.png)
+This Skill gives coding agents explicit file ownership, cost-aware model routing,
+independent validation, exact-version evidence, approval boundaries, rollback, and
+recovery—without turning every small task into a ceremony.
 
-[Install](#install) · [How it works](#how-it-works) · [Cost-aware routing](#cost-aware-model-and-reasoning-routing) · [Why this is different](#why-this-is-different)
+![More agents do not automatically make a team](docs/images/ai-native-dev-team-hero.png)
 
-## The problem
+[Install](#install) · [Use](#use) · [Model routing](#route-models-by-complexity-not-risk) · [Development layers](#two-development-layers) · [Global rule + Skill](#why-use-both-a-global-rule-and-a-skill)
 
-Most multi-agent demos optimize for the number of agents running at once. Real software delivery fails elsewhere:
+## Why I built it
 
-- nobody owns the final decision;
-- two agents edit the same file;
-- QA validates a different commit;
-- a prototype inherits production-scale ceremony;
-- a push is mistaken for a recoverable backup;
-- planned work is reported as completed work.
+This Skill grew out of a multi-agent project where every automated check was green:
 
-This Skill treats the main agent as a control plane and specialist agents as temporary, permission-bounded execution units. It asks two questions first: **does this task need delegation at all, and what is the lowest-cost capability that can pass its quality gates?**
+```text
+Backend: 39/39
+Frontend: 8/8
+TypeScript: 0 diagnostics
+Target WeChat runtime: blank screen, 9 errors
+```
 
-## What it provides
+We had frontend, backend, and QA agents. What we did not have was a delivery system:
+which contract was authoritative, who could edit which path, which Commit QA had
+actually tested, and who would stop the work when the evidence was insufficient.
 
-- proposal-first team initialization;
-- four delivery routes: `no-delegation`, `single-worker`, `task-cell`, and `team-required`;
-- separate `C0-C3` complexity and `R0-R3` risk classification;
-- cost-aware model and reasoning routing that targets the lowest expected cost per accepted task, not the cheapest token or the strongest model by default;
-- canonical `Core`, `Controlled`, and explicit `Release Audit` routing;
-- business owner, producer/main agent, implementer, validator, and optional specialist boundaries;
-- one-owner-per-file and task-scoped write leases;
-- contract-first parallelism with branch/worktree/PR isolation;
-- independent task review and exact-commit evidence;
-- explicit stop, approval, rollback, backup, and recovery rules;
-- reusable project charter, task contract, and evidence manifest templates;
-- a standard-library event ledger CLI for cycle time, integration wait, capability routing, governance share, and hard-gate audits;
-- audit and team-resizing modes for existing projects.
+The fix was not “more agents.” It was a smaller team with explicit boundaries and an
+independent acceptance path.
+
+## What it solves
+
+| Failure mode | Default response |
+|---|---|
+| A full role roster is created before the task is understood | Inspect first; enable only roles with real work |
+| Every micro task carries the whole governance manual | Keep small C0/C1 work in Core |
+| Frontend and backend start before the interface is stable | Freeze the minimum contract before parallel work |
+| Two agents edit the same file | Give each path one Writer at a time |
+| QA fixes the code it is accepting | Separate implementation from independent validation |
+| “Tests passed” but the tested version is unclear | Bind evidence to the exact candidate Commit |
+| A risky one-line change gets the same process as a hard refactor | Score complexity and risk independently |
+| Every task uses the most expensive model | Route capability and reasoning by complexity |
+| A Push is mistaken for recoverability | Separate Git history, remote copy, rollback, and recovery |
+
+## Core principles
+
+1. **Smallest sufficient team** — roles are task-scoped capabilities, not a permanent roster.
+2. **Proposal first** — inspect and propose before creating agents, branches, Worktrees, or governance files.
+3. **Complexity and risk are separate** — complexity selects model capability and reasoning; risk selects authority and gates.
+4. **One path, one Writer** — shared files have one write owner at a time.
+5. **Contract before concurrency** — freeze interfaces, dependencies, integration order, and acceptance criteria before parallel implementation.
+6. **Validate the exact version** — developer checks, automated checks, independent QA, and Owner approval are different evidence.
+7. **Stop safely** — pause when scope, permissions, task baseline, evidence, or rollback no longer matches the contract.
 
 ## Install
 
@@ -45,99 +62,134 @@ Ask Codex to install the Skill from this repository:
 $skill-installer install https://github.com/bzbaizhen/ai-native-dev-team-skill/tree/main/skills/bootstrap-ai-native-dev-team
 ```
 
-Or copy `skills/bootstrap-ai-native-dev-team` into a supported user or repository Skill directory.
-
-For consistent automatic use across projects, add the compact rule in [`examples/global-agents-snippet.md`](examples/global-agents-snippet.md) to your global `AGENTS.md`. The global rule triggers the workflow; the Skill holds the detailed procedure so ordinary tasks stay lightweight.
-
-## Use
+Or copy `skills/bootstrap-ai-native-dev-team` into a supported user or project Skill
+directory.
 
 Explicit invocation:
 
 ```text
-Use $bootstrap-ai-native-dev-team to propose the smallest safe AI-native development team for this repository. Do not modify files yet.
+Use $bootstrap-ai-native-dev-team. Propose the smallest safe development team for this repository. Do not modify files yet.
 ```
 
-Other examples:
-
-- “Initialize this MVP with the minimum useful AI development team.”
-- “Can the frontend and backend agents work in parallel safely?”
-- “Audit our current agent team, worktrees, QA gates, and recovery plan.”
-- “Resize the team now that this project is preparing for production.”
-
-The default mode is `proposal`: no agents, branches, worktrees, or governance files are created until the applicable scope is approved.
-
-## How it works
-
-![Inspect, classify, propose, approve, execute, and verify the exact commit](docs/images/bootstrap-workflow.png)
+## Use
 
 ```text
-inspect primary evidence
+Initialize the smallest sufficient team for this MVP. Give me the proposal first.
+```
+
+```text
+The frontend and backend may work in parallel. Check the contract source and file ownership before creating agents.
+```
+
+```text
+Adjust the current team: integration is waiting and two Writers overlap.
+```
+
+```text
+Prepare this project for release. Re-score risk, validation, Owner approval, rollback, and recovery.
+```
+
+## Three modes
+
+| Mode | Purpose | Default write behavior |
+|---|---|---|
+| `proposal` | Design the minimum team and gates | Read-only inspection; return a proposal |
+| `initialize` | Create an approved team structure | Write only approved, reversible project artifacts |
+| `adjust` | Correct an existing team or task topology | Preserve confirmed facts; apply only the approved adjustment |
+
+None of these modes grants production, credentials, real data, paid resources, public
+publication, irreversible migration, or deletion authority.
+
+## Workflow
+
+![Inspect, classify, propose, approve, execute, and verify the exact Commit](docs/images/bootstrap-workflow.png)
+
+```text
+Inspect project facts
         ↓
-confirmed facts / inferences / to verify
+Confirmed facts / Inferences / To verify
         ↓
-complexity C0-C3 + risk R0-R3
+Complexity C0-C3 + Risk R0-R3
         ↓
-no-delegation / single-worker / task-cell / team-required
+Core or Controlled
         ↓
-main agent / economy / standard / advanced / frontier
+No delegation / one Worker / Writer-Validator cell / team
         ↓
-Core / Controlled / explicit Release Audit
+Capability + reasoning tier
         ↓
-ownership + contracts + approvals + rollback
+File owner + contract + approval + rollback
         ↓
-approval-ready proposal
+Proposal
         ↓ approved scope only
-initialize → implement → independent validation → acceptance → recovery record
+Execute → independent validation → acceptance → recovery record
 ```
 
-See [`examples/sample-proposal.md`](examples/sample-proposal.md) for a compact output.
+## Route models by complexity, not risk
 
-## Cost-aware model and reasoning routing
-
-The two-axis classification is also a routing system:
-
-| Signal | What it changes |
+| Signal | Controls |
 |---|---|
-| Complexity `C0-C3` | Executor capability, reasoning effort, context preparation, and whether the task should be decomposed |
-| Risk `R0-R3` | Permissions, independent validation, approval depth, rollback evidence, and stop conditions |
-| Project evidence | First-pass acceptance, rework, latency, and cost per accepted task |
-| Runtime availability | The active model mapping, declared fallback, main-thread takeover, or a stop |
+| Complexity `C0-C3` | Task decomposition, context preparation, model capability, and reasoning |
+| Risk `R0-R3` | Permissions, independent review, approval, rollback, and recovery |
+| Runtime availability | Current model mapping, one declared fallback, main-agent takeover, or stop |
+| Verification difficulty | Whether to split further, escalate capability, or add an independent gate |
 
-This separation matters. A `C1/R3` production configuration change may use an economical implementation model while requiring specialist review, owner approval, and rollback evidence. A `C3/R1` pure refactor may justify the strongest reliable model and highest reasoning effort without production-grade approval ceremony.
-
-The target is **the lowest expected total cost that still clears the quality and risk gates**:
+The goal is not the cheapest call. It is the lowest expected total cost of an accepted
+result:
 
 ```text
-accepted-task cost = execution + likely retry/rework + validation + coordination
+accepted-result cost = first execution + likely retries/rework + validation + coordination
 ```
 
-Model names are not hard-coded into the general workflow. Each project maps currently available models to the complexity levels, records an allowed fallback, and must not claim that a requested model ran when the runtime did not provide it. When evidence is weak, the workflow escalates capability or reasoning, decomposes the task, returns it to the main thread, or stops.
+A `C1/R3` production permission change may use Standard/Medium implementation while
+requiring Owner approval and strong rollback evidence. A `C3/R1` pure refactor may
+need Frontier/Max reasoning without production authority.
 
-The main agent remains the high-context information hub. `C0/R0` micro work stays with the main agent, creates zero Agents, and creates zero mandatory governance files. A deterministic mechanical C0 batch may use one Economy/Low Worker when delegation has net value. Ordinary workers receive an exact task packet and do not reload the full team Skill; the packet records `worker_skill_loaded`, `worker_repo_wide_search_used`, and `worker_out_of_scope_reads`. Any true or unreviewable value fails context-isolation evidence, so no context or cost saving may be claimed.
+The main agent remains the high-context information hub. Keep C0/R0 micro work there.
+Delegate a deterministic C0 batch only when handoff has net value.
 
-## Proportional governance and measurable flow
-
-V2 uses canonical layers with progressive controls:
+## Two development layers
 
 | Layer | Default use |
 |---|---|
-| Core | Default for C0/C1, R0/R1 work without a Controlled trigger |
-| Controlled | Material behavior, C2/C3, R2/R3, boundary changes, concurrency, or production/public action |
-| Release Audit | Only explicit stable-version qualification, formal efficiency comparison, historical-baseline qualification, or external evidence-freeze request |
+| **Core** | Non-material C0/C1 and R0/R1 work |
+| **Controlled** | Material behavior, C2/C3, R2/R3, boundaries, concurrency, production, release, or public action |
 
-The legacy `lean|controlled|strict` values remain compatibility encodings only; Strict authority and recovery semantics are a Controlled R3 overlay. Ordinary release, deployment, and publication are Controlled/R3 with `release_audit=false`; the word “release” alone does not activate Release Audit. A ledger is optional and is enabled only for selected measurement, specific Controlled needs, or explicit Release Audit. When enabled, the CLI records lifecycle events and reports `READY → accepted` cycle time, `dev_complete → accepted` wait, accepted tasks per active Agent hour, governance share, low-cost C0/C1 routing, and hard-gate violations. “Accepted” means the exact validated change reached the stable branch.
+Controlled does not mean “maximum process.” It means adding only the contract,
+ownership, independent validation, approvals, and recovery evidence justified by the
+task. Release, deployment, and publication are Controlled/R3 and remain Owner-gated.
 
-## Why this is different
+## Minimum team selection
 
-This project combines useful patterns found in mature agent-development projects, then adds a governance layer for traceability and recovery:
+| Situation | Default topology |
+|---|---|
+| Tiny, clear, low-risk work | Main agent only |
+| Isolated, easy-to-verify slice | One Worker plus main-agent review |
+| Material behavior or regression risk | One Writer plus one independent Validator |
+| Independent slices with a frozen contract | Path-isolated Writers plus independent validation |
+| Security, privacy, production, migration, or release risk | Relevant specialist, independent gate, and Owner approval |
 
-- [obra/superpowers](https://github.com/obra/superpowers): task-scoped subagent development, worktrees, review loops, and verification before completion.
-- [wshobson/agents](https://github.com/wshobson/agents): team-composition patterns, task coordination, file ownership, and parallel feature development.
-- [github/awesome-copilot](https://github.com/github/awesome-copilot): producer, developer, and optional QA role separation.
+Agent count, Commit count, lines of code, and token count are not delivery outcomes.
 
-The workflow in this repository is independently authored. Its additional focus includes proposal-first authorization, separate complexity/risk routing, business-owner authority, write leases, immutable evidence, native-environment boundaries, backup semantics, and recovery drills.
+## What this Skill deliberately excludes
 
-It deliberately does **not** create a fixed eight-agent pipeline or run every task on the most expensive model. Roles and model effort are allocated by the work; risk is handled with stronger evidence and authority rather than blindly increasing inference cost.
+Team-performance review, historical baseline construction, delivery telemetry,
+efficiency comparison, task sampling, registration receipts, and external timestamp
+proof are separate systems. V2 does not collect them during development and does not
+ship compatibility aliases for the removed interfaces.
+
+The Skill still keeps a **task baseline Commit**, exact-candidate validation, rollback,
+and recovery. Those protect code changes; they are not performance-measurement features.
+
+## Why use both a global rule and a Skill
+
+| Layer | Responsibility |
+|---|---|
+| Global `AGENTS.md` | Decide when this Skill should trigger and retain a few hard boundaries |
+| `bootstrap-ai-native-dev-team` | Inspect, classify, propose, initialize, and adjust |
+| Project sources of truth | Store the actual product, tasks, contracts, decisions, risks, and version evidence |
+
+A compact global trigger is available in
+[examples/global-agents-snippet.md](examples/global-agents-snippet.md).
 
 ## Repository layout
 
@@ -148,48 +200,49 @@ skills/bootstrap-ai-native-dev-team/
 ├── references/
 │   ├── routing-and-topologies.md
 │   ├── core.md
-│   ├── governance-controlled.md
 │   ├── controlled.md
-│   ├── release-audit.md
-│   ├── metrics.md
-│   ├── metrics-event.schema.json
-│   ├── release-anchor-closure.schema.json
-│   ├── release-registration-receipt.schema.json
-│   ├── release-source-registry.schema.json
-│   ├── release-trial-evidence.schema.json
-│   ├── release-v1-baseline-evidence.schema.json
-│   └── release-trial-manifest.schema.json
-├── scripts/
-│   ├── team_metrics.py
-│   └── v2_release_gate.py
+│   └── governance-*.md
 └── assets/
     ├── team-bootstrap-proposal.md
     ├── project-team-charter.md
     ├── task-contract.md
-    ├── evidence-manifest.yaml
-    └── metrics-handoff.yaml
+    └── evidence-manifest.yaml
 ```
 
-The canonical governance references are `core.md`, `controlled.md`, and
-`release-audit.md`. The older `governance-lean.md`, `governance-controlled.md`,
-and `governance-strict.md` files are compatibility pointers only.
-
-`docs/images/social-preview.png` is the candidate asset for this repository's GitHub Social Preview; committing it does not change the repository setting.
-
 ## Validation
-
-![V1 verification evidence and claim boundary](docs/images/verification-evidence.svg)
 
 ```bash
 python tests/validate_skill.py
 python -m unittest discover -s tests -p "test_*.py" -v
 ```
 
-The repository includes a GitHub Actions workflow for the same structural checks.
+The repository includes a GitHub Actions workflow for the same checks.
 
-## Status
+## V2 migration boundary
 
-`v1.0.0` is the frozen baseline. The local V2 development line is post-RC.5 and untagged; it is not stable-qualified. RC.5 fail-closed and Release Audit behavior remain subject to the exact validation and approval gates for the selected request. This status does not make efficiency, historical-baseline, or external-evidence claims.
+The prior development line contained Release Audit, prospective metrics, historical
+baseline comparison, P2/P3 proof adapters, public-receipt contracts, and benchmark
+fixtures. V2 removes those from the active Skill tree. Their earlier Git history and
+release notes remain available as historical evidence; no external repository is
+silently deleted or rewritten.
+
+This branch is an untagged V2 development candidate, not a release. Push, Tag, GitHub
+Release, installation, and public publication remain separate Owner decisions.
+
+## References and acknowledgements
+
+This project learned from useful patterns in:
+
+- [obra/superpowers](https://github.com/obra/superpowers)
+- [wshobson/agents](https://github.com/wshobson/agents)
+- [github/awesome-copilot](https://github.com/github/awesome-copilot)
+
+The workflow here is independently authored, with additional emphasis on proposal-first
+authority, C/R separation, cost-aware routing, path ownership, exact-version evidence,
+native environments, rollback, and recovery.
+
+The English launch post and development visuals are available on
+[X](https://x.com/Bzbaizhen/status/2087828830627205527).
 
 ## License
 

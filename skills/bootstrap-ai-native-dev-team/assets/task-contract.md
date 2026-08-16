@@ -12,21 +12,21 @@
 - Complexity evidence:
 - Risk: `R0 / R1 / R2 / R3`
 - Risk evidence:
+- Layer: `core / controlled`
 - Route: `no-delegation / single-worker / task-cell / team-required`
-- Governance profile: `lean / controlled / strict`
-- Capability/reasoning tier:
-- Actual runtime model, if observable:
-- Escalation/fallback reason:
+- Capability/reasoning:
+- Runtime model, only if observable:
+- Fallback or escalation reason:
 - Material behavior change: `true / false`
 
-## Scope and baseline
+## Scope and task baseline
 
 - In scope:
 - Out of scope:
 - Repository/native environment:
 - Environment fingerprint:
 - Stable branch:
-- Baseline Commit:
+- Task baseline Commit:
 - Allowed paths:
 - Forbidden paths:
 - File owners:
@@ -42,7 +42,7 @@
 - Termination condition:
 - Conflict check:
 - Integration backlog at dispatch:
-- Backlog override reason:
+- Override reason:
 
 ## Permissions
 
@@ -62,18 +62,12 @@
 - Definition of Done:
 - Rollback/recovery:
 
-## Delivery and metrics handoff
+## Handoff
 
 - Code:
 - Tests:
 - Docs/contracts:
 - Known limitations:
-- `task_ready`:
-- `worker_started`:
-- `dev_complete`:
-- `qa_complete`:
-- Active minutes:
-- Governance minutes:
 - Confirmed facts:
 - Inferences:
 - To verify:

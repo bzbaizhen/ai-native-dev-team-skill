@@ -1,12 +1,12 @@
 ---
 name: bootstrap-ai-native-dev-team
-description: Route, bootstrap, resize, or audit AI-native delivery through a default Core path, conditional Controlled governance, and an explicit Release Audit path. Use when deciding whether work stays with the main agent, uses one worker, needs an implementer-validator cell, or requires a multi-agent team; when planning parallel implementation, ownership, recovery, or formal efficiency and stable-version evidence. Produce an approval-ready proposal before creating agents or changing repositories.
+description: Route, bootstrap, or adjust an AI-native software development team with proportional controls. Use when starting a software project, deciding whether to delegate, planning parallel implementation, assigning file ownership, selecting cost-aware model capability and reasoning, defining independent validation, or correcting an existing team. Produce an approval-ready proposal before creating agents or changing repositories.
 ---
 
 # Bootstrap an AI-Native Development Team
 
-Operate from the main agent or control plane. Treat delegated workers as task-scoped
-executors, not copies of this Skill. Reply in the user's language and keep
+Operate from the main agent as the control plane. Treat delegated agents as
+task-scoped executors or independent validators. Reply in the user's language and keep
 `Confirmed facts / Inferences / To verify` distinct.
 
 ## Resolve authority and facts
@@ -15,84 +15,72 @@ Apply, in order:
 
 1. System, developer, and current explicit user instructions.
 2. Active repository instructions and accepted ADRs.
-3. This workflow and the selected layer.
+3. This workflow and the selected development layer.
 4. Project defaults.
 
-Inspect product scope, repository state, baseline, permissions, test entry points,
-recovery requirements, and integration backlog before asking questions. Reuse one
-repository-host-toolchain preflight while its fingerprint, lockfiles, test entry points,
-generated inputs, permissions, and relevant external dependencies are unchanged.
+Inspect product scope, repository state, task baseline, permissions, test entry points,
+integration backlog, rollback, and recovery requirements before asking questions. Reuse
+a repository-host-toolchain preflight only while its relevant inputs remain unchanged.
 
-## Select the layer before forming a team
+## Select one development layer
 
-Score complexity (`C0-C3`) and risk (`R0-R3`) separately. Then select the first
-applicable layer:
+Score complexity (`C0-C3`) and risk (`R0-R3`) separately, then choose:
 
 | Layer | Select when | Default posture |
 |---|---|---|
-| **Core** | C0/C1, R0/R1, and no material behavior or boundary change | Main agent or one task-packet worker; no standing governance |
-| **Controlled** | Material behavior, C2/C3, R2/R3, interface/dependency/data/security change, concurrency, or production/public action | One Writer plus an independent Validator by default |
-| **Release Audit** | Explicit stable-version qualification, formal efficiency comparison, historical-baseline qualification, or external evidence-freeze request | Separately approved audit workflow |
+| **Core** | C0/C1, R0/R1, and no material behavior or boundary change | Main agent or one isolated Worker |
+| **Controlled** | Material behavior, C2/C3, R2/R3, interface/dependency/data/security change, concurrency, or production/public action | One path-bounded Writer plus an independent Validator by default |
 
-Use [routing-and-topologies.md](references/routing-and-topologies.md) for the selector,
-capability tiers, topology rules, and immutable-evidence reuse conditions.
+Read [routing-and-topologies.md](references/routing-and-topologies.md) for capability,
+reasoning, topology, and evidence-reuse rules. Complexity selects implementation
+capability and reasoning. Risk selects permissions, review independence, approval,
+rollback, and recovery; risk alone does not raise model capability.
 
-Complexity selects vendor-neutral capability and reasoning. Risk changes permissions,
-review independence, approval, rollback, and recovery gates; it does not by itself
-raise implementation capability.
+## Core
 
-## Core default
+Read [core.md](references/core.md) when no Controlled trigger exists. Keep C0/R0 micro
+work with the main agent. Delegate a deterministic batch or isolated C1 slice only when
+handoff has net value. Core creates no standing team or mandatory governance files.
 
-Read [core.md](references/core.md) when the selector stays in Core. A C0/R0 micro task
-stays with the main agent and creates zero agents and zero mandatory governance files.
-Non-material C1/R1 work does not require a Worktree, ledger, or independent Validator.
-An optional delegated Worker receives only an inline task packet with exact allowed
-read/write paths and reports `worker_skill_loaded=false`,
-`worker_repo_wide_search_used=false`, and `worker_out_of_scope_reads=false`; it does not
-load this complete Skill. Any true or unreviewable value fails context-isolation evidence
-and forbids a context or cost saving claim.
-
-Escalate immediately if material behavior, a boundary change, difficult verification,
-R2/R3 risk, concurrency, or production/public action appears.
-
-## Controlled selector
+## Controlled
 
 Read [controlled.md](references/controlled.md) when any Controlled trigger appears.
-Use one path-bounded Writer and one independent Validator for material work by default;
-bind checks and acceptance to the exact candidate. Apply the R3 approval, security,
-privacy, production, and recovery overlay when risk requires it. Ordinary release,
-deployment, or publication is Controlled/R3 with `release_audit=false` unless the user
-also makes one of the explicit Release Audit requests above.
+Use the smallest task contract and one Writer/independent-Validator cell for material
+work. Bind validation and acceptance to the exact candidate. Apply the R3 owner,
+security, privacy, production, public-action, rollback, and recovery overlay when risk
+requires it.
 
-## Explicit Release Audit selector
+## Modes
 
-Read [release-audit.md](references/release-audit.md) only when the user explicitly asks
-for stable-version qualification, a formal efficiency comparison, historical-baseline
-qualification, or an external evidence freeze. Do not infer this layer from the word
-"release" alone. Keep ordinary delivery in Controlled and keep Release Audit resources
-inactive until this selector is true.
+- `proposal`: inspect and return an approval-ready plan; do not create agents or edit project files.
+- `initialize`: after approval, create only the approved team artifacts and resources.
+- `adjust`: correct an existing team or task topology while preserving confirmed facts.
 
-Use [metrics.md](references/metrics.md) only when optional delivery measurement or the
-explicit Release Audit workflow is selected. The main agent owns any shared ledger.
+An initialization or adjustment request authorizes only ordinary, reversible writes
+inside the approved scope. Production, real data, credentials, paid resources, public
+publication, irreversible migration, and deletion still require explicit Owner
+approval.
 
 ## Team and acceptance rules
 
-The main agent owns facts, routing, contracts, conflicts, integration, stop decisions,
-and final acceptance. Form the smallest approved topology: no delegation for tiny work,
-one Worker for an isolated slice, or a Writer/independent-Validator cell for material
-behavior. Add specialists only for a concrete gate. One file has one Writer at a time.
+The main agent owns fact boundaries, routing, task graph, contracts, conflicts,
+integration, stop decisions, and final acceptance. Form the smallest sufficient
+topology: no delegation, one Worker, a Writer/Validator cell, or a larger team only for
+independent contract-frozen slices or concrete specialist gates.
 
-Default lifecycle mode is `proposal`: return an approval-ready plan without project or
-agent writes. In approved `initialize` or `adjust` work, create only the contract, lease,
-and evidence sources required by the selected layer and project policy. Freeze the write
-lease at `dev_complete`; reopen it explicitly for fixes. Accept only the exact validated
-change integrated into the stable branch.
+One file has one Writer at a time. Give every delegated agent a task-local packet with
+the objective, confirmed facts, task baseline, exact allowed paths, frozen interface,
+checks, stop conditions, and rollback. Do not delegate unresolved product direction or
+the final merge decision.
 
-Distinguish designed, written, run, verified, accepted, integrated, and released. Stop
-when scope, baseline, permissions, interface, evidence, or rollback conflicts, or when
-secrets, real data, production, public release, deletion, or irreversible work appears
-without authority. Report `Confirmed facts / Current impact / Not executed / Risk /
-Options / Required approval / Rollback`.
+Freeze the write lease at `dev_complete`; reopen it explicitly for fixes. Distinguish
+designed, written, run, verified, accepted, integrated, and released. Accept only the
+exact validated change integrated into the stable branch.
 
-Lead with the recommendation, selected layer, capability and reasoning tiers, minimum
-topology, evidence limits, and remaining verification.
+Stop when scope, task baseline, permissions, interface, evidence, or rollback conflicts,
+or when secrets, real data, production, public action, deletion, or irreversible work
+appears without authority. Report `Confirmed facts / Current impact / Not executed /
+Risk / Options / Required approval / Rollback`.
+
+Lead with the recommendation, layer, capability and reasoning tiers, minimum topology,
+evidence limits, and remaining verification.

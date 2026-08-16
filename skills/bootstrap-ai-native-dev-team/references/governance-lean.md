@@ -1,7 +1,6 @@
 # Legacy compatibility pointer
 
-The former Lean profile is absorbed into the default [Core layer](core.md). Use Core for
-C0/C1, R0/R1, non-material work; escalate to [Controlled](controlled.md) as soon as a
-material behavior or boundary, R2/R3 risk, difficult verification, concurrency, or
-production/public action appears. This file remains for installations that still use
-the V1 path and is not a second governance source.
+The former Lean profile maps to the default [Core layer](core.md). Use Core for
+non-material C0/C1 and R0/R1 work. Escalate to [Controlled](controlled.md) when a
+material behavior or boundary, C2/C3, R2/R3, difficult verification, concurrency,
+production, release, or public action appears.

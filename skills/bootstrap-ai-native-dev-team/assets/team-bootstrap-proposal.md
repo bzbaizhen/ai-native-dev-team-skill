@@ -1,7 +1,7 @@
-# AI-Native Delivery Proposal
+# AI-Native Development Team Proposal
 
 - Status: `proposed`
-- Mode: `proposal / initialize / audit / adjust`
+- Mode: `proposal / initialize / adjust`
 - Project:
 - Date:
 - Business owner:
@@ -33,16 +33,16 @@
 - Complexity evidence:
 - Risk: `R0 / R1 / R2 / R3`
 - Risk evidence:
+- Layer: `core / controlled`
 - Route: `no-delegation / single-worker / task-cell / team-required`
-- Governance profile: `lean / controlled / strict`
-- Capability tier: `main-agent / economy / standard / advanced / frontier`
-- Reasoning tier: `current / low / medium / high / max`
-- Escalation or fallback reason:
-- Environment fingerprint and preflight evidence:
+- Capability: `main-agent / economy / standard / advanced / frontier`
+- Reasoning: `current / low / medium / high / max`
+- Fallback or escalation reason:
+- Environment fingerprint:
 
 ## Minimum topology
 
-| Role | Enabled | Task and responsibility | Permission boundary | Handoff or acceptance |
+| Role | Enabled | Responsibility | Permission boundary | Handoff or acceptance |
 |---|---:|---|---|---|
 | Business owner | yes | | | |
 | Main agent | yes | | | |
@@ -61,9 +61,9 @@ Intentionally omitted roles and reasons:
 | | | | | | | |
 
 - Contract source of truth:
-- Stable branch and baseline Commit:
+- Stable branch and task baseline Commit:
 - Current integration backlog:
-- WIP limit and any override:
+- WIP limit and override:
 
 ## Permissions and approvals
 
@@ -81,7 +81,6 @@ Intentionally omitted roles and reasons:
 - Evidence location:
 - Candidate Commit:
 - Stable acceptance evidence:
-- Metrics ledger:
 
 ## Proposed writes and resources
 
