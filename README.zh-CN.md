@@ -218,8 +218,8 @@ python -m unittest discover -s tests -p "test_*.py" -v
 公开 receipt 合同和 benchmark fixture。V2 已将这些内容从当前 Skill 树移除。较早的
 Git 历史与 release notes 继续作为历史事实保留；不会静默删除或改写外部仓库。
 
-当前分支是尚未打 Tag 的 V2 开发候选，不是正式发布。Push、Tag、GitHub Release、
-安装和公开发布仍是相互独立的 Owner 决策。
+当前版本为 V2.0.0，`v2.0.0` Tag 与 GitHub Release 用于标识这一已发布版本。
+安装以及仓库之外的其他外部渠道仍是相互独立的 Owner 决策。
 
 ## 参考与致谢
 

@@ -226,8 +226,9 @@ fixtures. V2 removes those from the active Skill tree. Their earlier Git history
 release notes remain available as historical evidence; no external repository is
 silently deleted or rewritten.
 
-This branch is an untagged V2 development candidate, not a release. Push, Tag, GitHub
-Release, installation, and public publication remain separate Owner decisions.
+This line is V2.0.0. The `v2.0.0` tag and GitHub Release identify the published
+repository version. Installation and external channels beyond this repository remain
+separate Owner decisions.
 
 ## References and acknowledgements
 
