@@ -9,55 +9,63 @@
 - Business owner:
 - Main agent:
 - Effective date:
-- Governance baseline version:
+- Development workflow version:
 
 ## Scope and success
 
 - In scope:
 - Out of scope:
-- Success metrics:
+- Product success criteria:
+- Completion means: the exact accepted change is present in the stable branch
 
 ## Sources of truth
 
 | Type | Path or URL | Owner |
 |---|---|---|
 | Product | | |
-| Tasks | | |
-| Code | | |
+| Tasks and status | | |
+| Code and stable branch | | |
 | Contracts | | |
-| Decisions | | |
-| Evidence | | |
-| Status and risks | | |
+| Decisions and risks | | |
+| Validation evidence | | |
 
-## Repositories and native environments
+## Repositories and environments
 
-| Component | Unique editable source | Platform | Repository | Stable branch | Build | Test |
+| Component | Unique editable source | Native platform | Stable branch | Task baseline | Build / test | Preflight fingerprint |
 |---|---|---|---|---|---|---|
 | | | | | | | |
+
+## Routing and model mapping
+
+| Complexity | Capability | Reasoning | Current model mapping | Fallback |
+|---|---|---|---|---|
+| C0 micro | main-agent | current | | |
+| C0 batch | economy | low | | |
+| C1 | standard | medium | | |
+| C2 | advanced | high | | |
+| C3 | frontier | max | | main agent or stop |
+
+- Risk `R0-R3` controls gates, not capability.
+- Never claim a model was used when the runtime did not expose it.
 
 ## Team and authority
 
 | Role | Activation | Responsibility | Prohibited actions | Handoff |
 |---|---|---|---|---|
 | Business owner | always | | | |
-| Main agent | always | | | |
-| Implementer | per task | | | |
-| Independent validator | by risk | | | |
-| Specialist | by domain/risk | | | |
+| Main agent | always | facts, routing, integration, acceptance | | |
+| Writer | per approved task | | scope expansion | |
+| Independent validator | material behavior or risk | | silent product fix | |
+| Specialist | by domain/risk | | replacing Owner approval | |
 
-## Complexity, risk, and model routing
+## Parallelism and integration
 
-- Complexity scale: `C0-C3`
-- Risk scale: `R0-R3`
-- Model-routing authority:
-- Unsafe fallback behavior: main agent takes over or pauses
-
-## Parallelism, Git, and write leases
-
+- Default topology:
 - WIP limit:
-- Single-file ownership rule:
+- Integration-backlog gate:
+- Single-file ownership:
 - Branch/worktree/PR policy:
-- Contract freeze and change policy:
+- Contract freeze/change policy:
 - Write-lease location:
 
 ## Quality, release, and recovery
@@ -65,8 +73,8 @@
 - Definition of Ready:
 - Definition of Done:
 - CI:
-- Independent QA:
-- Evidence:
+- Independent validation:
+- Candidate/stable Commit evidence:
 - Release approval:
 - Rollback:
 - Remote copy:
@@ -86,7 +94,4 @@
 
 ## Accepted exceptions
 
-Link every durable exception to an ADR.
-
 -
-

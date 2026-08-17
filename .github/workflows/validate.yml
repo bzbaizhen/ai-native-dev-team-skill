@@ -13,4 +13,4 @@ jobs:
         with:
           python-version: "3.12"
       - run: python tests/validate_skill.py
-
+      - run: python -B -m unittest discover -s tests -p "test_*.py" -v

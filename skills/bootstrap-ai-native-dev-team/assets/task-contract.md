@@ -1,59 +1,73 @@
 # <TASK-ID> <TASK-TITLE>
 
-## Metadata
+## Metadata and routing
 
 - Status: `DRAFT`
 - Business goal:
 - User value:
+- Main-agent accepter:
 - Writer:
-- Final reviewer: main agent
 - Independent validator:
 - Complexity: `C0 / C1 / C2 / C3`
+- Complexity evidence:
 - Risk: `R0 / R1 / R2 / R3`
-- Evidence for classification:
-- Model/reasoning: follow active routing policy
+- Risk evidence:
+- Layer: `core / controlled`
+- Route: `no-delegation / single-worker / task-cell / team-required`
+- Capability/reasoning:
+- Runtime model, only if observable:
+- Fallback or escalation reason:
+- Material behavior change: `true / false`
 
-## Scope and baseline
+## Scope and task baseline
 
 - In scope:
 - Out of scope:
-- Repository/environment:
-- Baseline commit:
+- Repository/native environment:
+- Environment fingerprint:
+- Stable branch:
+- Task baseline Commit:
 - Allowed paths:
 - Forbidden paths:
 - File owners:
 - Branch/worktree:
-- Dependencies:
-- Contract version:
+- Dependencies and integration order:
+- Contract source/version:
 
-## Write lease
+## Write lease and WIP gate
 
 - Status: `inactive / active / frozen / revoked`
 - Writer:
 - Start:
 - Termination condition:
 - Conflict check:
+- Integration backlog at dispatch:
+- Override reason:
 
 ## Permissions
 
 - May execute automatically:
 - Requires main-agent approval:
-- Requires explicit owner approval:
+- Requires explicit Owner approval:
+- Stop conditions:
 
-## Verification and done
+## Verification and acceptance
 
 - Required checks:
 - Manual acceptance:
 - Independent validation:
+- Candidate Commit:
+- Stable Commit:
 - Evidence path:
 - Definition of Done:
-- Rollback:
+- Rollback/recovery:
 
-## Delivery
+## Handoff
 
 - Code:
 - Tests:
 - Docs/contracts:
-- Commit:
 - Known limitations:
-
+- Confirmed facts:
+- Inferences:
+- To verify:
