@@ -15,8 +15,13 @@
 - Layer: `core / controlled`
 - Route: `no-delegation / single-worker / task-cell / team-required`
 - Capability/reasoning:
+- Implementation executor: `main-agent-strict-c0 / task-scoped-writer`
+- Configured lower-cost execution path:
 - Runtime model, only if observable:
+- Observable lower-cost runtime mapping evidence:
 - Fallback or escalation reason:
+- Main-agent takeover: `not-applicable / requested / explicitly-authorized`
+- Takeover unavailability/failure evidence, re-slice analysis, authorization, and reason:
 - Material behavior change: `true / false`
 
 ## Scope and task baseline

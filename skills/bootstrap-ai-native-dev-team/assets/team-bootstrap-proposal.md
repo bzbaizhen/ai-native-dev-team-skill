@@ -37,7 +37,11 @@
 - Route: `no-delegation / single-worker / task-cell / team-required`
 - Capability: `main-agent / economy / standard / advanced / frontier`
 - Reasoning: `current / low / medium / high / max`
+- Implementation executor: `main-agent-strict-c0 / task-scoped-writer`
+- Configured lower-cost execution path:
+- Observable lower-cost runtime mapping evidence:
 - Fallback or escalation reason:
+- Main-agent takeover evidence, re-slice analysis, explicit authorization, and reason:
 - Environment fingerprint:
 
 ## Minimum topology

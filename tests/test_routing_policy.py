@@ -8,6 +8,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 SKILL_DIR = ROOT / "skills" / "bootstrap-ai-native-dev-team"
 SCENARIOS_PATH = ROOT / "tests" / "routing-scenarios.json"
+COST_POLICY_CASES_PATH = ROOT / "tests" / "cost-routing-policy-cases.json"
 
 CONTROLLED_SHAPES = {
     "material_behavior",
@@ -31,6 +32,36 @@ BOOL_FIELDS = {
     "worktree_required", "evidence_reuse_allowed", "rerun_trigger",
 }
 REQUIRED_FIELDS = STRING_FIELDS | BOOL_FIELDS
+DIRECT_STRING_FIELDS = {"direct_work_type"}
+DIRECT_BOOL_FIELDS = {
+    "deterministic",
+    "low_risk",
+    "single_file_scope",
+    "material_effect",
+    "interface_effect",
+    "dependency_effect",
+    "data_effect",
+    "security_effect",
+    "concurrency_effect",
+    "production_effect",
+    "public_effect",
+    "debugging_loop",
+    "test_authoring",
+}
+DIRECT_INT_FIELDS = {"deterministic_verification_count"}
+DIRECT_EXECUTION_FIELDS = DIRECT_STRING_FIELDS | DIRECT_BOOL_FIELDS | DIRECT_INT_FIELDS
+COST_POLICY_FIELDS = {
+    "name",
+    "main_agent_takeover",
+    "writer_path_status",
+    "writer_failure_evidence",
+    "safe_reslice_possible",
+    "explicit_high_cost_takeover_authorization",
+    "takeover_reason",
+    "runtime_mapping_observed",
+    "mapped_to_lower_cost_tier",
+    "cost_saving_claim",
+}
 
 
 def controlled_trigger(case: dict) -> bool:
@@ -55,12 +86,106 @@ def expected_capability(case: dict) -> tuple[str, str]:
     }[case["complexity"]]
 
 
+def has_no_disqualifying_effect(case: dict) -> bool:
+    return not any(
+        case[field]
+        for field in {
+            "material_effect",
+            "interface_effect",
+            "dependency_effect",
+            "data_effect",
+            "security_effect",
+            "concurrency_effect",
+            "production_effect",
+            "public_effect",
+        }
+    )
+
+
+def is_strict_read_only_direct(case: dict) -> bool:
+    return (
+        case["direct_work_type"] == "read-only-control-plane"
+        and case["complexity"] == "C0"
+        and case["risk"] == "R0"
+        and case["shape"] == "micro"
+        and case["low_risk"] is True
+        and case["single_file_scope"] is False
+        and case["debugging_loop"] is False
+        and case["test_authoring"] is False
+        and case["deterministic_verification_count"] == 0
+        and has_no_disqualifying_effect(case)
+        and not controlled_trigger(case)
+    )
+
+
+def is_strict_tiny_edit_direct(case: dict) -> bool:
+    return (
+        case["direct_work_type"] == "tiny-edit"
+        and case["complexity"] == "C0"
+        and case["risk"] == "R1"
+        and case["shape"] == "strict_tiny_edit"
+        and case["deterministic"] is True
+        and case["low_risk"] is True
+        and case["single_file_scope"] is True
+        and case["debugging_loop"] is False
+        and case["test_authoring"] is False
+        and case["deterministic_verification_count"] == 1
+        and has_no_disqualifying_effect(case)
+        and not controlled_trigger(case)
+    )
+
+
+def validate_cost_policy_case(case: dict) -> None:
+    assert set(case) == COST_POLICY_FIELDS, f"cost-policy field set mismatch: {case.get('name')}"
+    assert type(case["name"]) is str and case["name"].strip()
+    assert case["writer_path_status"] in {"available", "unavailable", "repeated-failure"}
+    for field in {
+        "main_agent_takeover",
+        "safe_reslice_possible",
+        "explicit_high_cost_takeover_authorization",
+        "runtime_mapping_observed",
+        "mapped_to_lower_cost_tier",
+        "cost_saving_claim",
+    }:
+        assert type(case[field]) is bool, field
+    for field in {"writer_failure_evidence", "takeover_reason"}:
+        value = case[field]
+        assert value is None or (type(value) is str and value.strip()), field
+
+    repeated_failure_with_evidence = (
+        case["writer_path_status"] == "repeated-failure"
+        and case["writer_failure_evidence"] is not None
+    )
+    if case["writer_path_status"] == "repeated-failure":
+        assert repeated_failure_with_evidence
+    if case["main_agent_takeover"]:
+        assert case["writer_path_status"] == "unavailable" or repeated_failure_with_evidence
+        assert case["safe_reslice_possible"] is False
+        assert case["explicit_high_cost_takeover_authorization"] is True
+        assert case["takeover_reason"] is not None
+    if case["mapped_to_lower_cost_tier"]:
+        assert case["runtime_mapping_observed"] is True
+    if case["cost_saving_claim"]:
+        assert case["runtime_mapping_observed"] is True
+        assert case["mapped_to_lower_cost_tier"] is True
+
+
 def validate_case(case: dict) -> None:
-    assert set(case) == REQUIRED_FIELDS, f"field set mismatch: {case.get('name')}"
+    expected_fields = REQUIRED_FIELDS | (
+        DIRECT_EXECUTION_FIELDS if not case.get("delegated") else set()
+    )
+    assert set(case) == expected_fields, f"field set mismatch: {case.get('name')}"
     for field in STRING_FIELDS:
         assert type(case[field]) is str and case[field].strip(), field
     for field in BOOL_FIELDS:
         assert type(case[field]) is bool, field
+    if not case["delegated"]:
+        for field in DIRECT_STRING_FIELDS:
+            assert type(case[field]) is str and case[field].strip(), field
+        for field in DIRECT_BOOL_FIELDS:
+            assert type(case[field]) is bool, field
+        for field in DIRECT_INT_FIELDS:
+            assert type(case[field]) is int and case[field] >= 0, field
 
     assert case["complexity"] in {"C0", "C1", "C2", "C3"}
     assert case["risk"] in {"R0", "R1", "R2", "R3"}
@@ -73,14 +198,17 @@ def validate_case(case: dict) -> None:
 
     if case["layer"] == "core":
         assert case["route"] in {"no-delegation", "single-worker"}
+        assert case["route"] == ("single-worker" if case["delegated"] else "no-delegation")
         assert not case["independent_validator"]
         assert not case["worktree_required"]
     else:
         assert case["route"] in {"task-cell", "team-required"}
+        assert case["delegated"]
         assert case["independent_validator"]
         assert case["worktree_required"]
 
-    assert case["delegated"] == (case["route"] != "no-delegation")
+    if not case["delegated"]:
+        assert is_strict_read_only_direct(case) or is_strict_tiny_edit_direct(case)
     assert case["owner_approval"] == (case["risk"] == "R3")
     assert not (case["evidence_reuse_allowed"] and case["rerun_trigger"])
 
@@ -90,9 +218,11 @@ class RoutingPolicyTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.scenarios = json.loads(SCENARIOS_PATH.read_text(encoding="utf-8"))
         cls.by_name = {case["name"]: case for case in cls.scenarios}
+        cls.cost_policy_cases = json.loads(COST_POLICY_CASES_PATH.read_text(encoding="utf-8"))
+        cls.cost_by_name = {case["name"]: case for case in cls.cost_policy_cases}
 
     def test_matrix_shape_and_policy(self) -> None:
-        self.assertGreaterEqual(len(self.scenarios), 10)
+        self.assertGreaterEqual(len(self.scenarios), 13)
         self.assertEqual(len(self.by_name), len(self.scenarios))
         for case in self.scenarios:
             validate_case(case)
@@ -103,15 +233,120 @@ class RoutingPolicyTests(unittest.TestCase):
         with self.assertRaises(AssertionError, msg=label):
             validate_case(candidate)
 
+    def assert_cost_policy_rejected(self, case: dict, mutate, label: str) -> None:
+        candidate = copy.deepcopy(case)
+        mutate(candidate)
+        with self.assertRaises(AssertionError, msg=label):
+            validate_cost_policy_case(candidate)
+
+    def test_direct_tiny_edit_eligibility_mutations_fail_closed(self) -> None:
+        tiny_edit = self.by_name["C0/R1 strict main-agent tiny edit"]
+        eligibility = {
+            "direct_work_type": "tiny-edit",
+            "complexity": "C0",
+            "risk": "R1",
+            "shape": "strict_tiny_edit",
+            "deterministic": True,
+            "low_risk": True,
+            "single_file_scope": True,
+            "material_effect": False,
+            "interface_effect": False,
+            "dependency_effect": False,
+            "data_effect": False,
+            "security_effect": False,
+            "concurrency_effect": False,
+            "production_effect": False,
+            "public_effect": False,
+            "debugging_loop": False,
+            "test_authoring": False,
+            "deterministic_verification_count": 1,
+        }
+        for field, expected in eligibility.items():
+            self.assertEqual(tiny_edit[field], expected, field)
+            if type(expected) is bool:
+                replacement = not expected
+            elif type(expected) is int:
+                replacement = expected + 1
+            else:
+                replacement = f"not-{expected}"
+            self.assert_rejected(
+                tiny_edit,
+                lambda case, field=field, replacement=replacement: case.update(
+                    {field: replacement}
+                ),
+                f"strict tiny-edit eligibility mutation: {field}",
+            )
+
+    def test_read_only_control_plane_lane_is_separate(self) -> None:
+        read_only = self.by_name["C0/R0 main-agent micro work"]
+        self.assertTrue(is_strict_read_only_direct(read_only))
+        self.assertFalse(is_strict_tiny_edit_direct(read_only))
+        self.assert_rejected(
+            read_only,
+            lambda case: case.update(direct_work_type="tiny-edit"),
+            "read-only control-plane work cannot pose as a tiny edit",
+        )
+
+    def test_takeover_and_cost_claim_policy_fixtures(self) -> None:
+        self.assertEqual(len(self.cost_policy_cases), 3)
+        for case in self.cost_policy_cases:
+            validate_cost_policy_case(case)
+
+    def test_takeover_condition_mutations_fail_closed(self) -> None:
+        unavailable = self.cost_by_name["authorized takeover when Writer path is unavailable"]
+        repeated = self.cost_by_name["authorized takeover after evidenced repeated Writer failure"]
+        self.assert_cost_policy_rejected(
+            unavailable, lambda case: case.update(writer_path_status="available"),
+            "Writer path still available",
+        )
+        self.assert_cost_policy_rejected(
+            repeated, lambda case: case.update(writer_failure_evidence=None),
+            "repeated failure lacks evidence",
+        )
+        self.assert_cost_policy_rejected(
+            unavailable, lambda case: case.update(safe_reslice_possible=True),
+            "safe re-slice exists",
+        )
+        self.assert_cost_policy_rejected(
+            unavailable,
+            lambda case: case.update(explicit_high_cost_takeover_authorization=False),
+            "takeover lacks explicit higher-cost authorization",
+        )
+        self.assert_cost_policy_rejected(
+            unavailable, lambda case: case.update(takeover_reason=None),
+            "takeover reason is not recorded",
+        )
+
+    def test_cost_claim_condition_mutations_fail_closed(self) -> None:
+        claim = self.cost_by_name["observed lower-cost execution mapping"]
+        self.assert_cost_policy_rejected(
+            claim, lambda case: case.update(runtime_mapping_observed=False),
+            "runtime mapping was not observed",
+        )
+        self.assert_cost_policy_rejected(
+            claim, lambda case: case.update(mapped_to_lower_cost_tier=False),
+            "observed mapping is not to a lower-cost tier",
+        )
+
     def test_negative_mutations_fail_closed(self) -> None:
         core = self.by_name["C1/R1 non-material isolated work"]
+        batch = self.by_name["C0/R1 deterministic batch"]
         material = self.by_name["material C1/R1 behavior change"]
         public = self.by_name["ordinary public deployment"]
         c1_r3 = self.by_name["C1/R3 security-boundary change"]
+        tiny_edit = self.by_name["C0/R1 strict main-agent tiny edit"]
+        direct_fields = {
+            field: tiny_edit[field] for field in DIRECT_EXECUTION_FIELDS
+        }
 
         self.assert_rejected(core, lambda c: c.pop("layer"), "missing layer")
         self.assert_rejected(core, lambda c: c.update(delegated="false"), "string bool")
         self.assert_rejected(material, lambda c: c.update(layer="core"), "wrong layer")
+        self.assert_rejected(
+            material,
+            lambda c: c.update(independent_validator=False),
+            "material work lost independent validation",
+        )
         self.assert_rejected(public, lambda c: c.update(layer="release-audit"), "removed layer")
         self.assert_rejected(
             c1_r3,
@@ -119,9 +354,24 @@ class RoutingPolicyTests(unittest.TestCase):
             "risk raised capability",
         )
         self.assert_rejected(
-            c1_r3,
-            lambda c: c.update(owner_approval=False),
-            "missing owner approval",
+            c1_r3, lambda c: c.update(owner_approval=False), "missing owner approval",
+        )
+        self.assert_rejected(
+            core,
+            lambda c: c.update(
+                direct_fields,
+                route="no-delegation", delegated=False,
+            ),
+            "C1 implementation moved to the main agent",
+        )
+        self.assert_rejected(
+            batch,
+            lambda c: c.update(
+                direct_fields,
+                route="no-delegation", delegated=False,
+                capability="main-agent", reasoning="current",
+            ),
+            "C0 mechanical batch moved to the main agent",
         )
 
     def test_complexity_and_risk_stay_independent(self) -> None:
