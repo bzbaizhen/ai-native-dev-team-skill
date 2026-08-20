@@ -16,8 +16,10 @@
 - Route: `no-delegation / single-worker / task-cell / team-required`
 - Capability/reasoning:
 - Implementation executor: `main-agent-strict-c0 / task-scoped-writer`
+- Active routing profile: `none / <explicitly-selected-profile-id>`
 - Configured lower-cost execution path:
-- Runtime model, only if observable:
+- Actual runtime model/provider, only if observable: `unknown / <observed value>`
+- Actual reasoning effort, only if observable: `unknown / <observed value>`
 - Observable lower-cost runtime mapping evidence:
 - Fallback or escalation reason:
 - Main-agent takeover: `not-applicable / requested / explicitly-authorized`
@@ -66,6 +68,19 @@
 - Evidence path:
 - Definition of Done:
 - Rollback/recovery:
+
+## Optional task-local routing observations
+
+- Input tokens, only if observable: `unknown / <count>`
+- Output tokens, only if observable: `unknown / <count>`
+- Steps, only if observable: `unknown / <count>`
+- First-pass result: `unknown / accepted / reopened / failed`
+- Reopens: `unknown / <count>`
+- Escalation reason: `none / unknown / <recorded reason>`
+- Cost or savings claim: `none / blocked-unobservable-mapping / <evidence-bound claim>`
+
+These fields are task-local observations, not a central measurement log. Never infer a
+missing model mapping, token count, step count, result, or reopen count.
 
 ## Handoff
 

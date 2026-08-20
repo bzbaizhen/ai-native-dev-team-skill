@@ -25,6 +25,7 @@ required = [
     SKILL / "references" / "routing-and-topologies.md",
     SKILL / "references" / "core.md",
     SKILL / "references" / "controlled.md",
+    SKILL / "references" / "model-routing-openai-deepseek.md",
     SKILL / "references" / "governance-lean.md",
     SKILL / "references" / "governance-controlled.md",
     SKILL / "references" / "governance-strict.md",
@@ -78,8 +79,13 @@ if frontmatter_keys != {"name", "description"}:
     fail("SKILL.md frontmatter must contain only name and description")
 if "name: bootstrap-ai-native-dev-team" not in parts[1]:
     fail("SKILL.md name is incorrect")
-if len(skill_text.splitlines()) > 500:
-    fail("SKILL.md exceeds 500 lines")
+if len(skill_text.splitlines()) > 120:
+    fail("SKILL.md exceeds 120 lines")
+
+if "references/model-routing-*.md" not in skill_text:
+    fail("SKILL.md does not define the generic optional-profile boundary")
+if "file presence never activates a profile" not in skill_text.casefold():
+    fail("SKILL.md does not keep optional profiles inactive by default")
 
 for target in (
     "references/routing-and-topologies.md",
@@ -164,6 +170,79 @@ for template in (
     ):
         if removed in text:
             fail(f"{template} still exposes removed surface: {removed}")
+
+for template in (
+    "team-bootstrap-proposal.md",
+    "project-team-charter.md",
+    "task-contract.md",
+):
+    text = (SKILL / "assets" / template).read_text(encoding="utf-8").casefold()
+    for field in (
+        "active routing profile",
+        "input tokens",
+        "output tokens",
+        "steps",
+        "first-pass result",
+        "reopens",
+        "escalation reason",
+        "unknown",
+    ):
+        if field not in text:
+            fail(f"{template} is missing lightweight routing field: {field}")
+
+profile_path = SKILL / "references" / "model-routing-openai-deepseek.md"
+profile_text = profile_path.read_text(encoding="utf-8")
+profile_match = re.search(
+    r"```json routing-profile\s*(\{.*?\})\s*```",
+    profile_text,
+    re.DOTALL,
+)
+if not profile_match:
+    fail("optional routing profile lacks its machine-checked JSON contract")
+try:
+    profile_contract = json.loads(profile_match.group(1))
+except json.JSONDecodeError as exc:
+    fail(f"optional routing profile contract is invalid JSON: {exc}")
+if profile_contract.get("default_active") is not False:
+    fail("optional routing profile must be inactive by default")
+if profile_contract.get("activation") != "explicit-owner-selection":
+    fail("optional routing profile requires explicit Owner selection")
+if profile_contract.get("evidence_date") != "2026-08-20":
+    fail("optional routing profile evidence date drifted")
+
+expected_evidence_date = "The evidence snapshot date is **2026-08-20**."
+expected_cursorbench_row = (
+    "| CursorBench 3.2 | 61.1%; $0.39; 87,973 tokens; 61 steps | "
+    "64.9%; $2.31; 32,969 tokens; 47 steps | 63.5%; $2.79; 13,867 tokens; "
+    "32 steps | Luna xhigh to max +3.4pp; Terra xhigh to max +5.7pp; "
+    "Sol medium to high +3.5pp |"
+)
+if profile_text.count(expected_evidence_date) != 1:
+    fail("optional routing profile evidence date drifted")
+cursorbench_rows = [
+    line for line in profile_text.splitlines() if line.startswith("| CursorBench 3.2 |")
+]
+if cursorbench_rows != [expected_cursorbench_row]:
+    fail("CursorBench dated evidence row drifted")
+for amount in ("$0.39", "$2.31", "$2.79"):
+    if cursorbench_rows[0].count(amount) != 1:
+        fail(f"CursorBench evidence row is missing exact amount: {amount}")
+
+canonical_policy_files = [
+    SKILL / "SKILL.md",
+    SKILL / "references" / "routing-and-topologies.md",
+    SKILL / "references" / "core.md",
+    SKILL / "references" / "controlled.md",
+    SKILL / "assets" / "team-bootstrap-proposal.md",
+    SKILL / "assets" / "project-team-charter.md",
+    SKILL / "assets" / "task-contract.md",
+    SKILL / "agents" / "openai.yaml",
+    ROOT / "examples" / "global-agents-snippet.md",
+]
+vendor_names = re.compile(r"(?:gpt-5(?:\.|-)|deepseek|openai)", re.IGNORECASE)
+for path in canonical_policy_files:
+    if vendor_names.search(path.read_text(encoding="utf-8")):
+        fail(f"canonical policy corpus is not vendor-neutral: {path.relative_to(ROOT)}")
 
 test_path = ROOT / "tests" / "test_routing_policy.py"
 try:

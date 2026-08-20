@@ -172,6 +172,13 @@ path or evidenced repeated failure, no safe re-slice, explicit user authorizatio
 a recorded reason. An orchestration subagent supports a cost-saving claim only when its
 observable runtime mapping is to a lower-cost tier.
 
+The canonical mapping remains vendor-neutral. Projects may explicitly select an
+isolated, dated runtime profile; profile presence never changes the public default. One
+example is the opt-in
+[OpenAI + DeepSeek profile](skills/bootstrap-ai-native-dev-team/references/model-routing-openai-deepseek.md),
+whose evidence snapshot is dated 2026-08-20. It documents exact routing, Hermes runtime
+limits, authentication/availability gates, evidence gaps, and recalibration triggers.
+
 ## Two development layers
 
 | Layer | Default use |
@@ -197,10 +204,12 @@ Agent count, Commit count, lines of code, and token count are not delivery outco
 
 ## What this Skill deliberately excludes
 
-Team-performance review, historical baseline construction, delivery telemetry,
-efficiency comparison, task sampling, registration receipts, and external timestamp
-proof are separate systems. V2 does not collect them during development and does not
-ship compatibility aliases for the removed interfaces.
+Team-performance review, historical baseline construction, mandatory delivery
+telemetry, efficiency comparison, registration receipts, and external timestamp proof
+are separate systems. V2 does not operate a metrics ledger or ship compatibility
+aliases for the removed interfaces. An explicitly selected routing profile may add
+lightweight task-local observation fields; unobservable values stay `unknown`, and the
+fields do not become a ledger, baseline, benchmark, or release gate.
 
 The Skill still keeps a **task baseline Commit**, exact-candidate validation, rollback,
 and recovery. Those protect code changes; they are not performance-measurement features.
@@ -226,6 +235,7 @@ skills/bootstrap-ai-native-dev-team/
 │   ├── routing-and-topologies.md
 │   ├── core.md
 │   ├── controlled.md
+│   ├── model-routing-openai-deepseek.md  # optional, inactive by default
 │   └── governance-*.md
 └── assets/
     ├── team-bootstrap-proposal.md

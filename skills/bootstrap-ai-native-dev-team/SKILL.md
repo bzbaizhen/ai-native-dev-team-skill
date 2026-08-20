@@ -54,6 +54,10 @@ reasoning, topology, and evidence-reuse rules. Complexity selects implementation
 capability and reasoning. Risk selects permissions, review independence, approval,
 rollback, and recovery; risk alone does not raise model capability.
 
+Optional runtime profiles under `references/model-routing-*.md` require explicit Owner
+selection; file presence never activates a profile. They map canonical tiers to a dated
+runtime, while Core and Controlled remain the only canonical layers.
+
 ## Core
 
 Read [core.md](references/core.md) when no Controlled trigger exists. Main-agent direct

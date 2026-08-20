@@ -9,6 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SKILL_DIR = ROOT / "skills" / "bootstrap-ai-native-dev-team"
 SCENARIOS_PATH = ROOT / "tests" / "routing-scenarios.json"
 COST_POLICY_CASES_PATH = ROOT / "tests" / "cost-routing-policy-cases.json"
+PROFILE_PATH = SKILL_DIR / "references" / "model-routing-openai-deepseek.md"
 
 CONTROLLED_SHAPES = {
     "material_behavior",
@@ -62,6 +63,57 @@ COST_POLICY_FIELDS = {
     "mapped_to_lower_cost_tier",
     "cost_saving_claim",
 }
+EXPECTED_PROFILE_KEYS = {
+    "profile_id",
+    "default_active",
+    "activation",
+    "evidence_date",
+    "control_plane",
+    "writers",
+    "validators",
+    "high_volume_deterministic_fallback",
+    "forbidden_defaults",
+}
+EXPECTED_WRITERS = {
+    "C0_batch": {"model": "gpt-5.6-luna", "reasoning": "max"},
+    "C1": {"model": "gpt-5.6-luna", "reasoning": "max"},
+    "C2": {"model": "gpt-5.6-terra", "reasoning": "max"},
+    "C3": {"model": "gpt-5.6-sol", "reasoning": "high"},
+}
+EXPECTED_FORBIDDEN_DEFAULTS = {
+    "gpt-5.6-sol:xhigh",
+    "gpt-5.6-sol:max",
+    "gpt-5.6-sol:ultra",
+    "gpt-5.6-luna:low",
+    "gpt-5.6-luna:medium",
+    "gpt-5.6-luna:high",
+    "gpt-5.6-luna:xhigh",
+    "gpt-5.6-terra:low",
+    "gpt-5.6-terra:medium",
+    "gpt-5.6-terra:high",
+    "gpt-5.6-terra:xhigh",
+    "gpt-5.5:*",
+    "gpt-5.4:*",
+}
+TASK_ROUTING_OBSERVATION_FIELDS = {
+    "actual_runtime_mapping_observed",
+    "actual_model",
+    "actual_effort",
+    "input_tokens",
+    "output_tokens",
+    "steps",
+    "first_pass_result",
+    "reopens",
+    "escalation_reason",
+    "cost_claim",
+}
+EXPECTED_EVIDENCE_DATE = "The evidence snapshot date is **2026-08-20**."
+EXPECTED_CURSORBENCH_ROW = (
+    "| CursorBench 3.2 | 61.1%; $0.39; 87,973 tokens; 61 steps | "
+    "64.9%; $2.31; 32,969 tokens; 47 steps | 63.5%; $2.79; 13,867 tokens; "
+    "32 steps | Luna xhigh to max +3.4pp; Terra xhigh to max +5.7pp; "
+    "Sol medium to high +3.5pp |"
+)
 
 
 def controlled_trigger(case: dict) -> bool:
@@ -70,6 +122,84 @@ def controlled_trigger(case: dict) -> bool:
         or case["risk"] in {"R2", "R3"}
         or case["shape"] in CONTROLLED_SHAPES
     )
+
+
+def load_profile_contract() -> dict:
+    text = PROFILE_PATH.read_text(encoding="utf-8")
+    match = re.search(r"```json routing-profile\s*(\{.*?\})\s*```", text, re.DOTALL)
+    assert match, "routing profile JSON block missing"
+    return json.loads(match.group(1))
+
+
+def validate_profile_contract(profile: dict) -> None:
+    assert set(profile) == EXPECTED_PROFILE_KEYS
+    assert profile["profile_id"] == "openai-deepseek-2026-08-20"
+    assert profile["default_active"] is False
+    assert profile["activation"] == "explicit-owner-selection"
+    assert profile["evidence_date"] == "2026-08-20"
+    assert profile["control_plane"] == {
+        "model": "gpt-5.6-sol", "reasoning": "high",
+    }
+    assert profile["writers"] == EXPECTED_WRITERS
+    assert profile["validators"] == {
+        "R2_R3_when_writer_is_openai": {
+            "model": "deepseek-v4-pro", "reasoning": "max",
+        },
+        "when_writer_is_deepseek_fallback": {
+            "model_source": "openai-writer-map-for-complexity",
+            "reasoning_source": "openai-writer-map-for-complexity",
+        },
+    }
+    assert profile["high_volume_deterministic_fallback"] == {
+        "model": "deepseek-v4-flash",
+        "reasoning": "max",
+        "default": False,
+        "requires_explicit_task_selection": True,
+    }
+    assert set(profile["forbidden_defaults"]) == EXPECTED_FORBIDDEN_DEFAULTS
+    assert len(profile["forbidden_defaults"]) == len(EXPECTED_FORBIDDEN_DEFAULTS)
+
+
+def validate_profile_activation(
+    profile: dict,
+    selected_profile: str | None,
+    availability_ok: bool,
+    authentication_ok: bool,
+) -> None:
+    validate_profile_contract(profile)
+    assert selected_profile == profile["profile_id"]
+    assert availability_ok is True
+    assert authentication_ok is True
+
+
+def validate_task_routing_observation(record: dict) -> None:
+    assert set(record) == TASK_ROUTING_OBSERVATION_FIELDS
+    assert type(record["actual_runtime_mapping_observed"]) is bool
+    for field in {"actual_model", "actual_effort", "escalation_reason", "cost_claim"}:
+        assert type(record[field]) is str and record[field].strip(), field
+    for field in {"input_tokens", "output_tokens", "steps", "reopens"}:
+        value = record[field]
+        assert value == "unknown" or (type(value) is int and value >= 0), field
+    assert record["first_pass_result"] in {"unknown", "accepted", "reopened", "failed"}
+    if record["actual_runtime_mapping_observed"]:
+        assert record["actual_model"] != "unknown"
+        assert record["actual_effort"] != "unknown"
+    else:
+        assert record["actual_model"] == "unknown"
+        assert record["actual_effort"] == "unknown"
+        assert record["cost_claim"] in {"none", "blocked-unobservable-mapping"}
+    if record["cost_claim"] not in {"none", "blocked-unobservable-mapping"}:
+        assert record["actual_runtime_mapping_observed"] is True
+
+
+def validate_profile_evidence(text: str) -> None:
+    assert text.count(EXPECTED_EVIDENCE_DATE) == 1
+    cursorbench_rows = [
+        line for line in text.splitlines() if line.startswith("| CursorBench 3.2 |")
+    ]
+    assert cursorbench_rows == [EXPECTED_CURSORBENCH_ROW]
+    for amount in ("$0.39", "$2.31", "$2.79"):
+        assert cursorbench_rows[0].count(amount) == 1
 
 
 def expected_layer(case: dict) -> str:
@@ -220,6 +350,7 @@ class RoutingPolicyTests(unittest.TestCase):
         cls.by_name = {case["name"]: case for case in cls.scenarios}
         cls.cost_policy_cases = json.loads(COST_POLICY_CASES_PATH.read_text(encoding="utf-8"))
         cls.cost_by_name = {case["name"]: case for case in cls.cost_policy_cases}
+        cls.profile = load_profile_contract()
 
     def test_matrix_shape_and_policy(self) -> None:
         self.assertGreaterEqual(len(self.scenarios), 13)
@@ -327,6 +458,105 @@ class RoutingPolicyTests(unittest.TestCase):
             claim, lambda case: case.update(mapped_to_lower_cost_tier=False),
             "observed mapping is not to a lower-cost tier",
         )
+
+    def test_optional_profile_exact_mapping_and_effort_ceiling(self) -> None:
+        validate_profile_contract(self.profile)
+        mutations = [
+            ("Sol xhigh", lambda p: p["control_plane"].update(reasoning="xhigh")),
+            ("Sol max", lambda p: p["writers"]["C3"].update(reasoning="max")),
+            ("Sol ultra", lambda p: p["writers"]["C3"].update(reasoning="ultra")),
+            ("Luna low", lambda p: p["writers"]["C1"].update(reasoning="low")),
+            ("Luna medium", lambda p: p["writers"]["C1"].update(reasoning="medium")),
+            ("Luna high", lambda p: p["writers"]["C1"].update(reasoning="high")),
+            ("Luna xhigh", lambda p: p["writers"]["C1"].update(reasoning="xhigh")),
+            ("Terra low", lambda p: p["writers"]["C2"].update(reasoning="low")),
+            ("Terra medium", lambda p: p["writers"]["C2"].update(reasoning="medium")),
+            ("Terra high", lambda p: p["writers"]["C2"].update(reasoning="high")),
+            ("Terra xhigh", lambda p: p["writers"]["C2"].update(reasoning="xhigh")),
+            ("GPT-5.5", lambda p: p["writers"]["C3"].update(model="gpt-5.5")),
+            ("GPT-5.4", lambda p: p["writers"]["C3"].update(model="gpt-5.4")),
+            (
+                "Flash as default Validator",
+                lambda p: p["validators"]["R2_R3_when_writer_is_openai"].update(
+                    model="deepseek-v4-flash"
+                ),
+            ),
+        ]
+        for label, mutate in mutations:
+            candidate = copy.deepcopy(self.profile)
+            mutate(candidate)
+            with self.assertRaises(AssertionError, msg=label):
+                validate_profile_contract(candidate)
+
+    def test_optional_profile_activation_fails_closed(self) -> None:
+        for selected, available, authenticated in (
+            (None, True, True),
+            ("different-profile", True, True),
+            (self.profile["profile_id"], False, True),
+            (self.profile["profile_id"], True, False),
+        ):
+            with self.assertRaises(AssertionError):
+                validate_profile_activation(
+                    self.profile, selected, available, authenticated
+                )
+        validate_profile_activation(
+            self.profile, self.profile["profile_id"], True, True
+        )
+
+    def test_optional_profile_dated_cursorbench_evidence_fails_closed(self) -> None:
+        text = PROFILE_PATH.read_text(encoding="utf-8")
+        validate_profile_evidence(text)
+        for amount, corrupted in (
+            ("$0.39", "/usr/bin/bash.39"),
+            ("$2.31", ".31"),
+            ("$2.79", ".79"),
+        ):
+            with self.subTest(amount=amount):
+                with self.assertRaises(AssertionError):
+                    validate_profile_evidence(text.replace(amount, corrupted, 1))
+
+    def test_missing_routing_telemetry_stays_unknown(self) -> None:
+        unknown = {
+            "actual_runtime_mapping_observed": False,
+            "actual_model": "unknown",
+            "actual_effort": "unknown",
+            "input_tokens": "unknown",
+            "output_tokens": "unknown",
+            "steps": "unknown",
+            "first_pass_result": "unknown",
+            "reopens": "unknown",
+            "escalation_reason": "unknown",
+            "cost_claim": "blocked-unobservable-mapping",
+        }
+        validate_task_routing_observation(unknown)
+        invented = copy.deepcopy(unknown)
+        invented["input_tokens"] = None
+        with self.assertRaises(AssertionError):
+            validate_task_routing_observation(invented)
+
+        unsupported_claim = copy.deepcopy(unknown)
+        unsupported_claim["cost_claim"] = "lower-cost"
+        with self.assertRaises(AssertionError):
+            validate_task_routing_observation(unsupported_claim)
+
+    def test_canonical_policy_corpus_is_vendor_neutral(self) -> None:
+        canonical = [
+            SKILL_DIR / "SKILL.md",
+            SKILL_DIR / "references" / "routing-and-topologies.md",
+            SKILL_DIR / "references" / "core.md",
+            SKILL_DIR / "references" / "controlled.md",
+            SKILL_DIR / "assets" / "team-bootstrap-proposal.md",
+            SKILL_DIR / "assets" / "project-team-charter.md",
+            SKILL_DIR / "assets" / "task-contract.md",
+            SKILL_DIR / "agents" / "openai.yaml",
+            ROOT / "examples" / "global-agents-snippet.md",
+        ]
+        vendor_name = re.compile(r"(?:gpt-5(?:\.|-)|deepseek|openai)", re.IGNORECASE)
+        for path in canonical:
+            self.assertIsNone(
+                vendor_name.search(path.read_text(encoding="utf-8")), path
+            )
+        self.assertIsNotNone(vendor_name.search(PROFILE_PATH.read_text(encoding="utf-8")))
 
     def test_negative_mutations_fail_closed(self) -> None:
         core = self.by_name["C1/R1 non-material isolated work"]
