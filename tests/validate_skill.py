@@ -34,6 +34,7 @@ required = [
     SKILL / "assets" / "task-contract.md",
     SKILL / "assets" / "evidence-manifest.yaml",
     ROOT / "tests" / "routing-scenarios.json",
+    ROOT / "tests" / "cost-routing-policy-cases.json",
     ROOT / "tests" / "test_routing_policy.py",
 ]
 for path in required:
@@ -89,6 +90,7 @@ for target in (
         fail(f"SKILL.md does not link canonical reference: {target}")
 
 lower_skill = skill_text.casefold()
+compact_skill = " ".join(lower_skill.split())
 for removed in (
     "release audit",
     "release-audit",
@@ -106,6 +108,35 @@ for removed in (
 for mode in ("proposal", "initialize", "adjust"):
     if mode not in lower_skill:
         fail(f"SKILL.md is missing mode: {mode}")
+
+for required_policy in (
+    "standing authorization envelope",
+    "strict c0",
+    "every c0 mechanical batch",
+    "every c1+ implementation",
+    "independent validator",
+    "repeatedly failed with evidence",
+    "cannot be safely re-sliced",
+    "explicitly authorizes the takeover",
+    "observable runtime mapping",
+):
+    if required_policy not in compact_skill:
+        fail(f"SKILL.md is missing delegated-routing policy: {required_policy}")
+
+for excluded_authority in (
+    "credentials or secrets",
+    "real or production data",
+    "paid resources",
+    "publication",
+    "push/merge/deploy/release",
+    "destructive deletion",
+    "irreversible migration",
+    "privilege escalation",
+    "out-of-scope writes",
+    "broad global allowlisting",
+):
+    if excluded_authority not in compact_skill:
+        fail(f"SKILL.md is missing authority exclusion: {excluded_authority}")
 
 for canonical, pointer in (
     ("core.md", "governance-lean.md"),
@@ -146,7 +177,7 @@ try:
     )
 except json.JSONDecodeError as exc:
     fail(f"routing scenarios are invalid JSON: {exc}")
-if not isinstance(scenarios, list) or len(scenarios) < 10:
+if not isinstance(scenarios, list) or len(scenarios) < 13:
     fail("routing scenario matrix is too small")
 if {case.get("layer") for case in scenarios} != {"core", "controlled"}:
     fail("routing scenarios must use exactly Core and Controlled")
@@ -162,6 +193,47 @@ if not any(
     for case in scenarios
 ):
     fail("routing scenarios must cover Economy C0 delegation")
+if not any(
+    case.get("name") == "C0/R1 strict main-agent tiny edit"
+    and case.get("route") == "no-delegation"
+    and case.get("deterministic_verification_count") == 1
+    for case in scenarios
+):
+    fail("routing scenarios must cover strict C0 tiny-edit eligibility")
+if any(
+    case.get("complexity") == "C0"
+    and case.get("shape") == "deterministic_batch"
+    and not case.get("delegated")
+    for case in scenarios
+):
+    fail("C0 mechanical batches must delegate")
+if any(case.get("complexity") == "C1" and not case.get("delegated") for case in scenarios):
+    fail("C1 implementation scenarios must delegate")
+
+try:
+    cost_policy_cases = json.loads(
+        (ROOT / "tests" / "cost-routing-policy-cases.json").read_text(encoding="utf-8")
+    )
+except json.JSONDecodeError as exc:
+    fail(f"cost-routing policy cases are invalid JSON: {exc}")
+if not isinstance(cost_policy_cases, list) or len(cost_policy_cases) < 3:
+    fail("cost-routing policy case matrix is too small")
+if not any(
+    case.get("main_agent_takeover")
+    and case.get("writer_path_status") == "unavailable"
+    and case.get("safe_reslice_possible") is False
+    and case.get("explicit_high_cost_takeover_authorization") is True
+    and case.get("takeover_reason")
+    for case in cost_policy_cases
+):
+    fail("cost-routing cases must cover the full unavailable-Writer takeover conjunction")
+if not any(
+    case.get("cost_saving_claim")
+    and case.get("runtime_mapping_observed")
+    and case.get("mapped_to_lower_cost_tier")
+    for case in cost_policy_cases
+):
+    fail("cost-routing cases must bind cost claims to an observed lower-cost mapping")
 
 openai_yaml = (SKILL / "agents" / "openai.yaml").read_text(encoding="utf-8")
 if "$bootstrap-ai-native-dev-team" not in openai_yaml:

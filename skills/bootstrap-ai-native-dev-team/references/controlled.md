@@ -6,8 +6,11 @@ deployment, release, or public action.
 
 ## Minimum topology and artifacts
 
-- Keep the main agent as fact, routing, conflict, integration, stop, and acceptance owner.
-- Use one path-bounded Writer and one independent Validator per repository by default.
+- Keep the main agent as fact, scope, architecture-decision, routing, contract,
+  permission, conflict, integration, evidence-review, stop, and acceptance owner. It
+  does not duplicate the Writer's repository exploration, implementation, or test/debug loop.
+- Use one path-bounded Writer on the configured lower-cost execution path and one
+  independent Validator for material work.
 - Add a specialist only for a concrete architecture, security, privacy, data, operations, or Owner gate.
 - Freeze the smallest useful task and interface boundary. One file has one Writer.
 - Give each Worker a task-local packet with the objective, confirmed facts, task baseline, exact allowed paths, checks, stop conditions, and rollback.
@@ -20,11 +23,18 @@ deployment, release, or public action.
 |---|---|---|
 | C1 | Standard | Medium |
 | C2 | Advanced | High |
-| C3 | Frontier, or main-agent takeover | Max |
+| C3 | Frontier Writer for frozen implementation slices | Max |
 
 Risk strengthens gates, not implementation capability. C1/R3 remains Standard/Medium
-implementation with R3 authority, security, rollback, and recovery controls. C3/R1 may
-use Frontier/Max but does not automatically gain production authority.
+implementation with R3 authority, security, rollback, and recovery controls. C3
+architecture may remain with the main agent, but frozen implementation slices go to
+Writers; C3/R1 does not automatically gain production authority.
+
+Higher-cost main-agent implementation takeover is exceptional. Allow it only when the
+Writer path is unavailable or repeatedly fails with evidence, the task cannot be safely
+re-sliced, the user explicitly authorizes the takeover, and the reason is recorded. An
+orchestration subagent supports a cost-saving claim only when its observable runtime
+mapping is to a lower-cost tier; never infer that mapping.
 
 For R3, obtain explicit Owner approval, least-privilege and sanitized-data review, exact
 candidate validation, executable rollback or recovery evidence, and stable-state

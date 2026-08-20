@@ -1,6 +1,6 @@
 interface:
   display_name: "AI-Native Dev Team Bootstrap"
-  short_description: "Route Core and Controlled development teams"
-  default_prompt: "Use $bootstrap-ai-native-dev-team to choose the smallest Core or Controlled topology and propose only the development controls it needs."
+  short_description: "Route control-plane and Writer development work"
+  default_prompt: "Use $bootstrap-ai-native-dev-team to keep the main agent as a control plane, permit only strict C0 direct work, route C0 batches and C1+ implementation to a task-scoped Writer on the configured lower-cost execution path, preserve Controlled independent validation, and use proposal-only mode at real authority boundaries."
 policy:
   allow_implicit_invocation: true

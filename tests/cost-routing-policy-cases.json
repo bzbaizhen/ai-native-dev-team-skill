@@ -1,0 +1,38 @@
+[
+  {
+    "name": "authorized takeover when Writer path is unavailable",
+    "main_agent_takeover": true,
+    "writer_path_status": "unavailable",
+    "writer_failure_evidence": null,
+    "safe_reslice_possible": false,
+    "explicit_high_cost_takeover_authorization": true,
+    "takeover_reason": "Configured Writer path is unavailable at runtime.",
+    "runtime_mapping_observed": false,
+    "mapped_to_lower_cost_tier": false,
+    "cost_saving_claim": false
+  },
+  {
+    "name": "authorized takeover after evidenced repeated Writer failure",
+    "main_agent_takeover": true,
+    "writer_path_status": "repeated-failure",
+    "writer_failure_evidence": "Two bounded Writer attempts failed the same required check.",
+    "safe_reslice_possible": false,
+    "explicit_high_cost_takeover_authorization": true,
+    "takeover_reason": "No smaller safe implementation slice remains.",
+    "runtime_mapping_observed": false,
+    "mapped_to_lower_cost_tier": false,
+    "cost_saving_claim": false
+  },
+  {
+    "name": "observed lower-cost execution mapping",
+    "main_agent_takeover": false,
+    "writer_path_status": "available",
+    "writer_failure_evidence": null,
+    "safe_reslice_possible": true,
+    "explicit_high_cost_takeover_authorization": false,
+    "takeover_reason": null,
+    "runtime_mapping_observed": true,
+    "mapped_to_lower_cost_tier": true,
+    "cost_saving_claim": true
+  }
+]

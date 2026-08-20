@@ -6,10 +6,10 @@ Use this reference only in the main control plane. Do not send it to ordinary Wo
 
 | Level | Evidence | Capability and reasoning |
 |---|---|---|
-| C0 | Query, tiny edit, deterministic transform, or mechanical batch | Main agent/Current for micro work; Economy/Low for an optional batch Worker |
+| C0 | Query, tiny edit, deterministic transform, or mechanical batch | Main agent/Current only for strict micro work; Economy/Low Writer for a batch |
 | C1 | Narrow scope, known path, and easy verification | Standard/Medium |
 | C2 | Cross-file or cross-module work, meaningful design choice, or uncertain integration | Advanced/High |
-| C3 | Architecture, cross-system change, unknown root cause, or difficult migration | Frontier/Max or main-agent takeover |
+| C3 | Architecture, cross-system change, unknown root cause, or difficult migration | Frontier/Max Writer for frozen implementation slices; main agent may retain architecture |
 
 Split mixed objectives before escalating capability. A larger model is not a substitute
 for a clear task boundary.
@@ -42,8 +42,13 @@ publication are Controlled/R3.
 
 ## Choose the smallest topology
 
-1. `no-delegation` for C0/R0 micro work or when handoff costs more than the task.
-2. `single-worker` for an isolated, easily verified slice or deterministic batch.
+1. `no-delegation` only for read-only control-plane work or one tiny deterministic,
+   low-risk, single-file C0 edit with no material behavior, interface, dependency, data,
+   security, concurrency, production, or public effect; no debugging loop or test
+   authoring; and exactly one deterministic verification. Missing or uncertain evidence
+   fails closed to delegation.
+2. `single-worker` for every C0 mechanical batch and every non-material C1+
+   implementation, refactor, bug fix, test-writing, or debugging slice.
 3. `task-cell` for material behavior or meaningful regression risk: one Writer and one independent Validator.
 4. `team-required` only for independent contract-frozen slices, multiple repositories, or concrete specialist gates.
 
@@ -58,16 +63,27 @@ reason and validation capacity is available.
 
 | Work | Capability | Reasoning | Escalate when |
 |---|---|---|---|
-| C0 micro control-plane work | Main agent | Current | Do not delegate merely to lower nominal call cost |
+| Strict C0 micro work | Main agent | Current | Delegate if any eligibility condition is absent or uncertain |
 | C0 deterministic batch | Economy | Low | Ambiguity, exceptions, or failed deterministic checks |
 | C1 | Standard | Medium | Repeated failure, hidden dependency, or inadequate verification |
 | C2 | Advanced | High | Architecture or root cause remains unresolved |
-| C3 | Frontier | Max | Main agent takes over or stops if safe delegation is unavailable |
+| C3 implementation slice | Frontier | Max | Re-slice, use a declared fallback, or stop if the Writer path fails |
 
 A project maps these vendor-neutral tiers to currently available models and one declared
 fallback. Optimize for the expected total cost of an accepted result, including likely
 rework and validation, not the cheapest single call. Never claim a model was used when
 the runtime did not expose it.
+
+The main agent owns scope, architecture decisions, contracts, permissions, integration,
+evidence review, stop decisions, and final acceptance; it does not duplicate the
+Writer's repository exploration, implementation, or test/debug loop. C3 architecture
+may stay in the control plane, but frozen implementation slices go to Writers.
+
+Higher-cost main-agent implementation takeover requires all of: the Writer path is
+unavailable or repeatedly failed with evidence; safe re-slicing is impossible; the user
+explicitly authorizes the takeover; and the reason is recorded. Otherwise use a declared
+fallback or stop. An orchestration subagent supports a cost-saving claim only when its
+observable runtime mapping is to a lower-cost tier; never infer that mapping.
 
 ## Delegation packet
 
