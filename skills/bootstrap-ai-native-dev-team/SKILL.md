@@ -8,7 +8,6 @@ description: Route, bootstrap, or adjust an AI-native software development team 
 Operate from the main agent as the control plane. Treat delegated agents as
 task-scoped executors or independent validators. Reply in the user's language and keep
 `Confirmed facts / Inferences / To verify` distinct.
-
 ## Resolve authority and facts
 
 Apply, in order:
@@ -17,11 +16,9 @@ Apply, in order:
 2. Active repository instructions and accepted ADRs.
 3. This workflow and the selected development layer.
 4. Project defaults.
-
 Inspect product scope, repository state, task baseline, permissions, test entry points,
 integration backlog, rollback, and recovery requirements before asking questions. Reuse
 a repository-host-toolchain preflight only while its relevant inputs remain unchanged.
-
 ## Resolve the execution mode
 
 An explicit request to build, implement, fix, initialize, or adjust creates one standing
@@ -39,7 +36,6 @@ publication, push/merge/deploy/release, destructive deletion, irreversible migra
 privilege escalation, and out-of-scope writes. Stop at those boundaries and request the
 required authority. Prefer native file tools and task-local scripts; never use broad
 global allowlisting as an approval shortcut.
-
 ## Select one development layer
 
 Score complexity (`C0-C3`) and risk (`R0-R3`) separately, then choose:
@@ -57,7 +53,6 @@ rollback, and recovery; risk alone does not raise model capability.
 Optional runtime profiles under `references/model-routing-*.md` require explicit Owner
 selection; file presence never activates a profile. They map canonical tiers to a dated
 runtime, while Core and Controlled remain the only canonical layers.
-
 ## Core
 
 Read [core.md](references/core.md) when no Controlled trigger exists. Main-agent direct
@@ -68,7 +63,6 @@ Read-only control-plane work is also eligible. If any condition is absent or unc
 delegate. Every C0 mechanical batch and every C1+ implementation, refactor, bug fix,
 test-writing, or debugging task requires a task-scoped Writer on the configured
 lower-cost execution path. There is no generic handoff-cost exception.
-
 ## Controlled
 
 Read [controlled.md](references/controlled.md) when any Controlled trigger appears.
@@ -76,6 +70,12 @@ Use the smallest task contract, one Writer on the configured lower-cost executio
 and one independent Validator for material work. Bind validation and acceptance to the
 exact candidate. Apply the R3 owner, security, privacy, production, public-action,
 rollback, and recovery overlay when risk requires it.
+
+## Windows unattended Coding CLI lifecycle
+On Windows, unattended non-interactive Coding CLI exec, Writer, and Validator work that may run as bounded long work defaults to `pty=false`, `background=true`, and `notify_on_complete=true`.
+Reserve `pty=true` for an interactive TUI, login, or a command that genuinely requires terminal input. Final output text is not process-exit evidence.
+Accept completion only after fresh registry status is `exited` and the exit code is captured. Follow the bounded legacy-PTY recovery in the routing reference: one short bounded grace check and fresh process status.
+Then terminate only the exact tracked process if needed; never start a duplicate Writer or repeatedly wait/reconnect.
 
 ## Modes
 

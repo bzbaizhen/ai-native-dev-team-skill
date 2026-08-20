@@ -144,6 +144,52 @@ for excluded_authority in (
     if excluded_authority not in compact_skill:
         fail(f"SKILL.md is missing authority exclusion: {excluded_authority}")
 
+windows_lifecycle_docs = {
+    "SKILL.md": SKILL / "SKILL.md",
+    "routing-and-topologies.md": SKILL / "references" / "routing-and-topologies.md",
+    "README.md": ROOT / "README.md",
+    "README.zh-CN.md": ROOT / "README.zh-CN.md",
+    "global-agents-snippet.md": ROOT / "examples" / "global-agents-snippet.md",
+}
+for label, path in windows_lifecycle_docs.items():
+    compact = " ".join(path.read_text(encoding="utf-8").casefold().split())
+    for required_lifecycle_term in (
+        "`pty=false`",
+        "`background=true`",
+        "`notify_on_complete=true`",
+        "`pty=true`",
+        "registry",
+        "`exited`",
+        "writer",
+        "wait/reconnect",
+    ):
+        if required_lifecycle_term not in compact:
+            fail(f"{label} is missing Windows lifecycle policy: {required_lifecycle_term}")
+
+routing_text = windows_lifecycle_docs["routing-and-topologies.md"].read_text(
+    encoding="utf-8"
+)
+compact_routing = " ".join(routing_text.casefold().split())
+for required_lifecycle_policy in (
+    "unattended non-interactive coding cli exec, writer, or validator invocations on windows",
+    "use `pty=false`, `background=true`, and `notify_on_complete=true` by default",
+    "`pty=true` is reserved for an interactive tui, login, or a command that genuinely requires terminal input",
+    "never apply it unconditionally to unattended exec",
+    "final output text, a final-answer marker, or a tokens-used line is not process-exit evidence",
+    "registry status `exited`",
+    "captures the exit code",
+    "one short bounded grace check",
+    "inspect fresh process status",
+    "terminate only the exact tracked process",
+    "never start a duplicate writer",
+    "never repeatedly wait/reconnect",
+):
+    if required_lifecycle_policy not in compact_routing:
+        fail(
+            "routing-and-topologies.md is missing fail-closed Windows lifecycle policy: "
+            f"{required_lifecycle_policy}"
+        )
+
 for canonical, pointer in (
     ("core.md", "governance-lean.md"),
     ("controlled.md", "governance-controlled.md"),

@@ -179,6 +179,21 @@ example is the opt-in
 whose evidence snapshot is dated 2026-08-20. It documents exact routing, Hermes runtime
 limits, authentication/availability gates, evidence gaps, and recalibration triggers.
 
+### Windows unattended Coding CLI lifecycle
+
+For unattended, non-interactive Coding CLI `exec`, Writer, and Validator work on Windows
+that may run as bounded long work, default to `pty=false`, `background=true`, and
+`notify_on_complete=true`. Reserve `pty=true` for an interactive TUI, login, or a command
+that genuinely requires terminal input; it is not an unconditional rule for unattended
+exec.
+
+Final output text, a final-answer marker, or a tokens-used line is not process-exit
+evidence. Completion requires a fresh process-registry inspection showing status
+`exited` and a captured exit code. For a legacy PTY run that remains alive after a final
+marker, do one short bounded grace check, inspect fresh process status, then terminate
+only the exact tracked process if needed. Never start a duplicate Writer or repeatedly
+wait/reconnect; keep its output and exit evidence with exact-candidate validation.
+
 ## Two development layers
 
 | Layer | Default use |
