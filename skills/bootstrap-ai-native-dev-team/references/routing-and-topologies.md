@@ -59,6 +59,25 @@ One file has one Writer at a time. Do not open another Writer while work is at
 `DEV_COMPLETE`, `QA_PENDING`, or `MERGE_READY` unless the main agent records a
 reason and validation capacity is available.
 
+## Windows unattended Coding CLI transport and completion
+
+For unattended non-interactive Coding CLI exec, Writer, or Validator invocations on
+Windows that may perform bounded long work, use `pty=false`, `background=true`, and
+`notify_on_complete=true` by default. `pty=true` is reserved for an interactive TUI,
+login, or a command that genuinely requires terminal input; never apply it
+unconditionally to unattended exec.
+
+Treat the runtime process registry as the completion authority. Final output text, a
+final-answer marker, or a tokens-used line is not process-exit evidence. Accept
+completion only after a fresh status inspection reports registry status `exited` and
+captures the exit code.
+
+For a legacy PTY run that printed a final marker but remains alive, perform one short
+bounded grace check, then inspect fresh process status. If it is still alive, terminate
+only the exact tracked process. Never start a duplicate Writer and never repeatedly
+wait/reconnect. Preserve its output and captured exit evidence with the exact-candidate
+validation record.
+
 ## Cost-aware capability routing
 
 | Work | Capability | Reasoning | Escalate when |

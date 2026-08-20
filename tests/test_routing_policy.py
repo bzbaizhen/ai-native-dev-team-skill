@@ -10,6 +10,13 @@ SKILL_DIR = ROOT / "skills" / "bootstrap-ai-native-dev-team"
 SCENARIOS_PATH = ROOT / "tests" / "routing-scenarios.json"
 COST_POLICY_CASES_PATH = ROOT / "tests" / "cost-routing-policy-cases.json"
 PROFILE_PATH = SKILL_DIR / "references" / "model-routing-openai-deepseek.md"
+WINDOWS_LIFECYCLE_POLICY_PATHS = {
+    "SKILL.md": SKILL_DIR / "SKILL.md",
+    "routing-and-topologies.md": SKILL_DIR / "references" / "routing-and-topologies.md",
+    "README.md": ROOT / "README.md",
+    "README.zh-CN.md": ROOT / "README.zh-CN.md",
+    "global-agents-snippet.md": ROOT / "examples" / "global-agents-snippet.md",
+}
 
 CONTROLLED_SHAPES = {
     "material_behavior",
@@ -200,6 +207,26 @@ def validate_profile_evidence(text: str) -> None:
     assert cursorbench_rows == [EXPECTED_CURSORBENCH_ROW]
     for amount in ("$0.39", "$2.31", "$2.79"):
         assert cursorbench_rows[0].count(amount) == 1
+
+
+def validate_windows_lifecycle_policy(text: str) -> None:
+    compact = " ".join(text.casefold().split())
+    required = (
+        "unattended non-interactive coding cli exec, writer, or validator invocations on windows",
+        "use `pty=false`, `background=true`, and `notify_on_complete=true` by default",
+        "`pty=true` is reserved for an interactive tui, login, or a command that genuinely requires terminal input",
+        "never apply it unconditionally to unattended exec",
+        "final output text, a final-answer marker, or a tokens-used line is not process-exit evidence",
+        "registry status `exited`",
+        "captures the exit code",
+        "one short bounded grace check",
+        "inspect fresh process status",
+        "terminate only the exact tracked process",
+        "never start a duplicate writer",
+        "never repeatedly wait/reconnect",
+    )
+    for phrase in required:
+        assert phrase in compact, phrase
 
 
 def expected_layer(case: dict) -> str:
@@ -458,6 +485,68 @@ class RoutingPolicyTests(unittest.TestCase):
             claim, lambda case: case.update(mapped_to_lower_cost_tier=False),
             "observed mapping is not to a lower-cost tier",
         )
+
+    def test_windows_lifecycle_policy_is_consistent_across_docs(self) -> None:
+        for label, path in WINDOWS_LIFECYCLE_POLICY_PATHS.items():
+            compact = " ".join(path.read_text(encoding="utf-8").casefold().split())
+            for term in (
+                "`pty=false`",
+                "`background=true`",
+                "`notify_on_complete=true`",
+                "`pty=true`",
+                "registry",
+                "`exited`",
+                "writer",
+                "wait/reconnect",
+            ):
+                self.assertIn(term, compact, f"{label}: {term}")
+
+    def test_windows_unattended_cli_policy_mutations_fail_closed(self) -> None:
+        policy = " ".join(
+            WINDOWS_LIFECYCLE_POLICY_PATHS[
+                "routing-and-topologies.md"
+            ].read_text(encoding="utf-8").split()
+        )
+        validate_windows_lifecycle_policy(policy)
+        mutations = {
+            "unconditional PTY": ("use `pty=false`", "use `pty=true`"),
+            "foreground execution": ("`background=true`", "`background=false`"),
+            "completion notification disabled": (
+                "`notify_on_complete=true`",
+                "`notify_on_complete=false`",
+            ),
+            "terminal reservation removed": (
+                "`pty=true` is reserved",
+                "`pty=true` is preferred",
+            ),
+            "output treated as exit evidence": (
+                "is not process-exit evidence",
+                "is process-exit evidence",
+            ),
+            "registry exit missing": ("registry status `exited`", "output status complete"),
+            "exit code missing": ("captures the exit code", "captures the final output"),
+            "unbounded grace wait": (
+                "one short bounded grace check",
+                "an unbounded grace wait",
+            ),
+            "broad process termination": (
+                "terminate only the exact tracked process",
+                "terminate all matching processes",
+            ),
+            "duplicate Writer allowed": (
+                "Never start a duplicate Writer",
+                "Start a duplicate Writer",
+            ),
+            "repeated reconnect allowed": (
+                "never repeatedly wait/reconnect",
+                "repeatedly wait/reconnect",
+            ),
+        }
+        for label, (old, new) in mutations.items():
+            self.assertIn(old, policy, label)
+            mutated = policy.replace(old, new, 1)
+            with self.assertRaises(AssertionError, msg=label):
+                validate_windows_lifecycle_policy(mutated)
 
     def test_optional_profile_exact_mapping_and_effort_ceiling(self) -> None:
         validate_profile_contract(self.profile)

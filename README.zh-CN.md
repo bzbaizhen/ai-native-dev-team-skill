@@ -166,6 +166,19 @@ profile 文件存在不会改变公开默认。一个示例是证据快照日期
 [OpenAI + DeepSeek profile](skills/bootstrap-ai-native-dev-team/references/model-routing-openai-deepseek.md)，
 其中记录准确路由、Hermes 运行时限制、认证/可用性门禁、证据缺口和重新校准触发条件。
 
+### Windows 无人值守 Coding CLI 生命周期
+
+在 Windows 上，对可能执行有界长任务的无人值守、非交互 Coding CLI `exec`、Writer 和
+Validator 工作，默认使用 `pty=false`、`background=true` 和
+`notify_on_complete=true`。`pty=true` 仅用于交互式 TUI、登录或确实需要终端输入的命令，
+不能无条件套用于无人值守 exec。
+
+最终输出文本、final-answer 标记或 tokens-used 行不是进程退出证据。只有重新检查进程
+registry，确认状态为 `exited` 并取得退出码（exit code），才能接受完成状态。如果 legacy
+PTY 在打印最终标记后仍存活，只做一次短时有界宽限检查，再重新检查进程状态；必要时只终止
+被准确跟踪的那个进程。不得启动重复 Writer，也不得反复 wait/reconnect；将输出和退出
+证据与准确候选验证放在一起保存。
+
 ## 两层开发控制
 
 | 开发层 | 默认适用范围 |
