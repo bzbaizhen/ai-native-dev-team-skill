@@ -17,6 +17,8 @@ so ordinary tasks do not carry it in every prompt.
 - Default material work to one Writer and one independent Validator tied to the exact candidate. Preserve rollback/recovery evidence. Do not open another Writer while integration is waiting without a recorded reason.
 - Keep C3 architecture with the main Agent if needed, but send frozen implementation slices to Writers. Main-Agent implementation takeover requires an unavailable or repeatedly failing Writer path with evidence, no safe re-slice, explicit user authorization, and a recorded reason.
 - Do not claim an orchestration subagent is lower-cost unless its observable runtime mapping is to a lower-cost tier.
+- Keep canonical capability tiers vendor-neutral. A dated runtime profile is optional and inactive until the Owner explicitly selects it; file presence or credentials alone do not activate it.
+- When a selected profile requests task-local routing observations, record actual model/effort, tokens, steps, first-pass result, reopens, and escalation reason only if observable; missing values stay `unknown`, and no mandatory ledger is created.
 - Use Core for non-material C0/C1 and R0/R1 work. Use Controlled for material behavior, C2/C3, R2/R3, boundaries, concurrency, production, release, or public action.
 - Keep audit, baseline construction, efficiency measurement, and development telemetry outside this Skill.
 - Do not invoke the full workflow for strict C0 main-Agent work; this does not remove the Writer requirement for C0 batches or C1+ implementation.

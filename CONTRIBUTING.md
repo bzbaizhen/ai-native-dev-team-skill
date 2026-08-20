@@ -12,7 +12,11 @@ Contributions are welcome when they make the development-team workflow safer, li
 - Preserve the fail-closed cost route: only strict C0 work stays with the main agent;
   C0 batches and C1+ implementation use a task-scoped Writer on the configured lower-cost
   execution path, with exceptional takeover requiring explicit user authorization.
-- Do not add vendor-specific model names to the reusable workflow.
+- Keep the canonical Skill, Core/Controlled policy, templates, agent metadata, and global
+  trigger vendor-neutral. Vendor-specific mappings belong only in isolated, dated,
+  explicitly selected optional profile references with fail-closed tests.
+- Optional routing observations stay task-local and accept `unknown`; do not restore a
+  mandatory ledger, baseline, benchmark fixture, release gate, or performance subsystem.
 - Prefer native file tools and task-local scripts; never recommend broad global allowlisting as an approval shortcut.
 - Do not add claims without inspectable evidence.
 

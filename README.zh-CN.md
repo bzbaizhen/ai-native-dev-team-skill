@@ -161,6 +161,11 @@ Core 或 Controlled
 重复失败证据、无法安全重切、用户明确授权，并记录原因。只有编排层 Subagent 的可观察
 运行时映射确属较低成本档时，才能声称节省成本。
 
+Canonical 映射继续保持供应商中立。项目可以明确选择隔离、带日期的运行时 profile；
+profile 文件存在不会改变公开默认。一个示例是证据快照日期为 2026-08-20 的可选
+[OpenAI + DeepSeek profile](skills/bootstrap-ai-native-dev-team/references/model-routing-openai-deepseek.md)，
+其中记录准确路由、Hermes 运行时限制、认证/可用性门禁、证据缺口和重新校准触发条件。
+
 ## 两层开发控制
 
 | 开发层 | 默认适用范围 |
@@ -186,9 +191,10 @@ Agent 数、Commit 数、代码行数和 Token 数都不是交付结果。
 
 ## 这个 Skill 明确不再包含什么
 
-团队绩效回审、历史基线建立、交付遥测、效率比较、任务样本、registration receipt
-和外部时间证明，全部由独立系统负责。V2 不在开发过程中采集这些数据，也不为已删除
-的接口保留兼容别名。
+团队绩效回审、历史基线建立、强制交付遥测、效率比较、registration receipt 和外部
+时间证明，全部由独立系统负责。V2 不运行 metrics ledger，也不为已删除接口保留兼容
+别名。明确选择的路由 profile 可以增加轻量、任务局部的观察字段；不可观察值保持
+`unknown`，这些字段不会形成 ledger、baseline、benchmark 或 release gate。
 
 Skill 仍保留**任务基线 Commit**、准确候选验证、回退和恢复。这些用于保护代码变更，
 不是绩效度量功能。
@@ -214,6 +220,7 @@ skills/bootstrap-ai-native-dev-team/
 │   ├── routing-and-topologies.md
 │   ├── core.md
 │   ├── controlled.md
+│   ├── model-routing-openai-deepseek.md  # 可选，默认不启用
 │   └── governance-*.md
 └── assets/
     ├── team-bootstrap-proposal.md

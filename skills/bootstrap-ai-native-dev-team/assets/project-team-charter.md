@@ -37,6 +37,10 @@
 
 ## Routing and model mapping
 
+- Active routing profile: `none / <explicitly-selected-profile-id>`
+- Profile selection authority/evidence:
+- Runtime mapping observation method: `unknown / <method>`
+
 | Complexity | Capability | Reasoning | Current model mapping | Fallback |
 |---|---|---|---|---|
 | Strict C0 micro | main-agent | current | | task-scoped Writer |
@@ -52,6 +56,16 @@
   of lower cost; record the observable runtime mapping.
 - Main-agent implementation takeover requires Writer-path unavailability or repeated
   failure with evidence, no safe re-slice, explicit user authorization, and a recorded reason.
+- Actual task runtime model/provider, only if observable: `unknown / task-local value`
+- Actual task reasoning effort, only if observable: `unknown / task-local value`
+- Input tokens, only if observable: `unknown / task-local count`
+- Output tokens, only if observable: `unknown / task-local count`
+- Steps, only if observable: `unknown / task-local count`
+- First-pass result: `unknown / accepted / reopened / failed`
+- Reopens: `unknown / task-local count`
+- Escalation reason: `none / unknown / task-local reason`
+- These are optional task-local observations; no mandatory ledger or cost claim follows
+  from this charter.
 
 ## Team and authority
 
