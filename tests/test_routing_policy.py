@@ -4,12 +4,69 @@ from pathlib import Path
 import re
 import unittest
 
-
 ROOT = Path(__file__).resolve().parents[1]
 SKILL_DIR = ROOT / "skills" / "bootstrap-ai-native-dev-team"
 SCENARIOS_PATH = ROOT / "tests" / "routing-scenarios.json"
 COST_POLICY_CASES_PATH = ROOT / "tests" / "cost-routing-policy-cases.json"
 PROFILE_PATH = SKILL_DIR / "references" / "model-routing-openai-deepseek.md"
+
+EXPECTED_LEVEL_ZERO_DESCRIPTION = "Route AI-native development with proportional controls."
+MAX_LEVEL_ZERO_DESCRIPTION_CHARS = 60
+MAX_LEVEL_ONE_LINES = 110
+MAX_LEVEL_ONE_CHARS = 6500
+CANONICAL_REFERENCE_LINKS = (
+    "references/routing-and-topologies.md",
+    "references/core.md",
+    "references/controlled.md",
+)
+ASSET_TRIGGERS = {
+    "assets/team-bootstrap-proposal.md":
+        "only when an explicit proposal request needs an approval-ready team proposal",
+    "assets/task-contract.md":
+        "only when controlled work explicitly needs a durable written contract or frozen interface",
+    "assets/project-team-charter.md":
+        "only when an explicitly requested long-lived multi-task team is being established",
+    "assets/evidence-manifest.yaml":
+        "only when a machine-readable evidence package is explicitly required for independent exact-candidate validation and acceptance",
+}
+
+
+def validate_progressive_disclosure(skill_text: str, skill_dir: Path) -> None:
+    frontmatter = re.match(r"\A---\s*\n(.*?)\n---", skill_text, re.DOTALL)
+    assert frontmatter, "frontmatter is malformed"
+    descriptions = [
+        line.split(":", 1)[1].strip()
+        for line in frontmatter.group(1).splitlines()
+        if line.lstrip().startswith("description:")
+    ]
+    assert len(descriptions) == 1, "description must occur exactly once"
+    description = descriptions[0]
+    assert description == EXPECTED_LEVEL_ZERO_DESCRIPTION
+    assert len(description) <= MAX_LEVEL_ZERO_DESCRIPTION_CHARS
+    assert re.fullmatch(r"[A-Z][A-Za-z0-9-]*(?: [A-Za-z0-9-]+){2,}[.!?]", description)
+    assert len(skill_text.splitlines()) <= MAX_LEVEL_ONE_LINES
+    assert len(skill_text) <= MAX_LEVEL_ONE_CHARS
+
+    links = {
+        target.split("#", 1)[0]
+        for target in re.findall(r"\[[^\]]+\]\(([^)]+)\)", skill_text)
+        if not target.startswith(("http://", "https://", "#"))
+    }
+    assert set(CANONICAL_REFERENCE_LINKS) <= links
+    compact = " ".join(skill_text.casefold().split())
+    assert "load level-2 assets only on demand" in compact
+    assert "do not preload assets; load only the asset whose matching trigger applies" in compact
+    for target, trigger in ASSET_TRIGGERS.items():
+        assert target in links
+        line = next(
+            (" ".join(line.casefold().split()) for line in skill_text.splitlines()
+             if f"]({target})" in line),
+            None,
+        )
+        assert line is not None
+        assert trigger in line
+    for target in links:
+        assert (skill_dir / target).is_file(), target
 WINDOWS_LIFECYCLE_POLICY_PATHS = {
     "SKILL.md": SKILL_DIR / "SKILL.md",
     "routing-and-topologies.md": SKILL_DIR / "references" / "routing-and-topologies.md",
@@ -378,6 +435,36 @@ class RoutingPolicyTests(unittest.TestCase):
         cls.cost_policy_cases = json.loads(COST_POLICY_CASES_PATH.read_text(encoding="utf-8"))
         cls.cost_by_name = {case["name"]: case for case in cls.cost_policy_cases}
         cls.profile = load_profile_contract()
+
+    def test_progressive_disclosure_contract_and_mutations_fail_closed(self) -> None:
+        skill = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+        validate_progressive_disclosure(skill, SKILL_DIR)
+
+        def reject(label: str, candidate: str) -> None:
+            self.assertNotEqual(candidate, skill, label)
+            with self.subTest(mutation=label):
+                with self.assertRaises(AssertionError):
+                    validate_progressive_disclosure(candidate, SKILL_DIR)
+
+        description_prefix = f"description: {EXPECTED_LEVEL_ZERO_DESCRIPTION}"
+        for invalid in (
+            EXPECTED_LEVEL_ZERO_DESCRIPTION.removesuffix("."),
+            EXPECTED_LEVEL_ZERO_DESCRIPTION.replace("Route", "route", 1),
+            EXPECTED_LEVEL_ZERO_DESCRIPTION + " and more detail.",
+        ):
+            reject("description", skill.replace(description_prefix, f"description: {invalid}", 1))
+        for label, candidate in (
+            ("line limit", skill + "\nextra" * MAX_LEVEL_ONE_LINES),
+            ("character limit", skill + "x" * (MAX_LEVEL_ONE_CHARS - len(skill) + 1)),
+            ("canonical reference", skill.replace("](references/core.md)", "](references/missing.md)", 1)),
+            ("unresolved local link", skill.replace("assets/evidence-manifest.yaml", "assets/missing.yaml", 1)),
+        ):
+            reject(label, candidate)
+        for target, trigger in ASSET_TRIGGERS.items():
+            reject(
+                f"asset trigger: {target}",
+                re.sub(re.escape(trigger), "when needed", skill, count=1, flags=re.IGNORECASE),
+            )
 
     def test_matrix_shape_and_policy(self) -> None:
         self.assertGreaterEqual(len(self.scenarios), 13)
