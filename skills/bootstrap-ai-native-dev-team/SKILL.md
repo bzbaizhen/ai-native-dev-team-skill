@@ -11,7 +11,7 @@ distinct and reply in the user's language.
 
 ## Authority and authorization
 
-Apply authority in order: (1) system, developer, and current explicit user
+Apply authority in order: (1) system, developer, and explicit user
 instructions; (2) active repository instructions and accepted ADRs; (3) this workflow
 and its selected layer; (4) project defaults. Inspect scope, repository state, task
 baseline, permissions, test entry points, integration backlog, rollback, and recovery
@@ -20,8 +20,7 @@ before asking questions; reuse a preflight only while its inputs remain unchange
 An explicit build, implement, fix, initialize, or adjust request creates a standing
 authorization envelope for ordinary reversible work in the stated repository and task
 scope: bounded delegation, workspace edits, local build/test/lint, read-only Git
-inspection, handoffs, and reversible corrections. Continue through those phases without
-redundant approval.
+inspection, handoffs, and reversible corrections. Continue without redundant approval.
 Use proposal-only mode when the user explicitly requests a plan, scope cannot be
 bounded, or a real authority boundary already exists. An explicit implementation request
 may combine proposal and initialization before execution. `proposal`, `initialize`, and
@@ -39,9 +38,11 @@ material behavior, C2/C3, R2/R3, interface/dependency/data/security change, conc
 or production/deployment/release/public action; otherwise select **Core**. Resolve
 missing material facts before Core. Read [routing-and-topologies.md](references/routing-and-topologies.md)
 for thresholds, capability/reasoning tiers, topology, evidence reuse, and recovery.
-Optional runtime profiles in `references/model-routing-*.md` require explicit Owner
+Optional profiles in `references/model-routing-*.md` require explicit Owner
 selection; file presence never activates a profile. They map vendor-neutral tiers to a
-dated runtime and never add a canonical layer.
+dated runtime, never a canonical layer.
+For a Linear-governed implementation issue or explicit isolation request, read
+[Git isolation](references/git-isolation-bootstrap.md); run the helper before Writer dispatch; preserve non-Linear Core/Controlled routing.
 
 ### Core
 
@@ -52,7 +53,7 @@ effect; no debugging loop or test authoring; and exactly one deterministic verif
 Read-only control-plane work is separately eligible. If any condition is absent or
 uncertain, fail closed to a Writer.
 Every C0 mechanical batch and every C1+ implementation, refactor, bug fix, test-writing,
-or debugging task requires a task-scoped Writer on the configured lower-cost execution
+or debugging task requires a task-scoped Writer on the configured lower-cost
 path. There is no generic handoff-cost exception.
 
 ### Controlled
