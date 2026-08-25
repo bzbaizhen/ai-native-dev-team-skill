@@ -41,6 +41,19 @@
 - Dependencies and integration order:
 - Contract source/version:
 
+## Optional Linear Git isolation
+
+- Linear issue UUID/id:
+- Linear gitBranchName:
+- Canonical worktree:
+- Base ref / full base Commit:
+- Initial/current HEAD:
+- Working-tree continuation state:
+- Writer cwd / allowed root:
+- Worktree ownership:
+- Linear checkpoint readback:
+- Exact tested HEAD:
+
 ## Write lease and WIP gate
 
 - Status: `inactive / active / frozen / revoked`

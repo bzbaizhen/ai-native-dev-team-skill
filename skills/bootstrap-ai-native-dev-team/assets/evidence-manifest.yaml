@@ -8,6 +8,31 @@ evidence:
   environment: <OS_AND_RUNTIME>
   environment_fingerprint: <FINGERPRINT>
   contract_version: <VERSION_OR_NA>
+  linear_isolation:
+    # Linear issue UUID/id:
+    issue_uuid: <UUID_OR_NA>
+    issue_id: <LINEAR_ID_OR_NA>
+    # Linear gitBranchName:
+    git_branch_name: <EXACT_BRANCH_OR_NA>
+    # Canonical worktree:
+    canonical_worktree: <NATIVE_ABSOLUTE_PATH_OR_NA>
+    # Base ref / full base Commit:
+    base_ref: <REF_OR_NA>
+    base_commit: <FULL_COMMIT_OR_NA>
+    # Initial/current HEAD:
+    initial_head: <FULL_COMMIT_OR_NA>
+    current_head: <FULL_COMMIT_OR_NA>
+    # Working-tree continuation state:
+    working_tree_continuation: <CLEAN_DIRTY_OR_NA>
+    # Writer cwd / allowed root:
+    writer_cwd: <NATIVE_ABSOLUTE_PATH_OR_NA>
+    allowed_root: <NATIVE_ABSOLUTE_PATH_OR_NA>
+    # Worktree ownership:
+    ownership: <WRITER_OR_NA>
+    # Linear checkpoint readback:
+    checkpoint_readback: <PATH_OR_URL_OR_NA>
+    # Exact tested HEAD:
+    exact_tested_head: <FULL_COMMIT_OR_NA>
   tests:
     - command: <EXACT_COMMAND>
       result: <PASSED_OR_FAILED>

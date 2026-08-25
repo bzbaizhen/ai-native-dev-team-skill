@@ -9,6 +9,8 @@ SKILL_DIR = ROOT / "skills" / "bootstrap-ai-native-dev-team"
 SCENARIOS_PATH = ROOT / "tests" / "routing-scenarios.json"
 COST_POLICY_CASES_PATH = ROOT / "tests" / "cost-routing-policy-cases.json"
 PROFILE_PATH = SKILL_DIR / "references" / "model-routing-openai-deepseek.md"
+GIT_ISOLATION_REFERENCE = SKILL_DIR / "references" / "git-isolation-bootstrap.md"
+GIT_ISOLATION_HELPER = SKILL_DIR / "scripts" / "git_isolation_bootstrap.py"
 
 EXPECTED_LEVEL_ZERO_DESCRIPTION = "Route AI-native development with proportional controls."
 MAX_LEVEL_ZERO_DESCRIPTION_CHARS = 60
@@ -726,12 +728,21 @@ class RoutingPolicyTests(unittest.TestCase):
             SKILL_DIR / "assets" / "task-contract.md",
             SKILL_DIR / "agents" / "openai.yaml",
             ROOT / "examples" / "global-agents-snippet.md",
+            GIT_ISOLATION_REFERENCE,
+            GIT_ISOLATION_HELPER,
         ]
-        vendor_name = re.compile(r"(?:gpt-5(?:\.|-)|deepseek|openai)", re.IGNORECASE)
+        vendor_name = re.compile(
+            r"(?:gpt-5(?:\.|-)|deepseek|openai|anthropic)", re.IGNORECASE
+        )
         for path in canonical:
             self.assertIsNone(
                 vendor_name.search(path.read_text(encoding="utf-8")), path
             )
+        isolation_vendor_name = re.compile(
+            r"\b(?:codex|openai|deepseek|anthropic)\b", re.IGNORECASE
+        )
+        for path in (GIT_ISOLATION_REFERENCE, GIT_ISOLATION_HELPER):
+            self.assertIsNone(isolation_vendor_name.search(path.read_text(encoding="utf-8")), path)
         self.assertIsNotNone(vendor_name.search(PROFILE_PATH.read_text(encoding="utf-8")))
 
     def test_negative_mutations_fail_closed(self) -> None:
@@ -815,6 +826,37 @@ class RoutingPolicyTests(unittest.TestCase):
         lowered = skill.casefold()
         for removed in ("release-audit.md", "metrics.md", "mode: audit"):
             self.assertNotIn(removed, lowered)
+
+    def test_linear_issue_isolation_activates_before_writer_dispatch(self) -> None:
+        skill = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+        compact_skill = " ".join(skill.casefold().split())
+        self.assertIn(
+            "](references/git-isolation-bootstrap.md)", skill,
+        )
+        self.assertIn("linear-governed implementation issue", compact_skill)
+        self.assertIn("explicit isolation request", compact_skill)
+        self.assertIn("before writer dispatch", compact_skill)
+        self.assertIn("non-linear core/controlled routing", compact_skill)
+        self.assertTrue(GIT_ISOLATION_REFERENCE.is_file())
+        self.assertTrue(GIT_ISOLATION_HELPER.is_file())
+        reference = GIT_ISOLATION_REFERENCE.read_text(encoding="utf-8").casefold()
+        for requirement in (
+            "linear identity/status/blocker/gitbranchname/latest-checkpoint gate",
+            "<repo-parent>/<repo-name>-worktrees/<issue-id-lowercase>",
+            "repository-scoped short bootstrap lock",
+            "local_execution_blocker",
+            "git worktree repair",
+            "no destructive git command",
+            "plan-only review is a rich, non-mutating evidence preflight",
+            "a non-started or blocked issue returns",
+            "it is not permission to dispatch",
+        ):
+            self.assertIn(requirement, reference)
+        self.assertIn(
+            "skills/bootstrap-ai-native-dev-team/scripts/git_isolation_bootstrap.py",
+            reference,
+        )
+        self.assertNotIn("codex-git-isolation-bootstrap.lock", reference)
 
     def test_legacy_paths_are_small_pointers(self) -> None:
         pointers = {

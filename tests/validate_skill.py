@@ -26,6 +26,20 @@ ASSET_TRIGGERS = {
     "assets/evidence-manifest.yaml":
         "only when a machine-readable evidence package is explicitly required for independent exact-candidate validation and acceptance",
 }
+GIT_ISOLATION_REFERENCE = SKILL / "references" / "git-isolation-bootstrap.md"
+GIT_ISOLATION_HELPER = SKILL / "scripts" / "git_isolation_bootstrap.py"
+ISOLATION_TEMPLATE_FIELDS = (
+    "linear issue uuid/id",
+    "linear gitbranchname",
+    "canonical worktree",
+    "base ref / full base commit",
+    "initial/current head",
+    "working-tree continuation state",
+    "writer cwd / allowed root",
+    "worktree ownership",
+    "linear checkpoint readback",
+    "exact tested head",
+)
 
 
 def fail(message: str) -> None:
@@ -90,6 +104,7 @@ required = [
     SKILL / "references" / "routing-and-topologies.md",
     SKILL / "references" / "core.md",
     SKILL / "references" / "controlled.md",
+    GIT_ISOLATION_REFERENCE,
     SKILL / "references" / "model-routing-openai-deepseek.md",
     SKILL / "references" / "governance-lean.md",
     SKILL / "references" / "governance-controlled.md",
@@ -99,9 +114,11 @@ required = [
     SKILL / "assets" / "project-team-charter.md",
     SKILL / "assets" / "task-contract.md",
     SKILL / "assets" / "evidence-manifest.yaml",
+    GIT_ISOLATION_HELPER,
     ROOT / "tests" / "routing-scenarios.json",
     ROOT / "tests" / "cost-routing-policy-cases.json",
     ROOT / "tests" / "test_routing_policy.py",
+    ROOT / "tests" / "test_git_isolation_bootstrap.py",
 ]
 for path in required:
     if not path.is_file():
@@ -114,7 +131,6 @@ removed_paths = [
     SKILL / "references" / "metrics.md",
     SKILL / "references" / "metrics-event.schema.json",
     SKILL / "references" / "release-audit.md",
-    SKILL / "scripts",
     ROOT / "tests" / "fixtures" / "p2",
     ROOT / "tests" / "fixtures" / "p3-public",
     ROOT / "tests" / "test_team_metrics.py",
@@ -148,6 +164,36 @@ try:
     validate_progressive_disclosure(skill_text, SKILL)
 except AssertionError as exc:
     fail(f"SKILL.md progressive-disclosure contract failed: {exc}")
+
+if "](references/git-isolation-bootstrap.md)" not in skill_text:
+    fail("SKILL.md does not link the Linear Git-isolation reference")
+for required_isolation_boundary in (
+    "linear-governed implementation issue",
+    "explicit isolation request",
+    "before writer dispatch",
+    "non-linear core/controlled routing",
+):
+    if required_isolation_boundary not in normalize_policy(skill_text):
+        fail(f"SKILL.md is missing Linear-isolation activation boundary: {required_isolation_boundary}")
+
+reference_text = GIT_ISOLATION_REFERENCE.read_text(encoding="utf-8")
+for required_reference_term in (
+    "Linear identity/status/blocker/gitBranchName/latest-checkpoint gate",
+    "<repo-parent>/<repo-name>-worktrees/<issue-id-lowercase>",
+    "repository-scoped short bootstrap lock",
+    "LOCAL_EXECUTION_BLOCKER",
+    "git worktree repair",
+    "no destructive Git command",
+    "plan-only review is a rich, non-mutating evidence preflight",
+    "a non-started or blocked issue returns",
+    "it is not permission to dispatch",
+):
+    if required_reference_term.casefold() not in reference_text.casefold():
+        fail(f"git isolation reference is missing: {required_reference_term}")
+try:
+    ast.parse(GIT_ISOLATION_HELPER.read_text(encoding="utf-8"))
+except SyntaxError as exc:
+    fail(f"git isolation helper has a syntax error: {exc}")
 
 if "references/model-routing-*.md" not in skill_text:
     fail("SKILL.md does not define the generic optional-profile boundary")
@@ -296,6 +342,12 @@ for template in (
         if field not in text:
             fail(f"{template} is missing lightweight routing field: {field}")
 
+for template in ("task-contract.md", "evidence-manifest.yaml"):
+    text = (SKILL / "assets" / template).read_text(encoding="utf-8").casefold()
+    for field in ISOLATION_TEMPLATE_FIELDS:
+        if field not in text:
+            fail(f"{template} is missing Linear-isolation field: {field}")
+
 profile_path = SKILL / "references" / "model-routing-openai-deepseek.md"
 profile_text = profile_path.read_text(encoding="utf-8")
 profile_match = re.search(
@@ -344,11 +396,21 @@ canonical_policy_files = [
     SKILL / "assets" / "task-contract.md",
     SKILL / "agents" / "openai.yaml",
     ROOT / "examples" / "global-agents-snippet.md",
+    GIT_ISOLATION_REFERENCE,
+    GIT_ISOLATION_HELPER,
 ]
-vendor_names = re.compile(r"(?:gpt-5(?:\.|-)|deepseek|openai)", re.IGNORECASE)
+vendor_names = re.compile(
+    r"(?:gpt-5(?:\.|-)|deepseek|openai|anthropic)", re.IGNORECASE
+)
 for path in canonical_policy_files:
     if vendor_names.search(path.read_text(encoding="utf-8")):
         fail(f"canonical policy corpus is not vendor-neutral: {path.relative_to(ROOT)}")
+isolation_vendor_names = re.compile(
+    r"\b(?:codex|openai|deepseek|anthropic)\b", re.IGNORECASE
+)
+for path in (GIT_ISOLATION_REFERENCE, GIT_ISOLATION_HELPER):
+    if isolation_vendor_names.search(path.read_text(encoding="utf-8")):
+        fail(f"Git-isolation public files are not vendor-neutral: {path.relative_to(ROOT)}")
 
 test_path = ROOT / "tests" / "test_routing_policy.py"
 try:
