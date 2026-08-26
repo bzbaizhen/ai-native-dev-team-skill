@@ -48,6 +48,8 @@
 - Optional task-local observations: input tokens `unknown`; output tokens `unknown`; steps `unknown`; first-pass result `unknown`; reopens `unknown`; escalation reason `none / unknown / <reason>`
 - Main-agent takeover evidence, re-slice analysis, explicit authorization, and reason:
 - Environment fingerprint:
+- DQR for material acceptance: `not-applicable / required`
+- Optional prospective metrics: `not-selected / selected; main-agent ledger writer only`
 
 ## Minimum topology
 
@@ -87,6 +89,7 @@ Intentionally omitted roles and reasons:
 - Build command:
 - Test command:
 - Independent validation:
+- DQR findings, limitations, and revalidation plan:
 - Evidence location:
 - Candidate Commit:
 - Stable acceptance evidence:

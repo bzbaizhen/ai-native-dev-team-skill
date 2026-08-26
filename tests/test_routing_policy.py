@@ -21,6 +21,10 @@ CANONICAL_REFERENCE_LINKS = (
     "references/core.md",
     "references/controlled.md",
 )
+DQR_REFERENCE_LINK = "references/delivery-quality-review.md"
+METRICS_REFERENCE_LINK = "references/metrics.md"
+DQR_PATH = SKILL_DIR / "references" / "delivery-quality-review.md"
+METRICS_PATH = SKILL_DIR / "references" / "metrics.md"
 ASSET_TRIGGERS = {
     "assets/team-bootstrap-proposal.md":
         "only when an explicit proposal request needs an approval-ready team proposal",
@@ -28,8 +32,6 @@ ASSET_TRIGGERS = {
         "only when controlled work explicitly needs a durable written contract or frozen interface",
     "assets/project-team-charter.md":
         "only when an explicitly requested long-lived multi-task team is being established",
-    "assets/evidence-manifest.yaml":
-        "only when a machine-readable evidence package is explicitly required for independent exact-candidate validation and acceptance",
 }
 
 
@@ -55,9 +57,13 @@ def validate_progressive_disclosure(skill_text: str, skill_dir: Path) -> None:
         if not target.startswith(("http://", "https://", "#"))
     }
     assert set(CANONICAL_REFERENCE_LINKS) <= links
+    assert DQR_REFERENCE_LINK in links
+    assert METRICS_REFERENCE_LINK in links
     compact = " ".join(skill_text.casefold().split())
     assert "load level-2 assets only on demand" in compact
     assert "do not preload assets; load only the asset whose matching trigger applies" in compact
+    assert "dqr is a per-task acceptance protocol, not a routing layer" in compact
+    assert "main agent explicitly selects local prospective measurement" in compact
     for target, trigger in ASSET_TRIGGERS.items():
         assert target in links
         line = next(
@@ -459,7 +465,14 @@ class RoutingPolicyTests(unittest.TestCase):
             ("line limit", skill + "\nextra" * MAX_LEVEL_ONE_LINES),
             ("character limit", skill + "x" * (MAX_LEVEL_ONE_CHARS - len(skill) + 1)),
             ("canonical reference", skill.replace("](references/core.md)", "](references/missing.md)", 1)),
-            ("unresolved local link", skill.replace("assets/evidence-manifest.yaml", "assets/missing.yaml", 1)),
+            (
+                "unresolved local link",
+                skill.replace(
+                    "references/delivery-quality-review.md",
+                    "references/missing.md",
+                    1,
+                ),
+            ),
         ):
             reject(label, candidate)
         for target, trigger in ASSET_TRIGGERS.items():
@@ -723,6 +736,8 @@ class RoutingPolicyTests(unittest.TestCase):
             SKILL_DIR / "references" / "routing-and-topologies.md",
             SKILL_DIR / "references" / "core.md",
             SKILL_DIR / "references" / "controlled.md",
+            DQR_PATH,
+            METRICS_PATH,
             SKILL_DIR / "assets" / "team-bootstrap-proposal.md",
             SKILL_DIR / "assets" / "project-team-charter.md",
             SKILL_DIR / "assets" / "task-contract.md",
@@ -823,9 +838,88 @@ class RoutingPolicyTests(unittest.TestCase):
             "references/controlled.md",
         ):
             self.assertIn(f"]({target})", skill)
+        self.assertIn(f"]({DQR_REFERENCE_LINK})", skill)
+        self.assertIn(f"]({METRICS_REFERENCE_LINK})", skill)
         lowered = skill.casefold()
-        for removed in ("release-audit.md", "metrics.md", "mode: audit"):
+        for removed in ("release-audit.md", "evidence-manifest", "mode: audit"):
             self.assertNotIn(removed, lowered)
+
+    def test_controlled_dqr_and_optional_metrics_boundaries(self) -> None:
+        controlled = (SKILL_DIR / "references" / "controlled.md").read_text(
+            encoding="utf-8"
+        ).casefold()
+        core = (SKILL_DIR / "references" / "core.md").read_text(encoding="utf-8").casefold()
+        routing = (SKILL_DIR / "references" / "routing-and-topologies.md").read_text(
+            encoding="utf-8"
+        ).casefold()
+        dqr = " ".join(DQR_PATH.read_text(encoding="utf-8").casefold().split())
+        metrics = " ".join(METRICS_PATH.read_text(encoding="utf-8").casefold().split())
+        for text in (controlled, routing):
+            self.assertIn("delivery-quality-review.md", text)
+            self.assertIn("not a routing layer", text)
+        self.assertIn("core does not load a dqr acceptance packet", core)
+        for term in (
+            "frozen contract",
+            "exact path lease",
+            "writer self-check",
+            "independent, read-only validator",
+            "invalidate candidate-bound evidence",
+            "executable rollback",
+            "designed",
+            "written",
+            "run",
+            "verified",
+            "accepted",
+            "integrated",
+            "installed",
+        ):
+            self.assertIn(term, dqr)
+        for term in (
+            "optional for both core and controlled",
+            "sole ledger writer",
+            "record",
+            "snapshot",
+            "audit",
+            "compare",
+            "descriptive",
+        ):
+            self.assertIn(term, metrics)
+
+    def test_dqr_lifecycle_states_do_not_collapse(self) -> None:
+        skill = " ".join((SKILL_DIR / "SKILL.md").read_text(encoding="utf-8").casefold().split())
+        dqr_raw = DQR_PATH.read_text(encoding="utf-8")
+        dqr = " ".join(dqr_raw.casefold().split())
+
+        self.assertNotIn(
+            "accept only the exact validated change integrated into the stable branch",
+            skill,
+        )
+        for text in (skill, dqr):
+            self.assertIn("exact verified candidate", text)
+            self.assertIn("authority evidence", text)
+        for term in (
+            "acceptance does not require prior integration or installation",
+            "does not authorize either action",
+            "separately authorized integration target",
+            "identity readback",
+            "separately authorized installation target",
+            "rollback backup",
+            "byte/readback verification",
+            "acceptance implies neither integration nor installation",
+            "integration and installation do not imply each other",
+            "release, public, and production actions remain separately gated",
+        ):
+            self.assertIn(term, dqr)
+
+        states = {
+            state: re.search(
+                rf"\| {state} \| ([^|]+) \|",
+                dqr_raw.casefold(),
+            )
+            for state in ("accepted", "integrated", "installed", "released")
+        }
+        self.assertTrue(all(states.values()))
+        self.assertEqual(len({match.group(1).strip() for match in states.values()}), 4)
 
     def test_linear_issue_isolation_activates_before_writer_dispatch(self) -> None:
         skill = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")

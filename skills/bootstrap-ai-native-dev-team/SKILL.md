@@ -37,10 +37,8 @@ Score complexity (`C0-C3`) and risk (`R0-R3`) independently. Select **Controlled
 material behavior, C2/C3, R2/R3, interface/dependency/data/security change, concurrency,
 or production/deployment/release/public action; otherwise select **Core**. Resolve
 missing material facts before Core. Read [routing-and-topologies.md](references/routing-and-topologies.md)
-for thresholds, capability/reasoning tiers, topology, evidence reuse, and recovery.
-Optional profiles in `references/model-routing-*.md` require explicit Owner
-selection; file presence never activates a profile. They map vendor-neutral tiers to a
-dated runtime, never a canonical layer.
+for routing, topology, evidence reuse, and recovery. Optional
+`references/model-routing-*.md` profiles require explicit Owner selection; file presence never activates a profile or turns it into a layer.
 For a Linear-governed implementation issue or explicit isolation request, read
 [Git isolation](references/git-isolation-bootstrap.md); run the helper before Writer dispatch; preserve non-Linear Core/Controlled routing.
 
@@ -59,9 +57,10 @@ path. There is no generic handoff-cost exception.
 ### Controlled
 
 Read [controlled.md](references/controlled.md) whenever a Controlled trigger appears.
-Use one path-bounded Writer and, for material work, one independent Validator; bind
-validation and acceptance to the exact candidate. Apply the R3 authority, security,
-privacy, production, public-action, rollback, and recovery gates when risk requires.
+For material work, also read [delivery-quality-review.md](references/delivery-quality-review.md).
+DQR is a per-task acceptance protocol, not a routing layer: one path-bounded Writer and
+independent Validator bind validation and acceptance to the exact candidate. Apply all
+relevant R3 gates.
 
 ## Windows unattended Coding CLI
 
@@ -80,13 +79,17 @@ permissions, integration, evidence review, stop decisions, and final acceptance;
 not duplicate a Writer's exploration, implementation, or test/debug loop. One file has
 one Writer at a time. Freeze the write lease at `dev_complete`; reopen it only for
 in-envelope fixes and invalidate affected evidence.
-Distinguish designed, written, run, verified, accepted, integrated, and released; accept
-only the exact validated change integrated into the stable branch.
+Distinguish designed, written, run, verified, accepted, integrated, installed, and released;
+accept only the exact verified candidate with authority evidence; later states are separate.
 Higher-cost main-agent implementation takeover requires a Writer path that is unavailable
 or repeatedly failed with evidence, a task that cannot be safely re-sliced, a user who
 explicitly authorizes the takeover, and a recorded reason. An orchestration subagent
 supports a cost-saving claim only with an observable runtime mapping to a lower-cost tier;
 never infer that mapping.
+
+When the main agent explicitly selects local prospective measurement, read
+[metrics.md](references/metrics.md): it is optional for Core/Controlled, main-agent-only
+ledger writing, with absent observations null or unknown.
 
 ## Load Level-2 assets only on demand
 
@@ -95,7 +98,6 @@ Do not preload assets; load only the asset whose matching trigger applies:
 - [team-bootstrap-proposal.md](assets/team-bootstrap-proposal.md) only when an explicit proposal request needs an approval-ready team proposal.
 - [task-contract.md](assets/task-contract.md) only when Controlled work explicitly needs a durable written contract or frozen interface.
 - [project-team-charter.md](assets/project-team-charter.md) only when an explicitly requested long-lived multi-task team is being established.
-- [evidence-manifest.yaml](assets/evidence-manifest.yaml) only when a machine-readable evidence package is explicitly required for independent exact-candidate validation and acceptance; it is not needed for every validation.
 
 ## Stop and report
 

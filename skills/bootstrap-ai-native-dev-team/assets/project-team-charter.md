@@ -64,8 +64,8 @@
 - First-pass result: `unknown / accepted / reopened / failed`
 - Reopens: `unknown / task-local count`
 - Escalation reason: `none / unknown / task-local reason`
-- These are optional task-local observations; no mandatory ledger or cost claim follows
-  from this charter.
+- Optional prospective metrics: `not-selected / selected`; when selected, the main
+  agent is the sole local ledger writer and absent values remain unknown.
 
 ## Team and authority
 
@@ -93,6 +93,8 @@
 - Definition of Done:
 - CI:
 - Independent validation:
+- DQR protocol for material acceptance:
+- DQR findings, limitations, and revalidation:
 - Candidate/stable Commit evidence:
 - Release approval:
 - Rollback:

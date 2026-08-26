@@ -1,0 +1,275 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Optional local prospective delivery metrics event",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "task_id",
+    "event",
+    "at",
+    "ledger_writer"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "team-metrics-event-v1"
+    },
+    "event_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "task_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "event": {
+      "enum": [
+        "task_ready",
+        "worker_started",
+        "dev_complete",
+        "qa_complete",
+        "accepted",
+        "blocked",
+        "reopened",
+        "cancelled"
+      ]
+    },
+    "at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "ledger_writer": {
+      "const": "main-agent"
+    },
+    "routing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "layer",
+        "complexity",
+        "risk",
+        "capability",
+        "reasoning_tier"
+      ],
+      "properties": {
+        "layer": {
+          "enum": [
+            "core",
+            "controlled"
+          ]
+        },
+        "complexity": {
+          "enum": [
+            "C0",
+            "C1",
+            "C2",
+            "C3"
+          ]
+        },
+        "risk": {
+          "enum": [
+            "R0",
+            "R1",
+            "R2",
+            "R3"
+          ]
+        },
+        "capability": {
+          "enum": [
+            "main-agent",
+            "economy",
+            "standard",
+            "advanced",
+            "frontier"
+          ]
+        },
+        "reasoning_tier": {
+          "enum": [
+            "current",
+            "low",
+            "medium",
+            "high",
+            "max"
+          ]
+        }
+      }
+    },
+    "material": {
+      "type": "boolean"
+    },
+    "writer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "approved",
+        "paths",
+        "skill_loaded",
+        "repo_wide_search_used",
+        "out_of_scope_reads"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "approved": {
+          "type": "boolean"
+        },
+        "paths": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "skill_loaded": {
+          "type": "boolean"
+        },
+        "repo_wide_search_used": {
+          "type": "boolean"
+        },
+        "out_of_scope_reads": {
+          "type": "boolean"
+        }
+      }
+    },
+    "candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "stable_identity"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "stable_identity": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "validation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "independent",
+        "same_candidate",
+        "result",
+        "evidence_reused"
+      ],
+      "properties": {
+        "independent": {
+          "type": "boolean"
+        },
+        "same_candidate": {
+          "type": "boolean"
+        },
+        "result": {
+          "enum": [
+            "passed",
+            "failed",
+            "blocked"
+          ]
+        },
+        "evidence_reused": {
+          "type": "boolean"
+        }
+      }
+    },
+    "rollback": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "executable",
+        "command"
+      ],
+      "properties": {
+        "executable": {
+          "type": "boolean"
+        },
+        "command": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "owner_approval": {
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "integration_backlog_reason": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "reason": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "observations": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "model": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "provider": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reasoning": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "input_tokens": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "output_tokens": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "cost": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "cost_currency": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    }
+  }
+}

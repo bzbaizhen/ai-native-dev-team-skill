@@ -40,6 +40,10 @@ else:
 Resolve missing material facts before choosing Core. Ordinary release, deployment, and
 publication are Controlled/R3.
 
+For a material Controlled candidate that needs acceptance, load
+[delivery-quality-review.md](delivery-quality-review.md). It is a per-task protocol
+after routing, not a routing layer.
+
 ## Choose the smallest topology
 
 1. `no-delegation` only for read-only control-plane work or one tiny deterministic,
