@@ -2,19 +2,31 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-**Decide whether the work needs a team, then bootstrap the smallest team that can ship it safely.**
+**A control-plane Skill for developers who want Coding Agents to change a repository with explicit ownership, independent evidence, and recoverable delivery.**
 
-This Skill gives coding agents explicit file ownership, cost-aware model routing,
-independent validation, exact-version evidence, approval boundaries, rollback, and
-recovery—without turning every small task into a ceremony.
+It is for developers and technical leads using Codex, Hermes Agent, or a manually installed compatible agent. Generic multi-agent orchestration starts with a roster; this Skill starts with the task: inspect the facts, choose the smallest topology, and bind work and evidence to an allowed path and an exact candidate.
+
+Released: [v2.1.0](https://github.com/bzbaizhen/ai-native-dev-team-skill/releases/tag/v2.1.0)
+
+## In brief
+
+| Concern | Rule |
+|---|---|
+| Control plane | The main agent owns facts, scope, contracts, routing, permissions, integration, evidence review, stop decisions, and final acceptance. |
+| Implementation and validation | A task- and path-bounded Writer edits the frozen scope. An independent Validator reads the exact candidate without silently fixing it. Delivery Quality Review (DQR) is the per-task acceptance protocol inside Controlled. |
+| Active layers | Core and Controlled are the only layers. DQR is not a third layer. |
+| Routing | Complexity `C0-C3` selects decomposition, capability, and reasoning. Risk `R0-R3` selects authority, review, approval, rollback, and recovery gates. |
+| Linear isolation | A Linear-governed issue uses its exact issue branch, accepted base, and canonical Git worktree before Writer dispatch; shared roots are not a substitute. |
+| Recovery | Checks and acceptance name an immutable candidate. Rollback and recovery stay executable for that candidate. |
+| Measurements | Local prospective metrics are optional, main-agent-only, and descriptive. Missing observations remain `null` or `unknown`; metrics do not decide acceptance. |
 
 ![More agents do not automatically make a team](docs/images/ai-native-dev-team-hero.png)
 
-[Install](#install) · [Use](#use) · [Model routing](#route-models-by-complexity-not-risk) · [Development layers](#two-development-layers) · [Global rule + Skill](#why-use-both-a-global-rule-and-a-skill)
+[Install](#install) · [60-second Quick Start](#60-second-quick-start) · [Workflow](#workflow) · [Boundaries](#boundaries-and-evidence)
 
-## Why I built it
+## Why it exists
 
-This Skill grew out of a multi-agent project where every automated check was green:
+This Skill grew out of a real multi-agent project where every automated check was green:
 
 ```text
 Backend: 39/39
@@ -23,258 +35,129 @@ TypeScript: 0 diagnostics
 Target WeChat runtime: blank screen, 9 errors
 ```
 
-We had frontend, backend, and QA agents. What we did not have was a delivery system:
-which contract was authoritative, who could edit which path, which Commit QA had
-actually tested, and who would stop the work when the evidence was insufficient.
-
-The fix was not “more agents.” It was a smaller team with explicit boundaries and an
-independent acceptance path.
-
-## What it solves
-
-| Failure mode | Default response |
-|---|---|
-| A full role roster is created before the task is understood | Inspect first; enable only roles with real work |
-| Every micro task carries the whole governance manual | Keep strict C0 direct work and task-scoped Writers in Core |
-| Frontend and backend start before the interface is stable | Freeze the minimum contract before parallel work |
-| Two agents edit the same file | Give each path one Writer at a time |
-| QA fixes the code it is accepting | Separate implementation from independent validation |
-| “Tests passed” but the tested version is unclear | Bind evidence to the exact candidate Commit |
-| A risky one-line change gets the same process as a hard refactor | Score complexity and risk independently |
-| Every task uses the most expensive model | Route capability and reasoning by complexity |
-| A Push is mistaken for recoverability | Separate Git history, remote copy, rollback, and recovery |
-
-## Core principles
-
-1. **Smallest sufficient team** — roles are task-scoped capabilities, not a permanent roster.
-2. **Bounded continuous execution** — an explicit implementation request authorizes ordinary reversible work in scope without repeated phase approvals.
-3. **Complexity and risk are separate** — complexity selects model capability and reasoning; risk selects authority and gates.
-4. **One path, one Writer** — shared files have one write owner at a time.
-5. **Contract before concurrency** — freeze interfaces, dependencies, integration order, and acceptance criteria before parallel implementation.
-6. **Validate the exact version** — developer checks, automated checks, independent QA, and Owner approval are different evidence.
-7. **Stop safely** — pause when scope, permissions, task baseline, evidence, or rollback no longer matches the contract.
+The project had frontend, backend, and QA agents, but its delivery system was underspecified: the authoritative contract, writable paths, tested Commit, and stop rule for insufficient evidence were unclear. The useful correction was to make those boundaries explicit and add an independent acceptance path.
 
 ## Install
 
-Ask Codex to install the Skill from this repository:
-
-```text
-$skill-installer install https://github.com/bzbaizhen/ai-native-dev-team-skill/tree/main/skills/bootstrap-ai-native-dev-team
-```
-
-Or copy `skills/bootstrap-ai-native-dev-team` into a supported user or project Skill
-directory.
-
-Explicit invocation:
-
-```text
-Use $bootstrap-ai-native-dev-team. Propose the smallest safe development team for this repository. Do not modify files yet.
-```
-
-## Use
-
-```text
-Initialize the smallest sufficient team for this MVP. Give me the proposal first.
-```
-
-```text
-The frontend and backend may work in parallel. Check the contract source and file ownership before creating agents.
-```
-
-```text
-Adjust the current team: integration is waiting and two Writers overlap.
-```
-
-```text
-Prepare this project for release. Re-score risk, validation, Owner approval, rollback, and recovery.
-```
-
-## Three modes
-
-| Mode | Purpose | Default write behavior |
+| Host | Install | Notes |
 |---|---|---|
-| `proposal` | Explicit plan request, unbounded scope, or an existing authority boundary | Read-only inspection; return a proposal |
-| `initialize` | Create a bounded team structure; may follow an implementation proposal directly | Write only in-envelope, reversible project artifacts |
-| `adjust` | Correct an existing team or task topology | Preserve confirmed facts; apply only the in-envelope adjustment |
+| Codex | `$skill-installer install https://github.com/bzbaizhen/ai-native-dev-team-skill/tree/main/skills/bootstrap-ai-native-dev-team` | Source-backed repository install. |
+| Hermes Agent | Clone or download this repository, then copy the complete `skills/bootstrap-ai-native-dev-team/` directory into `$HERMES_HOME/skills/`. | The complete directory is required because its references, assets, and scripts are linked. |
+| Manual compatible agent | Copy the complete [`skills/bootstrap-ai-native-dev-team/`](skills/bootstrap-ai-native-dev-team/) directory into the agent's supported Skill location. | References, assets, and scripts are required. Copying only `SKILL.md` is incomplete. |
 
-An explicit request to build, implement, fix, initialize, or adjust creates one standing
-authorization envelope for ordinary reversible work inside the stated repository and
-task scope. It covers bounded delegation, workspace edits, local build/test/lint,
-read-only Git inspection, handoffs, and reversible corrections. Proposal-only mode
-remains for explicit plan requests, unbounded scope, or a real authority boundary.
+## 60-second Quick Start
 
-The envelope excludes credentials or secrets, real or production data, paid resources,
-publication, push/merge/deploy/release, destructive deletion, irreversible migration,
-privilege escalation, and out-of-scope writes. Prefer native file tools and task-local
-scripts; never use broad global allowlisting as an approval shortcut.
-
-## Workflow
-
-![Inspect, classify, propose, approve, execute, and verify the exact Commit](docs/images/bootstrap-workflow.png)
+Install the Skill, then use one of these short prompts:
 
 ```text
-Inspect project facts
-        ↓
-Confirmed facts / Inferences / To verify
-        ↓
-Complexity C0-C3 + Risk R0-R3
-        ↓
-Core or Controlled
-        ↓
-No delegation / one Worker / Writer-Validator cell / team
-        ↓
-Capability + reasoning tier
-        ↓
-File owner + contract + authority boundaries + rollback
-        ↓
-Proposal-only when requested, unbounded, or authority-blocked
-        ↘ otherwise continue inside the standing envelope
-Execute → independent validation → acceptance → recovery record
+Use $bootstrap-ai-native-dev-team. Inspect this repository and task, separate confirmed facts, inferences, and items to verify, and propose the smallest safe topology. Do not modify files yet.
 ```
 
-## Route models by complexity, not risk
+```text
+Implement the accepted task. Freeze the contract and file ownership first; give each Writer only its allowed path, use an independent Validator for material work, and bind every check to the exact candidate.
+```
 
-| Signal | Controls |
+```text
+Prepare this project for release. Re-score complexity and risk, verify the exact candidate, rollback and recovery, and Owner approval. Release actions remain separately authorized.
+```
+
+## Core concepts
+
+### Main agent as the control plane
+
+The main agent keeps the project context and makes the control-plane decisions. It does not repeat a Writer's repository exploration, implementation, or test/debug loop. A strict C0 micro edit may stay with the main agent only when it is tiny, deterministic, low-risk, single-file, and needs one deterministic verification; uncertainty sends the work to a task-scoped Writer.
+
+### One Writer, one path, independent validation
+
+Material work uses one Writer with an exact path lease and one independent Validator. The Validator reads the candidate in a clean or controlled state, records findings against the contract and candidate identity, and does not silently fix product code. If a fix changes the candidate, affected evidence is invalidated and the checks run again.
+
+For a material Controlled candidate, DQR records the frozen contract, lease, exact candidate, independent findings, revalidation, limitations, acceptance, and rollback or recovery. It remains inside Controlled.
+
+### Complexity and risk are separate axes
+
+| Axis | Selects |
 |---|---|
-| Complexity `C0-C3` | Task decomposition, context preparation, model capability, and reasoning |
-| Risk `R0-R3` | Permissions, independent review, approval, rollback, and recovery |
-| Runtime availability | Observable runtime mapping, one declared fallback, exceptional authorized takeover, or stop |
-| Verification difficulty | Whether to split further, escalate capability, or add an independent gate |
+| Complexity `C0-C3` | Task decomposition, context preparation, model capability, and reasoning. |
+| Risk `R0-R3` | Permissions, independent review, approval, rollback, and recovery. |
 
-The goal is not the cheapest call. It is the lowest expected total cost of an accepted
-result:
+Risk changes the gates, not the implementation capability. A difficult refactor can need stronger reasoning without gaining production authority; a small production permission change can need Owner approval and strong rollback evidence.
 
-```text
-accepted-result cost = first execution + likely retries/rework + validation + coordination
-```
-
-A `C1/R3` production permission change may use Standard/Medium implementation while
-requiring Owner approval and strong rollback evidence. A `C3/R1` pure refactor may
-need Frontier/Max reasoning without production authority.
-
-The main agent is the high-context control plane. It may directly perform read-only
-control-plane work or one tiny deterministic, low-risk, single-file C0 edit only when it
-has no material, interface, dependency, data, security, concurrency, production, or
-public effect; enters no debugging loop; authors no tests; and has exactly one
-deterministic verification. If any condition is absent or uncertain, delegate.
-
-Every C0 mechanical batch and every C1+ implementation, refactor, bug fix, test-writing,
-or debugging task requires a task-scoped Writer on the configured lower-cost execution
-path. There is no generic handoff-cost implementation exception. The main agent retains
-scope, architecture decisions, contracts, permissions, integration, evidence review,
-stop decisions, and final acceptance without duplicating the Writer's exploration,
-implementation, or test/debug loop.
-
-Material work uses a Writer plus an independent Validator tied to the exact candidate.
-C3 architecture may remain in the control plane, but frozen implementation slices go to
-Writers. Higher-cost main-agent implementation takeover requires an unavailable Writer
-path or evidenced repeated failure, no safe re-slice, explicit user authorization, and
-a recorded reason. An orchestration subagent supports a cost-saving claim only when its
-observable runtime mapping is to a lower-cost tier.
-
-The canonical mapping remains vendor-neutral. Projects may explicitly select an
-isolated, dated runtime profile; profile presence never changes the public default. One
-example is the opt-in
-[OpenAI + DeepSeek profile](skills/bootstrap-ai-native-dev-team/references/model-routing-openai-deepseek.md),
-whose evidence snapshot is dated 2026-08-20. It documents exact routing, Hermes runtime
-limits, authentication/availability gates, evidence gaps, and recalibration triggers.
-
-### Windows unattended Coding CLI lifecycle
-
-For unattended, non-interactive Coding CLI `exec`, Writer, and Validator work on Windows
-that may run as bounded long work, default to `pty=false`, `background=true`, and
-`notify_on_complete=true`. Reserve `pty=true` for an interactive TUI, login, or a command
-that genuinely requires terminal input; it is not an unconditional rule for unattended
-exec.
-
-Final output text, a final-answer marker, or a tokens-used line is not process-exit
-evidence. Completion requires a fresh process-registry inspection showing status
-`exited` and a captured exit code. For a legacy PTY run that remains alive after a final
-marker, do one short bounded grace check, inspect fresh process status, then terminate
-only the exact tracked process if needed. Never start a duplicate Writer or repeatedly
-wait/reconnect; keep its output and exit evidence with exact-candidate validation.
-
-## Two development layers
+The active layers are deliberately limited:
 
 | Layer | Default use |
 |---|---|
-| **Core** | Non-material C0/C1 and R0/R1 work |
-| **Controlled** | Material behavior, C2/C3, R2/R3, boundaries, concurrency, production, release, or public action |
+| **Core** | Non-material C0/C1 and R0/R1 work. |
+| **Controlled** | Material behavior, C2/C3, R2/R3, interface or dependency changes, concurrency, production, release, or public action. |
 
-Controlled does not mean “maximum process.” It means adding only the contract,
-ownership, independent validation, approvals, and recovery evidence justified by the
-task. Release, deployment, and publication are Controlled/R3 and remain Owner-gated.
+Controlled adds only the contract, ownership, validation, approval, and recovery evidence that the task needs. Release, deployment, and publication are Controlled/R3 and remain Owner-gated.
 
-For a material Controlled candidate that needs acceptance, load the
-[Delivery quality review](skills/bootstrap-ai-native-dev-team/references/delivery-quality-review.md).
-DQR is a per-task protocol for the frozen contract, path lease, exact candidate,
-independent read-only validation, findings, revalidation, acceptance, limitations, and
-rollback/recovery. It does not create a third development layer.
+### Linear Git isolation
 
-## Minimum team selection
+For a Linear-governed issue, read back the issue identity, status, blocker, exact `gitBranchName`, accepted base ref and Commit, and canonical worktree before dispatch. Run the Skill's isolation helper from the repository environment. A mismatch in issue, branch, base, repository, worktree, or checkpoint is a stop condition; do not make an ambiguous state fit by resetting, replacing, or reusing a shared root.
 
-| Situation | Default topology |
-|---|---|
-| Read-only control-plane work or a strict single-file C0 micro edit | Main agent only |
-| C0 mechanical batch or non-material C1+ implementation | One task-scoped Writer plus main-agent review |
-| Material behavior or regression risk | One Writer plus one independent Validator |
-| Independent slices with a frozen contract | Path-isolated Writers plus independent validation |
-| Security, privacy, production, migration, or release risk | Relevant specialist, independent gate, and Owner approval |
+### Rollback and recovery
 
-Agent count, Commit count, lines of code, and token count are not delivery outcomes.
+Git history, a remote copy, rollback, recovery, integration, installation, and release are separate states. Acceptance means that the main agent accepted evidence for the exact verified candidate; it does not authorize integration, installation, push, merge, deployment, or publication. Keep an executable rollback or recovery method with the candidate and preserve known limitations.
 
-## What this Skill deliberately excludes
+### Optional measurements
 
-Metrics are not mandatory for Core or Controlled. The main agent may explicitly select a
-small local prospective ledger, while Writers and Validators only provide handoff facts.
-It records observed lifecycle facts and preserves absent model, provider, reasoning,
-token, and cost values as null or `unknown`. Its audit and compare output are descriptive
-and never replace DQR, acceptance authority, or a project decision.
+The main agent may explicitly select a local prospective ledger for a task set. It records observed lifecycle facts only. Writers and Validators provide handoff facts; they do not append the ledger. The resulting audit and comparison are descriptive and cannot replace independent validation, DQR, acceptance authority, or a project decision.
 
-The Skill still keeps a **task baseline Commit**, exact-candidate validation, rollback,
-and recovery. Those protect code changes; they are not performance-measurement features.
+## Workflow
 
-## Optional local prospective metrics
+![Inspect, classify, propose, approve, execute, and verify the exact candidate](docs/images/bootstrap-workflow.png)
 
-[Metrics reference](skills/bootstrap-ai-native-dev-team/references/metrics.md) documents
-the explicit main-agent-only ledger and its stdlib `record`, `snapshot`, `audit`, and
-`compare` commands. It reports cycle and integration-wait time, observed active/governance
-time, first-pass independent validation, reopen visibility, routing tier, and hard-gate
-findings without estimating missing runtime values.
+1. Inspect the repository, task baseline, contracts, permissions, test entry points, integration backlog, rollback, and recovery.
+2. Separate confirmed facts, inferences, and items to verify. Score complexity and risk independently.
+3. Select Core or Controlled, then choose no delegation, one Writer, a Writer-Validator cell, or a larger team only when the work requires it.
+4. Freeze the smallest useful contract, allowed paths, interface, candidate identity, checks, authority limits, and rollback. For Linear issues, establish the isolated branch and worktree before Writer dispatch.
+5. Execute within the standing authorization envelope for ordinary reversible work. If the user asked only for a plan, scope is unbounded, or a real authority boundary exists, stop at proposal-only.
+6. Validate the exact candidate independently, review limitations and recovery, and accept only with the required authority. Integration, installation, release, and publication each need their own authorization and readback.
 
-## Why use both a global rule and a Skill
+## When not to use
+
+- A read-only question or a strict, deterministic, low-risk, single-file C0 edit can stay with the main agent.
+- A task with no repository change does not need a team topology or file lease.
+- If the repository root, task baseline, authoritative contract, allowed path, or authority boundary cannot be confirmed, stay in proposal-only or stop until it is resolved.
+- Do not expect this Skill to grant credentials or permission for production, destructive, irreversible, release, or public actions. Those actions remain separately authorized.
+
+## Boundaries and evidence
+
+This Skill is a workflow, not the source of truth for a product, task, contract, or release. Keep `Confirmed facts / Inferences / To verify` distinct, and report missing evidence instead of filling it in.
+
+Designed, written, run, verified, accepted, integrated, installed, and released are separate states. A command start, green static check, or Push is not acceptance. Runtime, external, platform, visual, and recovery checks that were not run remain limitations.
+
+The backend/frontend/TypeScript checks in the origin story do not prove the target runtime. Exact-candidate validation and recovery remain part of the active workflow. Public, release, destructive, credential, real-data, and production actions remain separately authorized; optional metrics never become a go/no-go threshold.
+
+## Global rule and Skill
 
 | Layer | Responsibility |
 |---|---|
-| Global `AGENTS.md` | Decide when this Skill should trigger and retain a few hard boundaries |
-| `bootstrap-ai-native-dev-team` | Inspect, classify, propose, initialize, and adjust |
-| Project sources of truth | Store the actual product, tasks, contracts, decisions, risks, and version evidence |
+| Global `AGENTS.md` | Decide when this Skill should trigger and retain a few hard boundaries. |
+| `bootstrap-ai-native-dev-team` | Inspect, classify, propose, initialize, and adjust. |
+| Project sources of truth | Store the actual product, task, contract, decision, risk, and version evidence. |
 
-A compact global trigger is available in
-[examples/global-agents-snippet.md](examples/global-agents-snippet.md).
+The compact global trigger is available in [examples/global-agents-snippet.md](examples/global-agents-snippet.md).
 
-## Repository layout
+## Deeper references
+
+- [Skill entrypoint](skills/bootstrap-ai-native-dev-team/SKILL.md): authority, selection, and execution lifecycle. On Windows, unattended Writers default to `pty=false`, `background=true`, and `notify_on_complete=true`; reserve `pty=true` for interactive input, and accept completion only when the process registry reports `exited`, without duplicate Writers or repeated `wait/reconnect`.
+- [Routing and topologies](skills/bootstrap-ai-native-dev-team/references/routing-and-topologies.md): full complexity/risk gates, topology, capability routing, and evidence reuse.
+- [Core layer](skills/bootstrap-ai-native-dev-team/references/core.md) and [Controlled layer](skills/bootstrap-ai-native-dev-team/references/controlled.md): layer-specific rules.
+- [Linear Git isolation](skills/bootstrap-ai-native-dev-team/references/git-isolation-bootstrap.md): identity, base, branch, worktree, checkpoint, and blocker gates.
+- [Delivery Quality Review](skills/bootstrap-ai-native-dev-team/references/delivery-quality-review.md): the per-task acceptance protocol inside Controlled.
+- [Optional dated model-routing profile](skills/bootstrap-ai-native-dev-team/references/model-routing-openai-deepseek.md): explicit selection, runtime limits, evidence gaps, and recalibration rules. It is inactive by default.
+- [Optional metrics guide](skills/bootstrap-ai-native-dev-team/references/metrics.md) and [metrics event schema](skills/bootstrap-ai-native-dev-team/references/metrics-event.schema.json): the local ledger and its fields.
+- [Release and migration history](releases/): prior release records and historical boundaries.
+
+## Repository map
 
 ```text
 skills/bootstrap-ai-native-dev-team/
-├── SKILL.md
-├── agents/openai.yaml
-├── references/
-│   ├── routing-and-topologies.md
-│   ├── core.md
-│   ├── controlled.md
-│   ├── delivery-quality-review.md
-│   ├── metrics.md
-│   ├── metrics-event.schema.json
-│   ├── model-routing-openai-deepseek.md  # optional, inactive by default
-│   └── governance-*.md
-├── scripts/
-│   ├── git_isolation_bootstrap.py
-│   └── team_metrics.py
-└── assets/
-    ├── team-bootstrap-proposal.md
-    ├── project-team-charter.md
-    └── task-contract.md
+├── SKILL.md              # entrypoint
+├── references/           # routing, layers, isolation, DQR, metrics, and governance
+├── scripts/              # Git isolation and optional metrics helpers
+└── assets/               # proposal, contract, and team templates
 ```
 
 ## Validation
@@ -282,22 +165,20 @@ skills/bootstrap-ai-native-dev-team/
 ```bash
 python tests/validate_skill.py
 python -m unittest discover -s tests -p "test_*.py" -v
+git diff --check
 ```
 
-The repository includes a GitHub Actions workflow for the same checks.
+The repository includes a GitHub Actions workflow for the Python checks.
 
 ## V2 migration boundary
 
-The prior development line contained Release Audit, prospective metrics, historical
-baseline comparison, P2/P3 proof adapters, public-receipt contracts, and benchmark
-fixtures. Those release-proof surfaces remain absent from the active Skill tree. The
-optional local metrics documented above are not a restoration of that historical system.
-Earlier Git history and release notes remain available as historical evidence; no
-external repository is silently deleted or rewritten.
+### Release
 
-This line is V2.0.0. The `v2.0.0` tag and GitHub Release identify the published
-repository version. Installation and external channels beyond this repository remain
-separate Owner decisions.
+This landing page describes the active `v2.1.0` line. The [GitHub release](https://github.com/bzbaizhen/ai-native-dev-team-skill/releases/tag/v2.1.0) is the release record.
+
+### Migration history
+
+Historical migration and release notes live in [release history](releases/). Repository-external channels and any publication decision remain separate Owner decisions.
 
 ## References and acknowledgements
 
@@ -307,13 +188,9 @@ This project learned from useful patterns in:
 - [wshobson/agents](https://github.com/wshobson/agents)
 - [github/awesome-copilot](https://github.com/github/awesome-copilot)
 
-The workflow here is independently authored, with additional emphasis on bounded
-continuous-execution authority, explicit proposal-only conditions, C/R separation,
-cost-aware routing, path ownership, exact-version evidence,
-native environments, rollback, and recovery.
+The workflow is independently authored, with additional emphasis on bounded execution authority, proposal-only conditions, C/R separation, complexity-aware, cost-conscious routing, path ownership, exact-version evidence, native environments, rollback, and recovery.
 
-The English launch post and development visuals are available on
-[X](https://x.com/Bzbaizhen/status/2087828830627205527).
+The English launch post and development visuals are available on [X](https://x.com/Bzbaizhen/status/2087828830627205527).
 
 ## License
 
