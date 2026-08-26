@@ -2,18 +2,31 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-**先判断这次工作是否需要组队，再创建能够安全交付的最小团队。**
+**给希望让 Coding Agent 安全修改仓库的开发者使用：明确文件所有权，保留独立证据，并让交付可回退、可恢复。**
 
-这个 Skill 为 Coding Agent 补上文件所有权、具有性价比的模型路由、独立验证、
-准确版本证据、审批边界、回退和恢复，同时避免让每个小任务背上完整治理流程。
+它适合使用 Codex、Hermes Agent 或手动安装的兼容 Agent 的开发者与技术负责人。普通的多 Agent 编排往往先列角色；这个 Skill 先检查任务事实，再选择最小拓扑，并把工作和证据绑定到允许路径与准确候选版本。
+
+当前版本：[v2.1.0](https://github.com/bzbaizhen/ai-native-dev-team-skill/releases/tag/v2.1.0)
+
+## 先看这里
+
+| 关注点 | 规则 |
+|---|---|
+| 控制面 | 主 Agent 负责事实、范围、任务合同、路由、权限、集成、证据复核、停止判断和最终验收。 |
+| 实现与验证 | 按任务和路径授权的 Writer（写入者）只修改已冻结范围。独立 Validator（验证者）读取准确候选版本，不顺手修产品代码。Delivery Quality Review（交付质量复核，DQR）是 Controlled 内按任务执行的验收协议。 |
+| 活动层 | 只有 Core 和 Controlled 两层。DQR 不是第三层。 |
+| 路由 | 复杂度 `C0-C3` 决定拆分、能力和推理强度；风险 `R0-R3` 决定权限、复核、审批、回退和恢复门禁。 |
+| Linear 隔离 | Linear 管理的任务在派发 Writer 前使用对应任务分支、已接受的基线和规范 Git Worktree；共享根目录不能替代隔离。 |
+| 恢复 | 检查和验收都指向不可变的候选版本；针对该候选版本保留可执行的回退和恢复路径。 |
+| 度量 | 本地前瞻指标可选，只由主 Agent 写入，结果仅作描述。缺失观测保留为 `null` 或 `unknown`，指标不负责验收。 |
 
 ![多个 Agent 不自动等于一支团队](docs/images/ai-native-dev-team-hero.png)
 
-[安装](#安装) · [使用](#使用) · [模型路由](#按复杂度选择模型而不是按风险抬高模型) · [开发层](#两层开发控制) · [全局规则与-skill](#为什么全局规则和-skill-都要有)
+[安装](#安装) · [60 秒快速开始](#60-秒快速开始) · [工作流](#工作流) · [边界](#边界与证据)
 
 ## 为什么做这个 Skill
 
-它来自一次真实的多 Agent 项目失败。当时所有自动检查都是绿色：
+它来自一个真实的多 Agent 项目。当时所有自动检查都是绿色的：
 
 ```text
 后端：39/39
@@ -22,241 +35,129 @@ TypeScript：0 diagnostics
 微信目标运行时：白屏，9 errors
 ```
 
-前端、后端和 QA 都有了，但团队仍没有形成交付系统：接口以什么为准，谁能修改
-哪个路径，QA 验收的是哪个 Commit，证据不足时谁负责让所有人停下来，都没有说清楚。
-
-解决方式不是继续增加 Agent，而是缩小团队、冻结边界，并建立独立验收路径。
-
-## 它解决什么
-
-| 常见问题 | 默认处理 |
-|---|---|
-| 任务尚未看清就创建完整角色池 | 先检查，只启用有真实任务的角色 |
-| 每个微任务都加载整套治理手册 | 严格 C0 直做与任务级 Writer 留在 Core |
-| 接口未冻结，前后端同时开工 | Contract 先于跨组件并行 |
-| 两个 Agent 修改同一文件 | 同一时段每个路径只有一个 Writer |
-| QA 顺手修改自己正在验收的代码 | 实现与独立验证分离 |
-| “测试通过”但版本说不清 | 证据绑定准确候选 Commit |
-| 高风险的一行改动与复杂重构混为一谈 | 复杂度和风险分别评估 |
-| 所有任务都调用最贵模型 | 按复杂度选择能力与推理强度 |
-| Push 被当成已经可恢复 | 区分 Git 历史、远程副本、回退和恢复 |
-
-## 核心原则
-
-1. **最小充分团队**：角色是按任务启用的能力，不是固定编制。
-2. **范围内持续执行**：明确的实现请求一次授权范围内普通、可回退工作，不在阶段之间重复索要批准。
-3. **复杂度与风险分开**：复杂度决定模型与推理；风险决定权限与门禁。
-4. **一个路径，一个 Writer**：共享文件在同一时段只有一个写入 Owner。
-5. **Contract 先于并行**：接口、依赖、集成顺序和验收标准冻结后再并行。
-6. **验证准确版本**：开发自检、自动检查、独立 QA 和 Owner 批准是不同证据。
-7. **能够安全停止**：范围、权限、任务基线、证据或回退不一致时停止并报告。
+项目里有前端、后端和 QA Agent，但交付边界没有说清楚：哪份任务合同是真源，谁能写哪个路径，测试针对哪个 Commit，证据不足时谁负责停下来。改进的重点是把这些边界写清楚，并增加独立验收路径。
 
 ## 安装
 
-让 Codex 从本仓库安装：
-
-```text
-$skill-installer install https://github.com/bzbaizhen/ai-native-dev-team-skill/tree/main/skills/bootstrap-ai-native-dev-team
-```
-
-也可以把 `skills/bootstrap-ai-native-dev-team` 复制到 Codex 支持的用户级或
-项目级 Skill 目录。
-
-明确调用：
-
-```text
-使用 $bootstrap-ai-native-dev-team，为这个仓库提出最小且安全的开发团队方案。现在不要修改文件。
-```
-
-## 使用
-
-```text
-用最小充分团队初始化这个 MVP，先给我审核方案。
-```
-
-```text
-前端和后端适合并行吗？创建 Agent 前先检查接口真源和文件所有权。
-```
-
-```text
-调整当前团队：集成正在等待，而且两个 Writer 的路径发生重叠。
-```
-
-```text
-项目准备发布，重新评估风险、独立验证、Owner 审批、回退和恢复。
-```
-
-## 三种模式
-
-| 模式 | 用途 | 默认写入行为 |
+| 宿主 | 安装方式 | 说明 |
 |---|---|---|
-| `proposal` | 明确只要方案、范围无法界定或已有权限边界 | 只读检查，返回待审核方案 |
-| `initialize` | 创建范围明确的团队结构；明确实现请求可直接衔接提案 | 只写授权包络内、可回退的项目文件 |
-| `adjust` | 修正现有团队或任务拓扑 | 保留已确认事实，只执行授权包络内的调整 |
+| Codex | `$skill-installer install https://github.com/bzbaizhen/ai-native-dev-team-skill/tree/main/skills/bootstrap-ai-native-dev-team` | 基于源码路径的仓库安装。 |
+| Hermes Agent | 克隆或下载本仓库，然后将完整的 `skills/bootstrap-ai-native-dev-team/` 目录复制到 `$HERMES_HOME/skills/`。 | 必须使用完整目录，因为其中的 references、assets 和 scripts 存在链接关系。 |
+| 手动安装的兼容 Agent | 将完整的 [`skills/bootstrap-ai-native-dev-team/`](skills/bootstrap-ai-native-dev-team/) 目录复制到 Agent 支持的 Skill 目录。 | references、assets 和 scripts 都是目录的一部分；只复制 `SKILL.md` 不完整。 |
 
-明确要求构建、实现、修复、初始化或调整时，该请求对所述仓库与任务范围内普通、可回退
-工作形成一次持续授权包络，包括受限委派、工作区编辑、本地构建/测试/lint、只读 Git
-检查、交接和可回退纠错。只有明确要求方案、范围无法界定或已遇到真实权限边界时，才
-进入 proposal-only。
+## 60 秒快速开始
 
-授权包络不包含凭证或密钥、真实或生产数据、付费资源、公开发布、push/merge/deploy/
-release、破坏性删除、不可逆迁移、权限提升或范围外写入。优先使用原生文件工具和任务内
-脚本，不得以宽泛的全局白名单绕过审批。
-
-## 工作方式
-
-![检查、分级、提案、批准、执行并验证准确 Commit](docs/images/bootstrap-workflow.png)
+安装 Skill 后，可以直接使用下面的短提示词：
 
 ```text
-检查项目事实
-      ↓
-已确认事实 / 推断 / 待核验
-      ↓
-复杂度 C0-C3 + 风险 R0-R3
-      ↓
-Core 或 Controlled
-      ↓
-不委派 / 单 Worker / Writer-Validator 小组 / 团队
-      ↓
-能力档 + 推理强度
-      ↓
-文件 Owner + Contract + 权限边界 + 回退
-      ↓
-明确只要方案 / 范围无法界定 / 已遇到权限边界 → proposal-only
-      ↘ 其他情况在持续授权包络内继续
-执行 → 独立验证 → 验收 → 恢复记录
+使用 $bootstrap-ai-native-dev-team。先检查这个仓库和任务，区分已确认事实、推断和待核验项，提出最小安全拓扑。现在不要修改文件。
 ```
-
-## 按复杂度选择模型，而不是按风险抬高模型
-
-| 判断 | 决定什么 |
-|---|---|
-| 复杂度 `C0-C3` | 任务拆分、上下文准备、模型能力和推理强度 |
-| 风险 `R0-R3` | 权限、独立复核、审批、回退和恢复 |
-| 运行时可用性 | 可观察的运行时映射、一次声明的回退、例外授权接管或停止 |
-| 验证难度 | 是否继续拆分、提高能力或增加独立门禁 |
-
-优化目标不是单次调用最便宜，而是通过验收结果的最低预期总成本：
 
 ```text
-通过验收的结果成本 = 首次执行 + 预计重试与返工 + 验证 + 协调
+执行已批准的任务。先冻结任务合同和文件所有权；每个 Writer 只写自己的允许路径，实质工作使用独立 Validator，所有检查都绑定到准确候选版本。
 ```
 
-一项 `C1/R3` 的生产权限修改可以使用 Standard/Medium 实现，同时要求 Owner
-批准和强回退证据。一项 `C3/R1` 的纯重构可能需要 Frontier/Max，却不因此取得
-生产权限。
+```text
+为这个项目准备发布。重新评估复杂度与风险，核对准确候选、回退与恢复，以及 Owner 批准。发布动作仍需单独授权。
+```
 
-主 Agent 是高上下文控制面，只能直接做只读控制面工作，或一个同时满足以下条件的
-严格 C0 编辑：微小、确定、低风险、单文件；无实质行为、接口、依赖、数据、安全、
-并发、生产或公开影响；不进入调试循环、不编写测试；且只需一次确定性验证。任一条件
-缺失或不确定都必须委派。
+## 核心概念
 
-所有 C0 机械批次，以及每个 C1+ 实现、重构、Bug 修复、测试编写或调试任务，都交给
-配置好的低成本执行路径上的任务级 Writer，不存在通用的“交接成本更高”实现例外。
-主 Agent 保留范围、架构决策、任务合同、权限、集成、证据复核、停止判断和最终验收，
-不重复 Writer 的仓库探索、实现或测试/调试循环。
+### 主 Agent 是控制面
 
-实质工作采用 Writer + 独立 Validator，并绑定准确候选版本。C3 架构可以留在控制面，
-冻结后的实现切片交给 Writer。主 Agent 高成本实现接管要求 Writer 路径不可用或已有
-重复失败证据、无法安全重切、用户明确授权，并记录原因。只有编排层 Subagent 的可观察
-运行时映射确属较低成本档时，才能声称节省成本。
+主 Agent 保留项目上下文，并负责控制面决策。它不重复 Writer 的仓库探索、实现或测试/调试循环。主 Agent 直接处理严格 C0 微编辑时，任务必须微小、确定、低风险、限于单文件，并且只需一次确定性验证；存在不确定性就交给任务级 Writer。
 
-Canonical 映射继续保持供应商中立。项目可以明确选择隔离、带日期的运行时 profile；
-profile 文件存在不会改变公开默认。一个示例是证据快照日期为 2026-08-20 的可选
-[OpenAI + DeepSeek profile](skills/bootstrap-ai-native-dev-team/references/model-routing-openai-deepseek.md)，
-其中记录准确路由、Hermes 运行时限制、认证/可用性门禁、证据缺口和重新校准触发条件。
+### 一个 Writer 一条路径，验证独立进行
 
-### Windows 无人值守 Coding CLI 生命周期
+实质工作使用一个拥有准确路径租约的 Writer 和一个独立 Validator。Validator 在干净或受控状态下读取候选版本，把发现项对应到任务合同和候选身份，不顺手修产品代码。修复改变候选版本后，受影响的证据失效，相关检查必须重新运行。
 
-在 Windows 上，对可能执行有界长任务的无人值守、非交互 Coding CLI `exec`、Writer 和
-Validator 工作，默认使用 `pty=false`、`background=true` 和
-`notify_on_complete=true`。`pty=true` 仅用于交互式 TUI、登录或确实需要终端输入的命令，
-不能无条件套用于无人值守 exec。
+对于需要验收的实质 Controlled 候选，DQR 记录冻结的任务合同、租约、准确候选、独立发现项、重新验证、限制、验收以及回退/恢复。它仍属于 Controlled。
 
-最终输出文本、final-answer 标记或 tokens-used 行不是进程退出证据。只有重新检查进程
-registry，确认状态为 `exited` 并取得退出码（exit code），才能接受完成状态。如果 legacy
-PTY 在打印最终标记后仍存活，只做一次短时有界宽限检查，再重新检查进程状态；必要时只终止
-被准确跟踪的那个进程。不得启动重复 Writer，也不得反复 wait/reconnect；将输出和退出
-证据与准确候选验证放在一起保存。
+### 复杂度与风险是两条轴
 
-## 两层开发控制
-
-| 开发层 | 默认适用范围 |
+| 轴 | 决定什么 |
 |---|---|
-| **Core** | 非实质性 C0/C1、R0/R1 工作 |
-| **Controlled** | 实质行为、C2/C3、R2/R3、边界变化、并发、生产、发布或公开动作 |
+| 复杂度 `C0-C3` | 任务拆分、上下文准备、模型能力和推理强度。 |
+| 风险 `R0-R3` | 权限、独立复核、审批、回退和恢复。 |
 
-Controlled 不是“流程拉满”，而是只增加当前任务确实需要的 Contract、路径所有权、
-独立验证、审批与恢复证据。release、deploy、publish 统一属于 Controlled/R3，并
-继续要求 Owner 明确授权。
+风险会增加门禁，不会自动提高实现能力。一项困难的重构可能需要更强推理能力，但不会因此取得生产权限；一项很小的生产权限修改仍可能需要 Owner 批准和可靠的回退证据。
 
-对于需要验收的实质 Controlled 候选，加载
-[交付质量复核（DQR）](skills/bootstrap-ai-native-dev-team/references/delivery-quality-review.md)。
-它按任务约束冻结的 Contract、路径租约、准确候选、独立只读验证、发现项、重新验证、
-验收、限制以及回退/恢复，不会形成第三个开发层。
+活动层保持两层：
 
-## 最小团队如何选择
-
-| 任务情况 | 默认拓扑 |
+| 层 | 默认适用范围 |
 |---|---|
-| 只读控制面，或满足全部严格条件的单文件 C0 微编辑 | 主 Agent 单独完成 |
-| C0 机械批次或非实质 C1+ 实现 | 一个任务级 Writer + 主 Agent 复核 |
-| 实质行为变化或回归风险 | 一个 Writer + 一个独立 Validator |
-| 多个独立切片且 Contract 已冻结 | 路径隔离的 Writers + 独立验证 |
-| 安全、隐私、生产、迁移或发布风险 | 相关专家 + 独立门禁 + Owner 批准 |
+| **Core** | 非实质性 C0/C1、R0/R1 工作。 |
+| **Controlled** | 实质行为、C2/C3、R2/R3、接口或依赖变化、并发、生产、发布或公开动作。 |
 
-Agent 数、Commit 数、代码行数和 Token 数都不是交付结果。
+Controlled 只增加当前任务需要的任务合同、所有权、验证、审批和恢复证据。发布、部署和公开动作属于 Controlled/R3，仍需 Owner 明确授权。
 
-## 这个 Skill 明确不再包含什么
+### Linear Git 隔离
 
-metrics 并非 Core 或 Controlled 的必经步骤。主 Agent 可以明确选择一个本地、前瞻的
-轻量 ledger；Writer 和 Validator 只提供交接事实。它仅记录已观察到的生命周期事实，
-模型、提供方、推理、Token 与成本无法观察时保持 null 或 `unknown`。其 audit 与
-compare 输出仅用于描述，不会替代 DQR、验收权限或项目决策。
+Linear 管理的任务在派发前要回读任务身份、状态、阻断状态、准确 `gitBranchName`、已接受的基线引用与 Commit，以及规范 Worktree。隔离 helper 必须在仓库环境中运行。任务、分支、基线、仓库、Worktree 或 checkpoint 有任何不一致，都应停止；不能用 reset、替换或共享根目录把含糊状态强行变成可执行。
 
-Skill 仍保留**任务基线 Commit**、准确候选验证、回退和恢复。这些用于保护代码变更，
-不是绩效度量功能。
+### 回退与恢复
 
-## 可选的本地前瞻 metrics
+Git 历史、远程副本、回退、恢复、集成、安装和发布是不同状态。验收只表示主 Agent 已基于证据接受准确候选版本，不代表已经授权集成、安装、推送、合并、部署或公开发布。要把可执行的回退/恢复方法和候选版本放在一起，并保留已知限制。
 
-[metrics 参考](skills/bootstrap-ai-native-dev-team/references/metrics.md)说明显式选择、
-仅主 Agent 写入的 ledger，以及仅用标准库实现的 `record`、`snapshot`、`audit`、
-`compare` 命令。它报告 cycle、integration wait、已观察的 active/governance 时间、
-首轮独立验证、reopen 可见性、路由档位与 hard-gate 发现项，不会估算缺失的运行时值。
+### 可选度量
 
-## 为什么全局规则和 Skill 都要有
+主 Agent 可以为一组任务明确选择本地前瞻台账。它只记录已经发生且可观察的生命周期事实；Writer 和 Validator 提供交接事实，不写入该记录。audit 和 compare 结果仅作描述，不能替代独立验证、DQR、验收权限或项目决策。
+
+## 工作流
+
+![检查、分级、提案、批准、执行并验证准确候选版本](docs/images/bootstrap-workflow.png)
+
+1. 检查仓库、任务基线、任务合同、权限、测试入口、集成积压、回退和恢复。
+2. 分开记录已确认事实、推断和待核验项，分别评估复杂度与风险。
+3. 选择 Core 或 Controlled，再决定不委派、一个 Writer、Writer-Validator 小组，或只有在确有需要时组建更大团队。
+4. 冻结最小必要的任务合同、允许路径、接口、候选身份、检查、权限边界和回退方式。Linear 任务要在派发 Writer 前建立隔离分支和 Worktree。
+5. 在一次持续授权包络内执行普通、可回退工作。用户只要求方案、范围无法界定或遇到真实权限边界时，停在 proposal-only。
+6. 对准确候选版本做独立验证，复核限制和恢复方式，满足所需权限后再验收。集成、安装、发布和公开发布各自需要单独授权与回读。
+
+## 什么时候不必用
+
+- 只读问题，或严格确定、低风险、单文件的 C0 微编辑，可以由主 Agent 直接处理。
+- 没有仓库变更的任务不需要团队拓扑或文件租约。
+- 如果仓库根目录、任务基线、权威任务合同、允许路径或权限边界无法确认，应停在 proposal-only，直到事实补齐。
+- 不要把这个 Skill 当成获取凭证或取得生产、破坏性、不可逆、发布、公开动作权限的捷径；这些动作仍需单独授权。
+
+## 边界与证据
+
+这个 Skill 是工作流，不是产品、任务合同或发布的真源。请把“已确认事实 / 推断 / 待核验”分开；缺少证据就报告缺口，不要补猜。
+
+设计、写入、运行、验证、验收、集成、安装和发布是不同状态。命令已启动、静态检查通过或已经 Push，都不等于验收。未运行的运行时、外部、平台、视觉和恢复检查，应保留为限制。
+
+起始故事里的后端、前端和 TypeScript 检查不能证明目标运行时。准确候选验证、回退和恢复仍是活动工作流的一部分。公开、发布、破坏性、凭证、真实数据和生产动作仍需单独授权；可选指标不是验收门槛。
+
+## 全局规则与 Skill
 
 | 层级 | 负责什么 |
 |---|---|
-| 全局 `AGENTS.md` | 决定何时触发，保留少数不可绕过的边界 |
-| `bootstrap-ai-native-dev-team` | 检查、分级、提案、初始化和调整 |
-| 项目真源 | 保存产品、任务、Contract、决策、风险和版本证据 |
+| 全局 `AGENTS.md` | 决定何时触发这个 Skill，并保留少数硬边界。 |
+| `bootstrap-ai-native-dev-team` | 检查、分级、提案、初始化和调整。 |
+| 项目真源 | 保存实际产品、任务合同、决策、风险和版本证据。 |
 
-精简全局触发规则见
-[examples/global-agents-snippet.md](examples/global-agents-snippet.md)。
+精简的全局触发规则见 [examples/global-agents-snippet.md](examples/global-agents-snippet.md)。
+
+## 深入参考
+
+- [Skill 入口](skills/bootstrap-ai-native-dev-team/SKILL.md)：权限、选择和执行生命周期。Windows 无人值守 Writer 默认使用 `pty=false`、`background=true` 和 `notify_on_complete=true`；仅将 `pty=true` 保留给交互式输入，并且只有进程 registry 报告 `exited` 时才接受完成，不得创建重复 Writer 或反复 `wait/reconnect`。
+- [路由与拓扑](skills/bootstrap-ai-native-dev-team/references/routing-and-topologies.md)：完整的复杂度/风险门禁、拓扑、能力路由和证据复用规则。
+- [Core 层](skills/bootstrap-ai-native-dev-team/references/core.md)与 [Controlled 层](skills/bootstrap-ai-native-dev-team/references/controlled.md)：各层的具体规则。
+- [Linear Git 隔离](skills/bootstrap-ai-native-dev-team/references/git-isolation-bootstrap.md)：身份、基线、分支、Worktree、checkpoint 和阻断状态门禁。
+- [Delivery Quality Review](skills/bootstrap-ai-native-dev-team/references/delivery-quality-review.md)：Controlled 内的按任务验收协议。
+- [可选的带日期模型路由配置](skills/bootstrap-ai-native-dev-team/references/model-routing-openai-deepseek.md)：显式选择、运行时限制、证据缺口和重新校准规则，默认不启用。
+- [可选指标指南](skills/bootstrap-ai-native-dev-team/references/metrics.md)与 [指标事件格式定义](skills/bootstrap-ai-native-dev-team/references/metrics-event.schema.json)：本地台账及其字段。
+- [发布与迁移历史](releases/)：既有发布记录和历史边界。
 
 ## 仓库结构
 
 ```text
 skills/bootstrap-ai-native-dev-team/
-├── SKILL.md
-├── agents/openai.yaml
-├── references/
-│   ├── routing-and-topologies.md
-│   ├── core.md
-│   ├── controlled.md
-│   ├── delivery-quality-review.md
-│   ├── metrics.md
-│   ├── metrics-event.schema.json
-│   ├── model-routing-openai-deepseek.md  # 可选，默认不启用
-│   └── governance-*.md
-├── scripts/
-│   ├── git_isolation_bootstrap.py
-│   └── team_metrics.py
-└── assets/
-    ├── team-bootstrap-proposal.md
-    ├── project-team-charter.md
-    └── task-contract.md
+├── SKILL.md              # 入口
+├── references/           # 路由、开发层、隔离、DQR、指标和治理
+├── scripts/              # Git 隔离与可选指标工具
+└── assets/               # 方案、任务合同和团队模板
 ```
 
 ## 验证
@@ -264,19 +165,20 @@ skills/bootstrap-ai-native-dev-team/
 ```bash
 python tests/validate_skill.py
 python -m unittest discover -s tests -p "test_*.py" -v
+git diff --check
 ```
 
-仓库包含执行相同检查的 GitHub Actions。
+仓库包含对 Python 检查执行相同命令的 GitHub Actions 工作流。
 
 ## V2 迁移边界
 
-之前的开发线包含 Release Audit、前瞻 metrics、历史基线比较、P2/P3 proof adapter、
-公开 receipt 合同和 benchmark fixture。这些 release-proof 表面继续不在活动 Skill
-树中。上文的可选本地 metrics 不是对该历史系统的恢复。较早的 Git 历史与 release
-notes 继续作为历史事实保留；不会静默删除或改写外部仓库。
+### 发布
 
-当前版本为 V2.0.0，`v2.0.0` Tag 与 GitHub Release 用于标识这一已发布版本。
-安装以及仓库之外的其他外部渠道仍是相互独立的 Owner 决策。
+这个落地页描述当前的 `v2.1.0`。[GitHub Release](https://github.com/bzbaizhen/ai-native-dev-team-skill/releases/tag/v2.1.0) 是发布记录。
+
+### 迁移历史
+
+历史迁移和发布说明见 [发布历史](releases/)。仓库外渠道及任何公开发布决策仍由 Owner 单独授权。
 
 ## 参考与致谢
 
@@ -286,13 +188,10 @@ notes 继续作为历史事实保留；不会静默删除或改写外部仓库�
 - [wshobson/agents](https://github.com/wshobson/agents)
 - [github/awesome-copilot](https://github.com/github/awesome-copilot)
 
-本仓库的工作流为独立编写，重点补充范围内持续执行授权、显式 proposal-only 条件、
-C/R 双轴、模型性价比路由、
-路径所有权、准确版本证据、原生环境、回退与恢复。
+本仓库的工作流为独立编写，重点补充范围内持续执行授权、proposal-only 条件、C/R 双轴、按复杂度分档、兼顾成本的路由、路径所有权、准确版本证据、原生环境、回退和恢复。
 
-英文发布短文与开发过程图见
-[X](https://x.com/Bzbaizhen/status/2087828830627205527)。
+英文发布短文与开发过程图见 [X](https://x.com/Bzbaizhen/status/2087828830627205527)。
 
-## License
+## 许可证
 
 [MIT](LICENSE)
