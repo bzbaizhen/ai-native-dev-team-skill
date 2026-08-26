@@ -205,6 +205,12 @@ Controlled does not mean “maximum process.” It means adding only the contrac
 ownership, independent validation, approvals, and recovery evidence justified by the
 task. Release, deployment, and publication are Controlled/R3 and remain Owner-gated.
 
+For a material Controlled candidate that needs acceptance, load the
+[Delivery quality review](skills/bootstrap-ai-native-dev-team/references/delivery-quality-review.md).
+DQR is a per-task protocol for the frozen contract, path lease, exact candidate,
+independent read-only validation, findings, revalidation, acceptance, limitations, and
+rollback/recovery. It does not create a third development layer.
+
 ## Minimum team selection
 
 | Situation | Default topology |
@@ -219,15 +225,22 @@ Agent count, Commit count, lines of code, and token count are not delivery outco
 
 ## What this Skill deliberately excludes
 
-Team-performance review, historical baseline construction, mandatory delivery
-telemetry, efficiency comparison, registration receipts, and external timestamp proof
-are separate systems. V2 does not operate a metrics ledger or ship compatibility
-aliases for the removed interfaces. An explicitly selected routing profile may add
-lightweight task-local observation fields; unobservable values stay `unknown`, and the
-fields do not become a ledger, baseline, benchmark, or release gate.
+Metrics are not mandatory for Core or Controlled. The main agent may explicitly select a
+small local prospective ledger, while Writers and Validators only provide handoff facts.
+It records observed lifecycle facts and preserves absent model, provider, reasoning,
+token, and cost values as null or `unknown`. Its audit and compare output are descriptive
+and never replace DQR, acceptance authority, or a project decision.
 
 The Skill still keeps a **task baseline Commit**, exact-candidate validation, rollback,
 and recovery. Those protect code changes; they are not performance-measurement features.
+
+## Optional local prospective metrics
+
+[Metrics reference](skills/bootstrap-ai-native-dev-team/references/metrics.md) documents
+the explicit main-agent-only ledger and its stdlib `record`, `snapshot`, `audit`, and
+`compare` commands. It reports cycle and integration-wait time, observed active/governance
+time, first-pass independent validation, reopen visibility, routing tier, and hard-gate
+findings without estimating missing runtime values.
 
 ## Why use both a global rule and a Skill
 
@@ -250,13 +263,18 @@ skills/bootstrap-ai-native-dev-team/
 │   ├── routing-and-topologies.md
 │   ├── core.md
 │   ├── controlled.md
+│   ├── delivery-quality-review.md
+│   ├── metrics.md
+│   ├── metrics-event.schema.json
 │   ├── model-routing-openai-deepseek.md  # optional, inactive by default
 │   └── governance-*.md
+├── scripts/
+│   ├── git_isolation_bootstrap.py
+│   └── team_metrics.py
 └── assets/
     ├── team-bootstrap-proposal.md
     ├── project-team-charter.md
-    ├── task-contract.md
-    └── evidence-manifest.yaml
+    └── task-contract.md
 ```
 
 ## Validation
@@ -272,9 +290,10 @@ The repository includes a GitHub Actions workflow for the same checks.
 
 The prior development line contained Release Audit, prospective metrics, historical
 baseline comparison, P2/P3 proof adapters, public-receipt contracts, and benchmark
-fixtures. V2 removes those from the active Skill tree. Their earlier Git history and
-release notes remain available as historical evidence; no external repository is
-silently deleted or rewritten.
+fixtures. Those release-proof surfaces remain absent from the active Skill tree. The
+optional local metrics documented above are not a restoration of that historical system.
+Earlier Git history and release notes remain available as historical evidence; no
+external repository is silently deleted or rewritten.
 
 This line is V2.0.0. The `v2.0.0` tag and GitHub Release identify the published
 repository version. Installation and external channels beyond this repository remain

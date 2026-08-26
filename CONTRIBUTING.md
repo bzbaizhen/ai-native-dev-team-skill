@@ -5,18 +5,19 @@ Contributions are welcome when they make the development-team workflow safer, li
 ## Principles
 
 - Keep the Skill focused on team bootstrap and bounded adjustment.
-- Keep audit, baseline construction, delivery telemetry, and efficiency comparison outside this Skill.
 - Prefer proportional controls over mandatory ceremony.
 - Preserve bounded continuous-execution authorization, explicit proposal-only conditions, and authority boundaries.
 - Separate implementation self-checks from independent validation.
+- Keep DQR as the material-Controlled acceptance protocol, not a third routing layer.
 - Preserve the fail-closed cost route: only strict C0 work stays with the main agent;
   C0 batches and C1+ implementation use a task-scoped Writer on the configured lower-cost
   execution path, with exceptional takeover requiring explicit user authorization.
 - Keep the canonical Skill, Core/Controlled policy, templates, agent metadata, and global
   trigger vendor-neutral. Vendor-specific mappings belong only in isolated, dated,
   explicitly selected optional profile references with fail-closed tests.
-- Optional routing observations stay task-local and accept `unknown`; do not restore a
-  mandatory ledger, baseline, benchmark fixture, release gate, or performance subsystem.
+- Optional prospective metrics require explicit main-agent selection and main-agent-only
+  ledger writes. Keep absent observations null or `unknown`, and keep audit/compare
+  output descriptive rather than threshold-based.
 - Prefer native file tools and task-local scripts; never recommend broad global allowlisting as an approval shortcut.
 - Do not add claims without inspectable evidence.
 

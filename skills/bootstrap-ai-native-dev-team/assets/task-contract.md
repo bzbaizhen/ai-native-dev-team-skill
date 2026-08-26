@@ -25,6 +25,9 @@
 - Main-agent takeover: `not-applicable / requested / explicitly-authorized`
 - Takeover unavailability/failure evidence, re-slice analysis, authorization, and reason:
 - Material behavior change: `true / false`
+- DQR for material acceptance: `not-applicable / required`
+- Optional prospective metrics: `not-selected / selected`
+- Metrics ledger writer when selected: `main-agent only`
 
 ## Scope and task baseline
 
@@ -81,9 +84,13 @@
 - Evidence path:
 - Definition of Done:
 - Rollback/recovery:
+- DQR findings mapped to contract:
+- Evidence invalidated/revalidated after a fix:
+- Known limitations:
 
-## Optional task-local routing observations
+## Optional prospective metrics
 
+- Local ledger path:
 - Input tokens, only if observable: `unknown / <count>`
 - Output tokens, only if observable: `unknown / <count>`
 - Steps, only if observable: `unknown / <count>`
@@ -92,8 +99,9 @@
 - Escalation reason: `none / unknown / <recorded reason>`
 - Cost or savings claim: `none / blocked-unobservable-mapping / <evidence-bound claim>`
 
-These fields are task-local observations, not a central measurement log. Never infer a
-missing model mapping, token count, step count, result, or reopen count.
+Use these fields only when the main agent explicitly selected local prospective
+measurement. The main agent is the sole ledger writer; never infer a missing model
+mapping, token count, step count, result, or reopen count.
 
 ## Handoff
 

@@ -32,6 +32,7 @@ when the behavior-changing candidate is ready. Do not form a broader team.
 - Route: `task-cell`.
 - Capability/reasoning: `advanced / high`.
 - Model mapping: use the active project configuration; do not infer the runtime model.
+- DQR: required before material acceptance; it will bind findings and limits to the exact candidate.
 
 ## Minimum team
 

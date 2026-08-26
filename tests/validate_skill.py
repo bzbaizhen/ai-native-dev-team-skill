@@ -16,6 +16,8 @@ CANONICAL_REFERENCE_LINKS = (
     "references/core.md",
     "references/controlled.md",
 )
+DQR_REFERENCE_LINK = "references/delivery-quality-review.md"
+METRICS_REFERENCE_LINK = "references/metrics.md"
 ASSET_TRIGGERS = {
     "assets/team-bootstrap-proposal.md":
         "only when an explicit proposal request needs an approval-ready team proposal",
@@ -23,11 +25,23 @@ ASSET_TRIGGERS = {
         "only when controlled work explicitly needs a durable written contract or frozen interface",
     "assets/project-team-charter.md":
         "only when an explicitly requested long-lived multi-task team is being established",
-    "assets/evidence-manifest.yaml":
-        "only when a machine-readable evidence package is explicitly required for independent exact-candidate validation and acceptance",
 }
 GIT_ISOLATION_REFERENCE = SKILL / "references" / "git-isolation-bootstrap.md"
 GIT_ISOLATION_HELPER = SKILL / "scripts" / "git_isolation_bootstrap.py"
+DELIVERY_QUALITY_REVIEW = SKILL / "references" / "delivery-quality-review.md"
+METRICS_REFERENCE = SKILL / "references" / "metrics.md"
+METRICS_SCHEMA = SKILL / "references" / "metrics-event.schema.json"
+TEAM_METRICS = SKILL / "scripts" / "team_metrics.py"
+EXPECTED_WINDOWS_NAMESPACE_PREFIXES = (
+    "\\\\?\\",
+    "\\\\.\\",
+    "\\??\\",
+    "\\\\??\\",
+    "//?/",
+    "//./",
+    "/??/",
+    "//??/",
+)
 ISOLATION_TEMPLATE_FIELDS = (
     "linear issue uuid/id",
     "linear gitbranchname",
@@ -49,6 +63,15 @@ def fail(message: str) -> None:
 
 def normalize_policy(text: str) -> str:
     return " ".join(text.casefold().split())
+
+
+def contains_removed_term(text: str, term: str) -> bool:
+    normalized_term = term.strip()
+    return re.search(
+        rf"(?<!\w){re.escape(normalized_term)}(?!\w)",
+        text,
+        re.IGNORECASE,
+    ) is not None
 
 
 def local_link_targets(text: str) -> set[str]:
@@ -77,9 +100,13 @@ def validate_progressive_disclosure(skill_text: str, skill_dir: Path) -> None:
 
     links = local_link_targets(skill_text)
     assert set(CANONICAL_REFERENCE_LINKS) <= links
+    assert DQR_REFERENCE_LINK in links
+    assert METRICS_REFERENCE_LINK in links
     compact = normalize_policy(skill_text)
     assert "load level-2 assets only on demand" in compact
     assert "do not preload assets; load only the asset whose matching trigger applies" in compact
+    assert "dqr is a per-task acceptance protocol, not a routing layer" in compact
+    assert "main agent explicitly selects local prospective measurement" in compact
     for target, trigger in ASSET_TRIGGERS.items():
         assert target in links
         line = next(
@@ -104,6 +131,9 @@ required = [
     SKILL / "references" / "routing-and-topologies.md",
     SKILL / "references" / "core.md",
     SKILL / "references" / "controlled.md",
+    DELIVERY_QUALITY_REVIEW,
+    METRICS_REFERENCE,
+    METRICS_SCHEMA,
     GIT_ISOLATION_REFERENCE,
     SKILL / "references" / "model-routing-openai-deepseek.md",
     SKILL / "references" / "governance-lean.md",
@@ -113,12 +143,13 @@ required = [
     SKILL / "assets" / "team-bootstrap-proposal.md",
     SKILL / "assets" / "project-team-charter.md",
     SKILL / "assets" / "task-contract.md",
-    SKILL / "assets" / "evidence-manifest.yaml",
     GIT_ISOLATION_HELPER,
+    TEAM_METRICS,
     ROOT / "tests" / "routing-scenarios.json",
     ROOT / "tests" / "cost-routing-policy-cases.json",
     ROOT / "tests" / "test_routing_policy.py",
     ROOT / "tests" / "test_git_isolation_bootstrap.py",
+    ROOT / "tests" / "test_team_metrics.py",
 ]
 for path in required:
     if not path.is_file():
@@ -127,13 +158,11 @@ for path in required:
 removed_paths = [
     ROOT / "benchmarks",
     ROOT / "docs" / "images" / "verification-evidence.svg",
+    SKILL / "assets" / "evidence-manifest.yaml",
     SKILL / "assets" / "metrics-handoff.yaml",
-    SKILL / "references" / "metrics.md",
-    SKILL / "references" / "metrics-event.schema.json",
     SKILL / "references" / "release-audit.md",
     ROOT / "tests" / "fixtures" / "p2",
     ROOT / "tests" / "fixtures" / "p3-public",
-    ROOT / "tests" / "test_team_metrics.py",
     ROOT / "tests" / "test_v2_release_gate.py",
     ROOT / "tests" / "test_p2_pregate.py",
     ROOT / "tests" / "test_p3_sigstore_github_adapter.py",
@@ -141,6 +170,10 @@ removed_paths = [
 for path in removed_paths:
     if path.exists():
         fail(f"removed product surface still exists: {path.relative_to(ROOT)}")
+
+for manifest in ("requirements.txt", "pyproject.toml", "package.json", "Pipfile"):
+    if (ROOT / manifest).exists():
+        fail(f"unexpected dependency manifest exists: {manifest}")
 
 for path in (SKILL / "references").iterdir():
     lowered = path.name.casefold()
@@ -206,15 +239,15 @@ compact_skill = normalize_policy(skill_text)
 for removed in (
     "release audit",
     "release-audit",
-    "metrics.md",
     "mode: audit",
     "formal efficiency",
     "historical-baseline",
     "registration receipt",
+    "evidence-manifest",
     "p2 ",
     "p3 ",
 ):
-    if removed in lower_skill:
+    if contains_removed_term(lower_skill, removed):
         fail(f"SKILL.md still exposes removed surface: {removed}")
 
 for mode in ("proposal", "initialize", "adjust"):
@@ -315,12 +348,11 @@ for template in (
 ):
     text = (SKILL / "assets" / template).read_text(encoding="utf-8").casefold()
     for removed in (
-        "metrics ledger",
         "metrics handoff",
         "release audit",
         "proposal / initialize / audit",
     ):
-        if removed in text:
+        if contains_removed_term(text, removed):
             fail(f"{template} still exposes removed surface: {removed}")
 
 for template in (
@@ -342,11 +374,210 @@ for template in (
         if field not in text:
             fail(f"{template} is missing lightweight routing field: {field}")
 
-for template in ("task-contract.md", "evidence-manifest.yaml"):
+for template in ("task-contract.md",):
     text = (SKILL / "assets" / template).read_text(encoding="utf-8").casefold()
     for field in ISOLATION_TEMPLATE_FIELDS:
         if field not in text:
             fail(f"{template} is missing Linear-isolation field: {field}")
+
+for template in (
+    "team-bootstrap-proposal.md",
+    "project-team-charter.md",
+    "task-contract.md",
+):
+    text = (SKILL / "assets" / template).read_text(encoding="utf-8").casefold()
+    for required_dqr_field in ("dqr", "metrics"):
+        if required_dqr_field not in text:
+            fail(f"{template} is missing DQR or optional-metrics boundary: {required_dqr_field}")
+
+dqr_text = DELIVERY_QUALITY_REVIEW.read_text(encoding="utf-8")
+compact_dqr = normalize_policy(dqr_text)
+for required_dqr_term in (
+    "not a routing layer",
+    "frozen contract",
+    "exact path lease",
+    "writer self-check",
+    "immutable commit, tree, digest",
+    "independent, read-only validator",
+    "map each finding to a contract requirement",
+    "invalidate candidate-bound evidence",
+    "main agent accepts only after",
+    "known limits",
+    "executable rollback",
+    "designed",
+    "written",
+    "run",
+    "verified",
+    "accepted",
+    "integrated",
+    "installed",
+    "released",
+    "exact verified candidate",
+    "authority evidence",
+    "acceptance does not require prior integration or installation",
+    "does not authorize either action",
+    "separately authorized integration target",
+    "identity readback",
+    "separately authorized installation target",
+    "rollback backup",
+    "byte/readback verification",
+    "acceptance implies neither integration nor installation",
+    "integration and installation do not imply each other",
+    "release, public, and production actions remain separately gated",
+):
+    if required_dqr_term not in compact_dqr:
+        fail(f"delivery-quality-review.md is missing: {required_dqr_term}")
+
+if "accept only the exact validated change integrated into the stable branch" in normalize_policy(skill_text):
+    fail("SKILL.md still requires stable-branch integration before acceptance")
+
+state_rows = {
+    state: re.search(
+        rf"\| {state} \| ([^|]+) \|",
+        dqr_text.casefold(),
+    )
+    for state in ("accepted", "integrated", "installed", "released")
+}
+if any(match is None for match in state_rows.values()):
+    fail("delivery-quality-review.md is missing a lifecycle state row")
+if len({match.group(1).strip() for match in state_rows.values()}) != len(state_rows):
+    fail("delivery-quality-review.md lifecycle state rows collapsed")
+
+try:
+    metrics_schema = json.loads(METRICS_SCHEMA.read_text(encoding="utf-8"))
+except json.JSONDecodeError as exc:
+    fail(f"metrics event schema is invalid JSON: {exc}")
+if metrics_schema.get("properties", {}).get("event", {}).get("enum") != [
+    "task_ready",
+    "worker_started",
+    "dev_complete",
+    "qa_complete",
+    "accepted",
+    "blocked",
+    "reopened",
+    "cancelled",
+]:
+    fail("metrics event schema lifecycle drifted")
+if metrics_schema.get("properties", {}).get("ledger_writer", {}).get("const") != "main-agent":
+    fail("metrics event schema must reserve ledger writes to the main agent")
+writer_schema = metrics_schema.get("properties", {}).get("writer", {})
+expected_writer_fields = [
+    "id",
+    "approved",
+    "paths",
+    "skill_loaded",
+    "repo_wide_search_used",
+    "out_of_scope_reads",
+]
+if writer_schema.get("required") != expected_writer_fields:
+    fail("metrics event schema writer context fields are not required")
+for writer_context_field in expected_writer_fields[3:]:
+    if writer_schema.get("properties", {}).get(writer_context_field, {}).get("type") != "boolean":
+        fail(f"metrics event schema writer field is not boolean: {writer_context_field}")
+
+metrics_text = normalize_policy(METRICS_REFERENCE.read_text(encoding="utf-8"))
+for required_metrics_term in (
+    "optional for both core and controlled",
+    "sole ledger writer",
+    "record",
+    "snapshot",
+    "audit",
+    "compare",
+    "hard gates",
+    "invalid_writer_path",
+    "descriptive",
+    "skill_loaded",
+    "repo_wide_search_used",
+    "out_of_scope_reads",
+    "context-saving claim",
+    "windows namespace prefixes",
+    "extended drive and unc forms",
+    "device and pipe forms",
+    "nt namespace forms",
+    "no active path lease",
+    "ordinary `c:/` drives",
+    "posix-rooted paths",
+    "relative paths remain supported",
+):
+    if required_metrics_term not in metrics_text:
+        fail(f"metrics.md is missing: {required_metrics_term}")
+
+try:
+    team_metrics_source = TEAM_METRICS.read_text(encoding="utf-8")
+    metrics_tree = ast.parse(team_metrics_source)
+except SyntaxError as exc:
+    fail(f"team_metrics.py has a syntax error: {exc}")
+stdlib_roots = {
+    "__future__",
+    "argparse",
+    "datetime",
+    "json",
+    "math",
+    "os",
+    "pathlib",
+    "statistics",
+    "sys",
+    "typing",
+}
+for node in ast.walk(metrics_tree):
+    if isinstance(node, ast.Import):
+        roots = [alias.name.split(".", 1)[0] for alias in node.names]
+    elif isinstance(node, ast.ImportFrom):
+        roots = [node.module.split(".", 1)[0]] if node.module else []
+    else:
+        continue
+    if any(root not in stdlib_roots for root in roots):
+        fail(f"team_metrics.py imports a non-stdlib module: {roots}")
+for hard_gate in (
+    "UNAPPROVED_WRITER",
+    "WRITER_LOADED_FULL_TEAM_SKILL",
+    "WRITER_OUT_OF_SCOPE_READS",
+    "INVALID_WRITER_PATH",
+    "OVERLAPPING_PATH_OWNERSHIP",
+    "NEW_WRITER_WITH_INTEGRATION_BACKLOG",
+    "MATERIAL_ACCEPTANCE_WITHOUT_SAME_CANDIDATE_INDEPENDENT_VALIDATION",
+    "ACCEPTANCE_WITHOUT_EXACT_IDENTITY_OR_EXECUTABLE_ROLLBACK",
+    "R3_WITHOUT_OWNER_APPROVAL",
+    "EVIDENCE_REUSE_AFTER_REOPEN_OR_CANDIDATE_CHANGE",
+):
+    if hard_gate not in team_metrics_source:
+        fail(f"team_metrics.py is missing hard gate: {hard_gate}")
+
+namespace_assignments = [
+    node
+    for node in metrics_tree.body
+    if isinstance(node, ast.Assign)
+    and any(
+        isinstance(target, ast.Name)
+        and target.id == "WINDOWS_NAMESPACE_PREFIXES"
+        for target in node.targets
+    )
+]
+if len(namespace_assignments) != 1:
+    fail("team_metrics.py must declare one Windows namespace prefix contract")
+try:
+    actual_namespace_prefixes = ast.literal_eval(namespace_assignments[0].value)
+except (ValueError, TypeError, SyntaxError) as exc:
+    fail(f"Windows namespace prefix contract is not a literal tuple: {exc}")
+if actual_namespace_prefixes != EXPECTED_WINDOWS_NAMESPACE_PREFIXES:
+    fail("Windows namespace prefix contract drifted")
+canonicalizer_start = team_metrics_source.index("def _canonical_path_identity")
+namespace_guard_start = team_metrics_source.index(
+    "WINDOWS_NAMESPACE_PREFIXES",
+    canonicalizer_start,
+)
+ordinary_parser_start = team_metrics_source.index(
+    "if (\n        len(unified)",
+    canonicalizer_start,
+)
+if namespace_guard_start >= ordinary_parser_start:
+    fail("Windows namespace rejection must precede ordinary path parsing")
+for namespace_contract_term in (
+    "writer path uses a Windows device or NT namespace prefix",
+    "leased_paths = set() if invalid_writer_path else canonical_paths",
+):
+    if namespace_contract_term not in team_metrics_source:
+        fail(f"team_metrics.py is missing namespace safety behavior: {namespace_contract_term}")
 
 profile_path = SKILL / "references" / "model-routing-openai-deepseek.md"
 profile_text = profile_path.read_text(encoding="utf-8")
@@ -391,6 +622,8 @@ canonical_policy_files = [
     SKILL / "references" / "routing-and-topologies.md",
     SKILL / "references" / "core.md",
     SKILL / "references" / "controlled.md",
+    DELIVERY_QUALITY_REVIEW,
+    METRICS_REFERENCE,
     SKILL / "assets" / "team-bootstrap-proposal.md",
     SKILL / "assets" / "project-team-charter.md",
     SKILL / "assets" / "task-contract.md",
@@ -398,6 +631,7 @@ canonical_policy_files = [
     ROOT / "examples" / "global-agents-snippet.md",
     GIT_ISOLATION_REFERENCE,
     GIT_ISOLATION_HELPER,
+    TEAM_METRICS,
 ]
 vendor_names = re.compile(
     r"(?:gpt-5(?:\.|-)|deepseek|openai|anthropic)", re.IGNORECASE
@@ -428,7 +662,10 @@ if not isinstance(scenarios, list) or len(scenarios) < 13:
     fail("routing scenario matrix is too small")
 if {case.get("layer") for case in scenarios} != {"core", "controlled"}:
     fail("routing scenarios must use exactly Core and Controlled")
-if any("audit" in json.dumps(case, sort_keys=True).casefold() for case in scenarios):
+if any(
+    contains_removed_term(json.dumps(case, sort_keys=True), "audit")
+    for case in scenarios
+):
     fail("routing scenarios contain a removed field or value")
 if not any(
     case.get("complexity") == "C1" and case.get("risk") == "R3"
@@ -485,7 +722,9 @@ if not any(
 openai_yaml = (SKILL / "agents" / "openai.yaml").read_text(encoding="utf-8")
 if "$bootstrap-ai-native-dev-team" not in openai_yaml:
     fail("default prompt does not explicitly invoke the Skill")
-if "Release Audit" in openai_yaml or "audit work" in openai_yaml.casefold():
+if contains_removed_term(openai_yaml, "release audit") or contains_removed_term(
+    openai_yaml, "audit work"
+):
     fail("openai.yaml advertises removed work")
 short_match = re.search(
     r'^\s*short_description:\s*"([^"]+)"',
@@ -494,6 +733,63 @@ short_match = re.search(
 )
 if not short_match or not 25 <= len(short_match.group(1)) <= 64:
     fail("short_description must contain 25-64 characters")
+
+active_terminology_files = [
+    SKILL / "SKILL.md",
+    SKILL / "references" / "routing-and-topologies.md",
+    SKILL / "references" / "core.md",
+    SKILL / "references" / "controlled.md",
+    DELIVERY_QUALITY_REVIEW,
+    METRICS_REFERENCE,
+    SKILL / "assets" / "team-bootstrap-proposal.md",
+    SKILL / "assets" / "project-team-charter.md",
+    SKILL / "assets" / "task-contract.md",
+    SKILL / "agents" / "openai.yaml",
+    ROOT / "CONTRIBUTING.md",
+    ROOT / "examples" / "global-agents-snippet.md",
+    ROOT / "examples" / "sample-proposal.md",
+]
+for path in active_terminology_files:
+    text = path.read_text(encoding="utf-8").casefold()
+    for removed in (
+        "release audit",
+        "first-five",
+        "first five",
+        "anchor",
+        "receipt",
+        "manifest",
+        "closure",
+        "p2 ",
+        "p3 ",
+        "historical baseline",
+        "benchmark",
+        "formal efficiency",
+    ):
+        if contains_removed_term(text, removed):
+            fail(f"active policy exposes removed terminology: {path.relative_to(ROOT)}: {removed}")
+
+for readme, heading in (
+    (ROOT / "README.md", "## v2 migration boundary"),
+    (ROOT / "README.zh-CN.md", "## v2 迁移边界"),
+):
+    text = readme.read_text(encoding="utf-8")
+    active_text, marker, _ = text.casefold().partition(heading)
+    if not marker:
+        fail(f"migration boundary is missing from {readme.name}")
+    for removed in (
+        "release audit",
+        "anchor",
+        "receipt",
+        "manifest",
+        "closure",
+        "p2 ",
+        "p3 ",
+        "historical baseline",
+        "benchmark",
+        "formal efficiency",
+    ):
+        if contains_removed_term(active_text, removed):
+            fail(f"active README text exposes historical terminology: {readme.name}: {removed}")
 
 markdown_files = [
     SKILL / "SKILL.md",

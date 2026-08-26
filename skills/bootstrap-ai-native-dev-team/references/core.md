@@ -28,6 +28,9 @@ Risk does not raise implementation capability. Move to [Controlled](controlled.m
 R2/R3, material behavior, difficult verification, concurrency, or a boundary change
 appears.
 
+Core does not load a DQR acceptance packet. When a material candidate needs acceptance,
+move to Controlled and use its [DQR protocol](delivery-quality-review.md).
+
 The main agent remains the control plane for scope, architecture decisions, contracts,
 permissions, integration, evidence review, stop decisions, and acceptance. It does not
 repeat the Writer's repository exploration, implementation, or test/debug loop. C3

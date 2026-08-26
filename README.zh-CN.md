@@ -190,6 +190,11 @@ Controlled 不是“流程拉满”，而是只增加当前任务确实需要的
 独立验证、审批与恢复证据。release、deploy、publish 统一属于 Controlled/R3，并
 继续要求 Owner 明确授权。
 
+对于需要验收的实质 Controlled 候选，加载
+[交付质量复核（DQR）](skills/bootstrap-ai-native-dev-team/references/delivery-quality-review.md)。
+它按任务约束冻结的 Contract、路径租约、准确候选、独立只读验证、发现项、重新验证、
+验收、限制以及回退/恢复，不会形成第三个开发层。
+
 ## 最小团队如何选择
 
 | 任务情况 | 默认拓扑 |
@@ -204,13 +209,20 @@ Agent 数、Commit 数、代码行数和 Token 数都不是交付结果。
 
 ## 这个 Skill 明确不再包含什么
 
-团队绩效回审、历史基线建立、强制交付遥测、效率比较、registration receipt 和外部
-时间证明，全部由独立系统负责。V2 不运行 metrics ledger，也不为已删除接口保留兼容
-别名。明确选择的路由 profile 可以增加轻量、任务局部的观察字段；不可观察值保持
-`unknown`，这些字段不会形成 ledger、baseline、benchmark 或 release gate。
+metrics 并非 Core 或 Controlled 的必经步骤。主 Agent 可以明确选择一个本地、前瞻的
+轻量 ledger；Writer 和 Validator 只提供交接事实。它仅记录已观察到的生命周期事实，
+模型、提供方、推理、Token 与成本无法观察时保持 null 或 `unknown`。其 audit 与
+compare 输出仅用于描述，不会替代 DQR、验收权限或项目决策。
 
 Skill 仍保留**任务基线 Commit**、准确候选验证、回退和恢复。这些用于保护代码变更，
 不是绩效度量功能。
+
+## 可选的本地前瞻 metrics
+
+[metrics 参考](skills/bootstrap-ai-native-dev-team/references/metrics.md)说明显式选择、
+仅主 Agent 写入的 ledger，以及仅用标准库实现的 `record`、`snapshot`、`audit`、
+`compare` 命令。它报告 cycle、integration wait、已观察的 active/governance 时间、
+首轮独立验证、reopen 可见性、路由档位与 hard-gate 发现项，不会估算缺失的运行时值。
 
 ## 为什么全局规则和 Skill 都要有
 
@@ -233,13 +245,18 @@ skills/bootstrap-ai-native-dev-team/
 │   ├── routing-and-topologies.md
 │   ├── core.md
 │   ├── controlled.md
+│   ├── delivery-quality-review.md
+│   ├── metrics.md
+│   ├── metrics-event.schema.json
 │   ├── model-routing-openai-deepseek.md  # 可选，默认不启用
 │   └── governance-*.md
+├── scripts/
+│   ├── git_isolation_bootstrap.py
+│   └── team_metrics.py
 └── assets/
     ├── team-bootstrap-proposal.md
     ├── project-team-charter.md
-    ├── task-contract.md
-    └── evidence-manifest.yaml
+    └── task-contract.md
 ```
 
 ## 验证
@@ -254,8 +271,9 @@ python -m unittest discover -s tests -p "test_*.py" -v
 ## V2 迁移边界
 
 之前的开发线包含 Release Audit、前瞻 metrics、历史基线比较、P2/P3 proof adapter、
-公开 receipt 合同和 benchmark fixture。V2 已将这些内容从当前 Skill 树移除。较早的
-Git 历史与 release notes 继续作为历史事实保留；不会静默删除或改写外部仓库。
+公开 receipt 合同和 benchmark fixture。这些 release-proof 表面继续不在活动 Skill
+树中。上文的可选本地 metrics 不是对该历史系统的恢复。较早的 Git 历史与 release
+notes 继续作为历史事实保留；不会静默删除或改写外部仓库。
 
 当前版本为 V2.0.0，`v2.0.0` Tag 与 GitHub Release 用于标识这一已发布版本。
 安装以及仓库之外的其他外部渠道仍是相互独立的 Owner 决策。

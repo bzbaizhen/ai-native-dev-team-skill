@@ -4,6 +4,10 @@ Use Controlled for material behavior or regression risk, C2/C3, R2/R3, interface
 dependency, data-shape or security-boundary changes, concurrency, production,
 deployment, release, or public action.
 
+For a material candidate that needs acceptance, read
+[delivery-quality-review.md](delivery-quality-review.md). DQR records the per-task
+delivery review; it is not a routing layer.
+
 ## Minimum topology and artifacts
 
 - Keep the main agent as fact, scope, architecture-decision, routing, contract,
@@ -42,11 +46,13 @@ readback. A command start or static check is not acceptance.
 
 ## Validation and acceptance
 
-1. The Writer checks scope and runs relevant checks on the candidate.
-2. The independent Validator checks the exact candidate from a clean or controlled state and does not silently fix product code.
-3. The main agent verifies path scope, immutable identity, permissions, rollback, and integration before acceptance.
-4. Reuse evidence only while Commit/tree, environment fingerprint, lockfiles, test entry points, permissions, generated inputs, and relevant external dependencies remain unchanged.
-5. Rerun affected checks when any relevant input changes, merge resolution occurs, policy requires it, or prior evidence is incomplete.
+Follow DQR for a material acceptance: the Writer self-checks the scoped candidate, the
+independent Validator reads the exact candidate without silently fixing it, and the main
+agent accepts only after reviewing identity, permissions, findings, limitations,
+rollback, and integration. Reuse evidence only while Commit/tree, environment
+fingerprint, lockfiles, test entry points, permissions, generated inputs, and relevant
+external dependencies remain unchanged. Rerun affected checks after a relevant change,
+merge resolution, or incomplete prior evidence.
 
 Treat release, deployment, and publication as Controlled/R3. They require explicit
 Owner authority and do not become accepted merely because local development is complete.
