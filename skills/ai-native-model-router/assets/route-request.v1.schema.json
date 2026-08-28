@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "route-request.v1.schema.json",
+  "title": "route/v1 RouteRequest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "router_api_version",
+    "request_id",
+    "route_slot",
+    "profile_id",
+    "explicit_profile_selection",
+    "explicit_high_volume_selection",
+    "availability",
+    "primary_failure_evidence",
+    "writer_identity",
+    "candidate_id"
+  ],
+  "properties": {
+    "router_api_version": { "const": "route/v1" },
+    "request_id": { "type": "string", "minLength": 1 },
+    "route_slot": {
+      "type": "string",
+      "enum": [
+        "control-plane",
+        "writer.c0-batch",
+        "writer.c1",
+        "writer.c2",
+        "writer.c3",
+        "validator.independent",
+        "writer.high-volume-deterministic"
+      ]
+    },
+    "profile_id": { "type": "string", "minLength": 1 },
+    "explicit_profile_selection": { "type": "boolean" },
+    "explicit_high_volume_selection": { "type": "boolean" },
+    "availability": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "enum": ["available", "unavailable", "unknown"]
+      }
+    },
+    "primary_failure_evidence": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true
+    },
+    "writer_identity": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["provider", "model"],
+      "properties": {
+        "provider": { "type": "string", "minLength": 1 },
+        "model": { "type": "string", "minLength": 1 }
+      }
+    },
+    "candidate_id": { "type": ["string", "null"], "minLength": 1 }
+  }
+}

@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "route-decision.v1.schema.json",
+  "title": "route/v1 RouteDecision",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "router_api_version",
+    "request_id",
+    "profile_id",
+    "route_slot",
+    "decision_status",
+    "enforcement_status",
+    "selected_route",
+    "fallback_used",
+    "fallback_evidence",
+    "independent_validator_source",
+    "config_digest",
+    "limitations"
+  ],
+  "properties": {
+    "router_api_version": { "const": "route/v1" },
+    "request_id": { "type": "string", "minLength": 1 },
+    "profile_id": { "type": "string", "minLength": 1 },
+    "route_slot": {
+      "type": "string",
+      "enum": [
+        "control-plane",
+        "writer.c0-batch",
+        "writer.c1",
+        "writer.c2",
+        "writer.c3",
+        "validator.independent",
+        "writer.high-volume-deterministic"
+      ]
+    },
+    "decision_status": {
+      "type": "string",
+      "enum": ["selected", "blocked", "unknown"]
+    },
+    "enforcement_status": {
+      "type": "string",
+      "enum": ["verified", "advisory", "not-executed"]
+    },
+    "selected_route": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["provider", "model", "reasoning", "reasoning_delivery"],
+      "properties": {
+        "provider": { "type": "string", "minLength": 1 },
+        "model": { "type": "string", "minLength": 1 },
+        "reasoning": { "type": "string", "minLength": 1 },
+        "reasoning_delivery": { "type": "string", "minLength": 1 }
+      }
+    },
+    "fallback_used": { "type": "boolean" },
+    "fallback_evidence": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "independent_validator_source": {
+      "type": "string",
+      "enum": [
+        "router-selected",
+        "openai-complexity-map",
+        "caller-required",
+        "not-applicable"
+      ]
+    },
+    "config_digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "limitations": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    }
+  }
+}

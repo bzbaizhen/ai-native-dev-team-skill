@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "model-router-config.v1.schema.json",
+  "title": "ai-native-model-router project configuration v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "router_api_version",
+    "config_id",
+    "active_profile",
+    "project_profile_dirs",
+    "updated_reason"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "router_api_version": { "const": "route/v1" },
+    "config_id": { "type": "string", "minLength": 1, "pattern": "^(?!.*[\\u0000-\\u001f\\u007f])\\S(?:.*\\S)?$" },
+    "active_profile": { "type": "string", "minLength": 1, "pattern": "^(?!.*[\\u0000-\\u001f\\u007f])\\S(?:.*\\S)?$" },
+    "project_profile_dirs": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "pattern": "^[^\\\\/:*?\"<>|\\u0000-\\u001f\\u007f]+(?:[/\\\\][^\\\\/:*?\"<>|\\u0000-\\u001f\\u007f]+)*$",
+        "not": { "pattern": "(^|[/\\\\])(?:\\.|\\.\\.)(?=$|[/\\\\])" }
+      }
+    },
+    "updated_reason": { "type": "string", "minLength": 1, "pattern": "^(?!.*[\\u0000-\\u001f\\u007f])\\S(?:.*\\S)?$" }
+  }
+}
