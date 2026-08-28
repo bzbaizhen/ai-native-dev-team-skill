@@ -14,7 +14,11 @@ from uuid import uuid4
 
 ROOT = Path(__file__).resolve().parents[1]
 LOCK_NAME = "git-isolation-bootstrap.lock"
-VENDOR_TOKEN = re.compile(r"\b(?:codex|openai|deepseek|anthropic)\b", re.IGNORECASE)
+VENDOR_TOKEN = re.compile(
+    r"\b(?:codex|openai|deepseek|anthropic)\b|"
+    r"(?<!\w)glm-5\.3(?:-flash)?(?!\w)|\bzai\b",
+    re.IGNORECASE,
+)
 HELPER = (
     ROOT
     / "skills"

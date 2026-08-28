@@ -42,6 +42,12 @@ EXPECTED_WINDOWS_NAMESPACE_PREFIXES = (
     "/??/",
     "//??/",
 )
+EXPECTED_PRIMARY_UNAVAILABLE_EVIDENCE = [
+    "model-not-found",
+    "authenticated-provider-outage",
+    "quota-exhaustion",
+    "repeated-bounded-transport-failure",
+]
 ISOLATION_TEMPLATE_FIELDS = (
     "linear issue uuid/id",
     "linear gitbranchname",
@@ -135,7 +141,7 @@ required = [
     METRICS_REFERENCE,
     METRICS_SCHEMA,
     GIT_ISOLATION_REFERENCE,
-    SKILL / "references" / "model-routing-openai-deepseek.md",
+    SKILL / "references" / "model-routing-openai-glm5.3-deepseek-fallback.md",
     SKILL / "references" / "governance-lean.md",
     SKILL / "references" / "governance-controlled.md",
     SKILL / "references" / "governance-strict.md",
@@ -161,6 +167,7 @@ removed_paths = [
     SKILL / "assets" / "evidence-manifest.yaml",
     SKILL / "assets" / "metrics-handoff.yaml",
     SKILL / "references" / "release-audit.md",
+    SKILL / "references" / "model-routing-openai-deepseek.md",
     ROOT / "tests" / "fixtures" / "p2",
     ROOT / "tests" / "fixtures" / "p3-public",
     ROOT / "tests" / "test_v2_release_gate.py",
@@ -579,7 +586,7 @@ for namespace_contract_term in (
     if namespace_contract_term not in team_metrics_source:
         fail(f"team_metrics.py is missing namespace safety behavior: {namespace_contract_term}")
 
-profile_path = SKILL / "references" / "model-routing-openai-deepseek.md"
+profile_path = SKILL / "references" / "model-routing-openai-glm5.3-deepseek-fallback.md"
 profile_text = profile_path.read_text(encoding="utf-8")
 profile_match = re.search(
     r"```json routing-profile\s*(\{.*?\})\s*```",
@@ -596,10 +603,29 @@ if profile_contract.get("default_active") is not False:
     fail("optional routing profile must be inactive by default")
 if profile_contract.get("activation") != "explicit-owner-selection":
     fail("optional routing profile requires explicit Owner selection")
-if profile_contract.get("evidence_date") != "2026-08-20":
+if profile_contract.get("evidence_date") != "2026-08-28":
     fail("optional routing profile evidence date drifted")
 
-expected_evidence_date = "The evidence snapshot date is **2026-08-20**."
+validator_fallback = (
+    profile_contract.get("validators", {})
+    .get("R2_R3_when_writer_is_openai", {})
+    .get("fallback")
+)
+if not isinstance(validator_fallback, dict):
+    fail("validator fallback object is missing")
+if validator_fallback.get("accepted_primary_unavailable_evidence") != EXPECTED_PRIMARY_UNAVAILABLE_EVIDENCE:
+    fail("validator fallback evidence list is not the exact accepted array")
+
+high_volume_writer_fallback = (
+    profile_contract.get("high_volume_deterministic_fallback", {})
+    .get("fallback")
+)
+if not isinstance(high_volume_writer_fallback, dict):
+    fail("high-volume Writer fallback object is missing")
+if high_volume_writer_fallback.get("accepted_primary_unavailable_evidence") != EXPECTED_PRIMARY_UNAVAILABLE_EVIDENCE:
+    fail("high-volume Writer fallback evidence list is not the exact accepted array")
+
+expected_evidence_date = "The evidence snapshot date is **2026-08-28**."
 expected_cursorbench_row = (
     "| CursorBench 3.2 | 61.1%; $0.39; 87,973 tokens; 61 steps | "
     "64.9%; $2.31; 32,969 tokens; 47 steps | 63.5%; $2.79; 13,867 tokens; "
@@ -634,13 +660,17 @@ canonical_policy_files = [
     TEAM_METRICS,
 ]
 vendor_names = re.compile(
-    r"(?:gpt-5(?:\.|-)|deepseek|openai|anthropic)", re.IGNORECASE
+    r"(?:gpt-5(?:\.|-)|deepseek|openai|anthropic|"
+    r"(?<!\w)glm-5\.3(?:-flash)?(?!\w)|\bzai\b)",
+    re.IGNORECASE,
 )
 for path in canonical_policy_files:
     if vendor_names.search(path.read_text(encoding="utf-8")):
         fail(f"canonical policy corpus is not vendor-neutral: {path.relative_to(ROOT)}")
 isolation_vendor_names = re.compile(
-    r"\b(?:codex|openai|deepseek|anthropic)\b", re.IGNORECASE
+    r"\b(?:codex|openai|deepseek|anthropic)\b|"
+    r"(?<!\w)glm-5\.3(?:-flash)?(?!\w)|\bzai\b",
+    re.IGNORECASE,
 )
 for path in (GIT_ISOLATION_REFERENCE, GIT_ISOLATION_HELPER):
     if isolation_vendor_names.search(path.read_text(encoding="utf-8")):

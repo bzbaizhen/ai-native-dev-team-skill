@@ -146,7 +146,7 @@ Git 历史、远程副本、回退、恢复、集成、安装和发布是不同�
 - [Core 层](skills/bootstrap-ai-native-dev-team/references/core.md)与 [Controlled 层](skills/bootstrap-ai-native-dev-team/references/controlled.md)：各层的具体规则。
 - [Linear Git 隔离](skills/bootstrap-ai-native-dev-team/references/git-isolation-bootstrap.md)：身份、基线、分支、Worktree、checkpoint 和阻断状态门禁。
 - [Delivery Quality Review](skills/bootstrap-ai-native-dev-team/references/delivery-quality-review.md)：Controlled 内的按任务验收协议。
-- [可选的带日期模型路由配置](skills/bootstrap-ai-native-dev-team/references/model-routing-openai-deepseek.md)：显式选择、运行时限制、证据缺口和重新校准规则，默认不启用。
+- [可选的 OpenAI + GLM5.3 路由配置（DeepSeek 证据门控回退）](skills/bootstrap-ai-native-dev-team/references/model-routing-openai-glm5.3-deepseek-fallback.md)：需显式选择；仅在记录主路由不可用证据后允许回退，默认不启用。
 - [可选指标指南](skills/bootstrap-ai-native-dev-team/references/metrics.md)与 [指标事件格式定义](skills/bootstrap-ai-native-dev-team/references/metrics-event.schema.json)：本地台账及其字段。
 - [发布与迁移历史](releases/)：既有发布记录和历史边界。
 

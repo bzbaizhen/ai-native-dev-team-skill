@@ -146,7 +146,7 @@ The compact global trigger is available in [examples/global-agents-snippet.md](e
 - [Core layer](skills/bootstrap-ai-native-dev-team/references/core.md) and [Controlled layer](skills/bootstrap-ai-native-dev-team/references/controlled.md): layer-specific rules.
 - [Linear Git isolation](skills/bootstrap-ai-native-dev-team/references/git-isolation-bootstrap.md): identity, base, branch, worktree, checkpoint, and blocker gates.
 - [Delivery Quality Review](skills/bootstrap-ai-native-dev-team/references/delivery-quality-review.md): the per-task acceptance protocol inside Controlled.
-- [Optional dated model-routing profile](skills/bootstrap-ai-native-dev-team/references/model-routing-openai-deepseek.md): explicit selection, runtime limits, evidence gaps, and recalibration rules. It is inactive by default.
+- [Optional OpenAI + GLM5.3 profile with evidence-gated DeepSeek fallback](skills/bootstrap-ai-native-dev-team/references/model-routing-openai-glm5.3-deepseek-fallback.md): explicit selection, runtime limits, evidence gaps, and recalibration rules. It is inactive by default.
 - [Optional metrics guide](skills/bootstrap-ai-native-dev-team/references/metrics.md) and [metrics event schema](skills/bootstrap-ai-native-dev-team/references/metrics-event.schema.json): the local ledger and its fields.
 - [Release and migration history](releases/): prior release records and historical boundaries.
 
