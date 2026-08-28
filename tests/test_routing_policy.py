@@ -8,7 +8,8 @@ ROOT = Path(__file__).resolve().parents[1]
 SKILL_DIR = ROOT / "skills" / "bootstrap-ai-native-dev-team"
 SCENARIOS_PATH = ROOT / "tests" / "routing-scenarios.json"
 COST_POLICY_CASES_PATH = ROOT / "tests" / "cost-routing-policy-cases.json"
-PROFILE_PATH = SKILL_DIR / "references" / "model-routing-openai-deepseek.md"
+PROFILE_PATH = SKILL_DIR / "references" / "model-routing-openai-glm5.3-deepseek-fallback.md"
+LEGACY_PROFILE_PATH = SKILL_DIR / "references" / "model-routing-openai-deepseek.md"
 GIT_ISOLATION_REFERENCE = SKILL_DIR / "references" / "git-isolation-bootstrap.md"
 GIT_ISOLATION_HELPER = SKILL_DIR / "scripts" / "git_isolation_bootstrap.py"
 
@@ -179,13 +180,19 @@ TASK_ROUTING_OBSERVATION_FIELDS = {
     "escalation_reason",
     "cost_claim",
 }
-EXPECTED_EVIDENCE_DATE = "The evidence snapshot date is **2026-08-20**."
+EXPECTED_EVIDENCE_DATE = "The evidence snapshot date is **2026-08-28**."
 EXPECTED_CURSORBENCH_ROW = (
     "| CursorBench 3.2 | 61.1%; $0.39; 87,973 tokens; 61 steps | "
     "64.9%; $2.31; 32,969 tokens; 47 steps | 63.5%; $2.79; 13,867 tokens; "
     "32 steps | Luna xhigh to max +3.4pp; Terra xhigh to max +5.7pp; "
     "Sol medium to high +3.5pp |"
 )
+EXPECTED_PRIMARY_UNAVAILABLE_EVIDENCE = [
+    "model-not-found",
+    "authenticated-provider-outage",
+    "quota-exhaustion",
+    "repeated-bounded-transport-failure",
+]
 
 
 def controlled_trigger(case: dict) -> bool:
@@ -205,26 +212,49 @@ def load_profile_contract() -> dict:
 
 def validate_profile_contract(profile: dict) -> None:
     assert set(profile) == EXPECTED_PROFILE_KEYS
-    assert profile["profile_id"] == "openai-deepseek-2026-08-20"
+    assert profile["profile_id"] == "openai-glm5.3-deepseek-fallback-2026-08-28"
     assert profile["default_active"] is False
     assert profile["activation"] == "explicit-owner-selection"
-    assert profile["evidence_date"] == "2026-08-20"
+    assert profile["evidence_date"] == "2026-08-28"
     assert profile["control_plane"] == {
         "model": "gpt-5.6-sol", "reasoning": "high",
     }
     assert profile["writers"] == EXPECTED_WRITERS
     assert profile["validators"] == {
         "R2_R3_when_writer_is_openai": {
-            "model": "deepseek-v4-pro", "reasoning": "max",
+            "primary": {
+                "provider": "zai",
+                "model": "glm-5.3",
+                "reasoning": "max",
+                "reasoning_delivery": "provider-default",
+            },
+            "fallback": {
+                "provider": "deepseek",
+                "model": "deepseek-v4-pro",
+                "reasoning": "max",
+                "requires_primary_unavailable_evidence": True,
+                "accepted_primary_unavailable_evidence": EXPECTED_PRIMARY_UNAVAILABLE_EVIDENCE,
+            },
         },
-        "when_writer_is_deepseek_fallback": {
+        "when_writer_is_glm_or_deepseek_fallback": {
             "model_source": "openai-writer-map-for-complexity",
             "reasoning_source": "openai-writer-map-for-complexity",
         },
     }
     assert profile["high_volume_deterministic_fallback"] == {
-        "model": "deepseek-v4-flash",
-        "reasoning": "max",
+        "primary": {
+            "provider": "zai",
+            "model": "glm-5.3-flash",
+            "reasoning": "max",
+            "reasoning_delivery": "provider-default",
+        },
+        "fallback": {
+            "provider": "deepseek",
+            "model": "deepseek-v4-flash",
+            "reasoning": "max",
+            "requires_primary_unavailable_evidence": True,
+            "accepted_primary_unavailable_evidence": EXPECTED_PRIMARY_UNAVAILABLE_EVIDENCE,
+        },
         "default": False,
         "requires_explicit_task_selection": True,
     }
@@ -667,9 +697,37 @@ class RoutingPolicyTests(unittest.TestCase):
             ("GPT-5.5", lambda p: p["writers"]["C3"].update(model="gpt-5.5")),
             ("GPT-5.4", lambda p: p["writers"]["C3"].update(model="gpt-5.4")),
             (
-                "Flash as default Validator",
-                lambda p: p["validators"]["R2_R3_when_writer_is_openai"].update(
-                    model="deepseek-v4-flash"
+                "DeepSeek Pro becomes primary Validator",
+                lambda p: p["validators"]["R2_R3_when_writer_is_openai"]["primary"].update(
+                    provider="deepseek", model="deepseek-v4-pro"
+                ),
+            ),
+            (
+                "Validator fallback loses primary-unavailable evidence gate",
+                lambda p: p["validators"]["R2_R3_when_writer_is_openai"]["fallback"].update(
+                    requires_primary_unavailable_evidence=False
+                ),
+            ),
+            (
+                "DeepSeek Flash becomes primary high-volume Writer",
+                lambda p: p["high_volume_deterministic_fallback"]["primary"].update(
+                    provider="deepseek", model="deepseek-v4-flash"
+                ),
+            ),
+            (
+                "high-volume fallback becomes default",
+                lambda p: p["high_volume_deterministic_fallback"].update(default=True),
+            ),
+            (
+                "high-volume fallback loses explicit selection",
+                lambda p: p["high_volume_deterministic_fallback"].update(
+                    requires_explicit_task_selection=False
+                ),
+            ),
+            (
+                "Writer fallback loses primary-unavailable evidence gate",
+                lambda p: p["high_volume_deterministic_fallback"]["fallback"].update(
+                    requires_primary_unavailable_evidence=False
                 ),
             ),
         ]
@@ -678,6 +736,63 @@ class RoutingPolicyTests(unittest.TestCase):
             mutate(candidate)
             with self.assertRaises(AssertionError, msg=label):
                 validate_profile_contract(candidate)
+
+        fallback_getters = (
+            (
+                "Validator fallback",
+                lambda p: p["validators"]["R2_R3_when_writer_is_openai"]["fallback"],
+            ),
+            (
+                "high-volume Writer fallback",
+                lambda p: p["high_volume_deterministic_fallback"]["fallback"],
+            ),
+        )
+        evidence_mutations = (
+            ("removes evidence field", lambda fallback: fallback.pop(
+                "accepted_primary_unavailable_evidence"
+            )),
+            ("reorders evidence list", lambda fallback: fallback.update(
+                accepted_primary_unavailable_evidence=list(
+                    reversed(EXPECTED_PRIMARY_UNAVAILABLE_EVIDENCE)
+                )
+            )),
+            ("replaces evidence list", lambda fallback: fallback.update(
+                accepted_primary_unavailable_evidence=["model-not-found"]
+            )),
+            ("accepts subjective quality", lambda fallback: fallback.update(
+                accepted_primary_unavailable_evidence=["subjective-quality"]
+            )),
+            ("accepts cost preference", lambda fallback: fallback.update(
+                accepted_primary_unavailable_evidence=["cost-preference"]
+            )),
+        )
+        for fallback_label, get_fallback in fallback_getters:
+            for mutation_label, mutate in evidence_mutations:
+                with self.subTest(fallback=fallback_label, mutation=mutation_label):
+                    candidate = copy.deepcopy(self.profile)
+                    mutate(get_fallback(candidate))
+                    with self.assertRaises(AssertionError):
+                        validate_profile_contract(candidate)
+
+    def test_optional_profile_keeps_deepseek_fallback_only(self) -> None:
+        profile = load_profile_contract()
+        validator_routes = profile["validators"]["R2_R3_when_writer_is_openai"]
+        high_volume_routes = profile["high_volume_deterministic_fallback"]
+        self.assertEqual(validator_routes["primary"]["provider"], "zai")
+        self.assertEqual(validator_routes["fallback"]["provider"], "deepseek")
+        self.assertEqual(high_volume_routes["primary"]["provider"], "zai")
+        self.assertEqual(high_volume_routes["fallback"]["provider"], "deepseek")
+        self.assertNotIn("deepseek", json.dumps(validator_routes["primary"]).casefold())
+        self.assertNotIn("deepseek", json.dumps(high_volume_routes["primary"]).casefold())
+        self.assertFalse(profile["default_active"])
+        self.assertFalse(high_volume_routes["default"])
+        self.assertFalse(LEGACY_PROFILE_PATH.exists())
+        profile_text = PROFILE_PATH.read_text(encoding="utf-8")
+        self.assertIn("If GLM Flash or DeepSeek Flash is the Writer", profile_text)
+        self.assertNotIn(
+            "If a GLM or either documented DeepSeek fallback is the Writer",
+            profile_text,
+        )
 
     def test_optional_profile_activation_fails_closed(self) -> None:
         for selected, available, authenticated in (
@@ -747,14 +862,18 @@ class RoutingPolicyTests(unittest.TestCase):
             GIT_ISOLATION_HELPER,
         ]
         vendor_name = re.compile(
-            r"(?:gpt-5(?:\.|-)|deepseek|openai|anthropic)", re.IGNORECASE
+            r"(?:gpt-5(?:\.|-)|deepseek|openai|anthropic|"
+            r"(?<!\w)glm-5\.3(?:-flash)?(?!\w)|\bzai\b)",
+            re.IGNORECASE,
         )
         for path in canonical:
             self.assertIsNone(
                 vendor_name.search(path.read_text(encoding="utf-8")), path
             )
         isolation_vendor_name = re.compile(
-            r"\b(?:codex|openai|deepseek|anthropic)\b", re.IGNORECASE
+            r"\b(?:codex|openai|deepseek|anthropic)\b|"
+            r"(?<!\w)glm-5\.3(?:-flash)?(?!\w)|\bzai\b",
+            re.IGNORECASE,
         )
         for path in (GIT_ISOLATION_REFERENCE, GIT_ISOLATION_HELPER):
             self.assertIsNone(isolation_vendor_name.search(path.read_text(encoding="utf-8")), path)
