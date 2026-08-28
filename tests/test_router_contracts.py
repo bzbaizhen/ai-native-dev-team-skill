@@ -75,6 +75,7 @@ class SchemaContractTests(unittest.TestCase):
             "router_api_version",
             "request_id",
             "route_slot",
+            "writer_route_slot",
             "profile_id",
             "explicit_profile_selection",
             "explicit_high_volume_selection",
@@ -88,6 +89,13 @@ class SchemaContractTests(unittest.TestCase):
         self.assertEqual(schema["properties"]["router_api_version"]["const"], "route/v1")
         self.assertEqual(schema["properties"]["route_slot"]["enum"], ROUTE_SLOTS)
         self.assertEqual(
+            schema["properties"]["writer_route_slot"],
+            {
+                "type": ["string", "null"],
+                "enum": ["writer.c0-batch", "writer.c1", "writer.c2", "writer.c3", None],
+            },
+        )
+        self.assertEqual(
             schema["properties"]["availability"]["additionalProperties"]["enum"]
             ,
             ["available", "unavailable", "unknown"],
@@ -95,8 +103,12 @@ class SchemaContractTests(unittest.TestCase):
         evidence = schema["properties"]["primary_failure_evidence"]
         self.assertTrue(evidence["uniqueItems"])
         self.assertEqual(evidence["items"]["type"], "string")
-        self.assertEqual(schema["properties"]["writer_identity"]["type"], ["object", "null"])
-        self.assertFalse(schema["properties"]["writer_identity"]["additionalProperties"])
+        writer_identity = schema["properties"]["writer_identity"]
+        self.assertEqual(writer_identity["type"], ["object", "null"])
+        self.assertEqual(set(writer_identity["required"]), {"provider", "runtime_provider", "model"})
+        self.assertEqual(set(writer_identity["properties"]), {"provider", "runtime_provider", "model"})
+        self.assertTrue(all(item["type"] == "string" for item in writer_identity["properties"].values()))
+        self.assertFalse(writer_identity["additionalProperties"])
         self.assertEqual(schema["properties"]["candidate_id"]["type"], ["string", "null"])
 
     def test_route_decision_contract_has_exact_required_surface(self):
@@ -125,6 +137,10 @@ class SchemaContractTests(unittest.TestCase):
         )
         self.assertEqual(schema["properties"]["config_digest"]["pattern"], r"^[0-9a-f]{64}$")
         self.assertEqual(schema["properties"]["selected_route"]["type"], ["object", "null"])
+        self.assertEqual(
+            set(schema["properties"]["selected_route"]["required"]),
+            {"provider", "runtime_provider", "model", "reasoning", "reasoning_delivery"},
+        )
         self.assertFalse(schema["properties"]["selected_route"]["additionalProperties"])
 
     def test_config_contract_and_example_are_exact_and_secret_free(self):

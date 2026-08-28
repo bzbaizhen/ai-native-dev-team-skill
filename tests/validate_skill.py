@@ -61,6 +61,28 @@ ISOLATION_TEMPLATE_FIELDS = (
     "exact tested head",
 )
 
+MODEL_ROUTER = ROOT / "skills" / "ai-native-model-router"
+MODEL_ROUTER_REQUIRED_PATHS = {
+    "SKILL.md",
+    "agents/openai.yaml",
+    "assets/model-router-config.example.json",
+    "assets/model-router-config.v1.schema.json",
+    "assets/profiles/openai-glm5.3-deepseek-fallback-2026-08-28.json",
+    "assets/provider-catalog.json",
+    "assets/route-decision.v1.schema.json",
+    "assets/route-request.v1.schema.json",
+    "references/configuration.md",
+    "references/interface.md",
+    "references/provider-evidence.md",
+    "scripts/resolve_route.py",
+    "scripts/router_config.py",
+}
+MODEL_ROUTER_PROFILE_ID = "openai-glm5.3-deepseek-fallback-2026-08-28"
+MODEL_ROUTER_CONFIG_ID = "project-router-2026-08-28"
+MODEL_ROUTER_FORBIDDEN_TOKENS = re.compile(
+    r"\b(?:core|controlled|dqr|linear|governance)\b", re.IGNORECASE
+)
+
 
 def fail(message: str) -> None:
     print(f"FAIL: {message}")
@@ -86,6 +108,104 @@ def local_link_targets(text: str) -> set[str]:
         for target in re.findall(r"\[[^\]]+\]\(([^)]+)\)", text)
         if not target.startswith(("http://", "https://", "#"))
     }
+
+
+def validate_model_router_bundle(skill_dir: Path) -> None:
+    """Validate the complete provider-router surface without executing it."""
+    actual_paths = {
+        path.relative_to(skill_dir).as_posix()
+        for path in skill_dir.rglob("*")
+        if path.is_file() and "__pycache__" not in path.parts and path.suffix != ".pyc"
+    }
+    assert actual_paths == MODEL_ROUTER_REQUIRED_PATHS, (
+        f"Router paths drifted: extra={sorted(actual_paths - MODEL_ROUTER_REQUIRED_PATHS)}, "
+        f"missing={sorted(MODEL_ROUTER_REQUIRED_PATHS - actual_paths)}"
+    )
+
+    skill_text = (skill_dir / "SKILL.md").read_text(encoding="utf-8")
+    frontmatter_match = re.match(r"\A---\s*\n(.*?)\n---", skill_text, re.DOTALL)
+    assert frontmatter_match, "Router frontmatter is malformed"
+    expected_frontmatter = """name: ai-native-model-router
+description: Deterministic model routing with evidence-bound fallbacks.
+version: 0.1.0
+author: bzbaizhen, Hermes Agent
+license: MIT
+platforms:
+  - linux
+  - macos
+  - windows
+metadata:
+  hermes:
+    tags:
+      - model-routing
+      - provider-selection
+      - deterministic
+    config:
+      - key: ai_native_model_router.config_path
+        description: Path to the project-local model router configuration.
+        default: .ai-native/model-router.json
+        prompt: Enter the project-local model router configuration path."""
+    assert frontmatter_match.group(1) == expected_frontmatter
+
+    metadata_text = (skill_dir / "agents" / "openai.yaml").read_text(encoding="utf-8")
+    assert "allow_implicit_invocation: false" in metadata_text
+    assert "allow_implicit_invocation: true" not in metadata_text
+    assert re.search(r"^\s*default_prompt:\s*.*\$ai-native-model-router", metadata_text, re.MULTILINE)
+    assert "display_name: \"AI Native Model Router\"" in metadata_text
+    assert "short_description: \"Deterministic provider routing with evidence gates\"" in metadata_text
+
+    links = local_link_targets(skill_text)
+    expected_links = MODEL_ROUTER_REQUIRED_PATHS - {
+        "SKILL.md",
+        "agents/openai.yaml",
+        "assets/model-router-config.example.json",
+    }
+    assert links == expected_links
+    for target in links:
+        assert (skill_dir / target).is_file(), target
+
+    for path in skill_dir.rglob("*"):
+        if path.is_file() and path.suffix.lower() in {".md", ".py", ".json", ".yaml"}:
+            assert not MODEL_ROUTER_FORBIDDEN_TOKENS.search(path.read_text(encoding="utf-8")), path
+
+    json_payloads = {}
+    for path in skill_dir.rglob("*.json"):
+        try:
+            json_payloads[path.relative_to(skill_dir).as_posix()] = json.loads(
+                path.read_text(encoding="utf-8")
+            )
+        except json.JSONDecodeError as exc:
+            raise AssertionError(f"invalid Router JSON: {path}: {exc}") from exc
+    for path in skill_dir.rglob("*.py"):
+        try:
+            ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        except SyntaxError as exc:
+            raise AssertionError(f"invalid Router Python: {path}: {exc}") from exc
+
+    profile = json_payloads["assets/profiles/" + MODEL_ROUTER_PROFILE_ID + ".json"]
+    assert profile["schema_version"] == 1
+    assert profile["profile_id"] == MODEL_ROUTER_PROFILE_ID
+    assert profile["default_active"] is False
+    assert profile["activation"] == "explicit-owner-selection"
+    assert profile["evidence_date"] == "2026-08-28"
+    config = json_payloads["assets/model-router-config.example.json"]
+    assert config == {
+        "schema_version": 1,
+        "router_api_version": "route/v1",
+        "config_id": MODEL_ROUTER_CONFIG_ID,
+        "active_profile": MODEL_ROUTER_PROFILE_ID,
+        "project_profile_dirs": [".ai-native/profiles"],
+        "updated_reason": "Explicit project profile selection for route/v1.",
+    }
+    catalog = json_payloads["assets/provider-catalog.json"]
+    assert catalog["schema_version"] == 1
+    assert catalog["catalog_id"] == "provider-catalog-2026-08-28"
+    assert json_payloads["assets/model-router-config.v1.schema.json"]["$id"] == "model-router-config.v1.schema.json"
+    assert json_payloads["assets/route-request.v1.schema.json"]["$id"] == "route-request.v1.schema.json"
+    assert json_payloads["assets/route-decision.v1.schema.json"]["$id"] == "route-decision.v1.schema.json"
+
+
+validate_model_router_bundle(MODEL_ROUTER)
 
 
 def validate_progressive_disclosure(skill_text: str, skill_dir: Path) -> None:

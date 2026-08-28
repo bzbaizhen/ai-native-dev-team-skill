@@ -1,0 +1,108 @@
+{
+  "schema_version": 1,
+  "profile_id": "openai-glm5.3-deepseek-fallback-2026-08-28",
+  "default_active": false,
+  "activation": "explicit-owner-selection",
+  "evidence_date": "2026-08-28",
+  "slots": {
+    "control-plane": {
+      "primary": {
+        "provider": "openai",
+        "model": "gpt-5.6-sol",
+        "reasoning": "high",
+        "reasoning_delivery": "explicit"
+      }
+    },
+    "writer.c0-batch": {
+      "primary": {
+        "provider": "openai",
+        "model": "gpt-5.6-luna",
+        "reasoning": "max",
+        "reasoning_delivery": "explicit"
+      }
+    },
+    "writer.c1": {
+      "primary": {
+        "provider": "openai",
+        "model": "gpt-5.6-luna",
+        "reasoning": "max",
+        "reasoning_delivery": "explicit"
+      }
+    },
+    "writer.c2": {
+      "primary": {
+        "provider": "openai",
+        "model": "gpt-5.6-terra",
+        "reasoning": "max",
+        "reasoning_delivery": "explicit"
+      }
+    },
+    "writer.c3": {
+      "primary": {
+        "provider": "openai",
+        "model": "gpt-5.6-sol",
+        "reasoning": "high",
+        "reasoning_delivery": "explicit"
+      }
+    },
+    "validator.independent": {
+      "primary": {
+        "provider": "zai",
+        "model": "glm-5.3",
+        "reasoning": "max",
+        "reasoning_delivery": "provider-default"
+      },
+      "fallback": {
+        "provider": "deepseek",
+        "model": "deepseek-v4-pro",
+        "reasoning": "max",
+        "reasoning_delivery": "explicit"
+      },
+      "accepted_primary_unavailable_evidence": [
+        "model-not-found",
+        "authenticated-provider-outage",
+        "quota-exhaustion",
+        "repeated-bounded-transport-failure"
+      ],
+      "independent_validator_source": "openai-complexity-map"
+    },
+    "writer.high-volume-deterministic": {
+      "primary": {
+        "provider": "zai",
+        "model": "glm-5.3-flash",
+        "reasoning": "max",
+        "reasoning_delivery": "provider-default"
+      },
+      "fallback": {
+        "provider": "deepseek",
+        "model": "deepseek-v4-flash",
+        "reasoning": "max",
+        "reasoning_delivery": "explicit"
+      },
+      "accepted_primary_unavailable_evidence": [
+        "model-not-found",
+        "authenticated-provider-outage",
+        "quota-exhaustion",
+        "repeated-bounded-transport-failure"
+      ],
+      "independent_validator_source": "openai-complexity-map",
+      "default": false,
+      "requires_explicit_task_selection": true
+    }
+  },
+  "forbidden_defaults": [
+    "gpt-5.6-sol:xhigh",
+    "gpt-5.6-sol:max",
+    "gpt-5.6-sol:ultra",
+    "gpt-5.6-luna:low",
+    "gpt-5.6-luna:medium",
+    "gpt-5.6-luna:high",
+    "gpt-5.6-luna:xhigh",
+    "gpt-5.6-terra:low",
+    "gpt-5.6-terra:medium",
+    "gpt-5.6-terra:high",
+    "gpt-5.6-terra:xhigh",
+    "gpt-5.5:*",
+    "gpt-5.4:*"
+  ]
+}

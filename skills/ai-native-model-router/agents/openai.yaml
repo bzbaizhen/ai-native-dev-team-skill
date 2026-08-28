@@ -1,0 +1,6 @@
+interface:
+  display_name: "AI Native Model Router"
+  short_description: "Deterministic provider routing with evidence gates"
+  default_prompt: "Use $ai-native-model-router to resolve an explicit route/v1 request without executing a provider."
+policy:
+  allow_implicit_invocation: false

@@ -8,6 +8,7 @@
     "router_api_version",
     "request_id",
     "route_slot",
+    "writer_route_slot",
     "profile_id",
     "explicit_profile_selection",
     "explicit_high_volume_selection",
@@ -31,6 +32,10 @@
         "writer.high-volume-deterministic"
       ]
     },
+    "writer_route_slot": {
+      "type": ["string", "null"],
+      "enum": ["writer.c0-batch", "writer.c1", "writer.c2", "writer.c3", null]
+    },
     "profile_id": { "type": "string", "minLength": 1 },
     "explicit_profile_selection": { "type": "boolean" },
     "explicit_high_volume_selection": { "type": "boolean" },
@@ -49,9 +54,10 @@
     "writer_identity": {
       "type": ["object", "null"],
       "additionalProperties": false,
-      "required": ["provider", "model"],
+      "required": ["provider", "runtime_provider", "model"],
       "properties": {
         "provider": { "type": "string", "minLength": 1 },
+        "runtime_provider": { "type": "string", "minLength": 1 },
         "model": { "type": "string", "minLength": 1 }
       }
     },

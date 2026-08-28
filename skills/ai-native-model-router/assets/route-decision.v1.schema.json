@@ -45,9 +45,10 @@
     "selected_route": {
       "type": ["object", "null"],
       "additionalProperties": false,
-      "required": ["provider", "model", "reasoning", "reasoning_delivery"],
+      "required": ["provider", "runtime_provider", "model", "reasoning", "reasoning_delivery"],
       "properties": {
         "provider": { "type": "string", "minLength": 1 },
+        "runtime_provider": { "type": "string", "minLength": 1 },
         "model": { "type": "string", "minLength": 1 },
         "reasoning": { "type": "string", "minLength": 1 },
         "reasoning_delivery": { "type": "string", "minLength": 1 }

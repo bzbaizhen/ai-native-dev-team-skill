@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "catalog_id": "provider-catalog-2026-08-28",
+  "providers": {
+    "openai": {
+      "runtime_provider": "custom",
+      "models": {
+        "gpt-5.6-luna": {
+          "reasoning": ["max"],
+          "reasoning_delivery": "explicit"
+        },
+        "gpt-5.6-sol": {
+          "reasoning": ["high"],
+          "reasoning_delivery": "explicit"
+        },
+        "gpt-5.6-terra": {
+          "reasoning": ["max"],
+          "reasoning_delivery": "explicit"
+        }
+      }
+    },
+    "zai": {
+      "runtime_provider": "zai",
+      "models": {
+        "glm-5.3": {
+          "reasoning": ["low", "high", "max"],
+          "reasoning_delivery": "provider-default"
+        },
+        "glm-5.3-flash": {
+          "reasoning": ["low", "high", "max"],
+          "reasoning_delivery": "provider-default"
+        }
+      }
+    },
+    "deepseek": {
+      "runtime_provider": "deepseek",
+      "models": {
+        "deepseek-v4-flash": {
+          "reasoning": ["max"],
+          "reasoning_delivery": "explicit"
+        },
+        "deepseek-v4-pro": {
+          "reasoning": ["max"],
+          "reasoning_delivery": "explicit"
+        }
+      }
+    }
+  }
+}
