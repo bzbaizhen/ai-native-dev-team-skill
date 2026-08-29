@@ -10,6 +10,8 @@ platforms:
   - windows
 metadata:
   hermes:
+    related_skills:
+      - ai-native-dev-team
     tags:
       - model-routing
       - provider-selection

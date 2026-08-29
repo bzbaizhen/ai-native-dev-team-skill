@@ -1,10 +1,13 @@
-# AI Native 开发团队 Skill
+# AI Native Dev Team Suite
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
 **给希望让 Coding Agent 安全修改仓库的开发者使用：明确文件所有权，保留独立证据，并让交付可回退、可恢复。**
 
 它适合使用 Codex、Hermes Agent 或手动安装的兼容 Agent 的开发者与技术负责人。普通的多 Agent 编排往往先列角色；这个 Skill 先检查任务事实，再选择最小拓扑，并把工作和证据绑定到允许路径与准确候选版本。
+
+这个套件由治理 Core/Entry Skill 和可选的 Routing Extension 组成。没有 Router 时
+Core 仍可独立工作；需要宿主映射时，再单独安装 Extension。
 
 当前版本：[v2.1.0](https://github.com/bzbaizhen/ai-native-dev-team-skill/releases/tag/v2.1.0)
 
@@ -39,18 +42,21 @@ TypeScript：0 diagnostics
 
 ## 安装
 
-| 宿主 | 安装方式 | 说明 |
-|---|---|---|
-| Codex | `$skill-installer install https://github.com/bzbaizhen/ai-native-dev-team-skill/tree/main/skills/bootstrap-ai-native-dev-team` | 基于源码路径的仓库安装。 |
-| Hermes Agent | 克隆或下载本仓库，然后将完整的 `skills/bootstrap-ai-native-dev-team/` 目录复制到 `$HERMES_HOME/skills/`。 | 必须使用完整目录，因为其中的 references、assets 和 scripts 存在链接关系。 |
-| 手动安装的兼容 Agent | 将完整的 [`skills/bootstrap-ai-native-dev-team/`](skills/bootstrap-ai-native-dev-team/) 目录复制到 Agent 支持的 Skill 目录。 | references、assets 和 scripts 都是目录的一部分；只复制 `SKILL.md` 不完整。 |
+| 组件 | 宿主 | 安装方式 | 说明 |
+|---|---|---|---|
+| Core/Entry — `ai-native-dev-team` | Codex | `$skill-installer install https://github.com/bzbaizhen/ai-native-dev-team-skill/tree/main/skills/ai-native-dev-team` | 治理和交付控制。 |
+| Routing Extension — `ai-native-model-router` | Codex | `$skill-installer install https://github.com/bzbaizhen/ai-native-dev-team-skill/tree/main/skills/ai-native-model-router` | 可选的项目级路由合同。 |
+| Core/Entry — `ai-native-dev-team` | Hermes Agent | 将完整的 `skills/ai-native-dev-team/` 目录复制到 `$HERMES_HOME/skills/`。 | 保持 references、assets 和 scripts 完整。 |
+| Routing Extension — `ai-native-model-router` | Hermes Agent | 将完整的 `skills/ai-native-model-router/` 目录复制到 `$HERMES_HOME/skills/`。 | 需要路由时单独安装。 |
+| Core/Entry — `ai-native-dev-team` | 手动安装的兼容 Agent | 将完整的 [`skills/ai-native-dev-team/`](skills/ai-native-dev-team/) 目录复制到 Agent 支持的 Skill 目录。 | 只复制 `SKILL.md` 不完整。 |
+| Routing Extension — `ai-native-model-router` | 手动安装的兼容 Agent | 将完整的 [`skills/ai-native-model-router/`](skills/ai-native-model-router/) 目录复制到 Agent 支持的 Skill 目录。 | Extension 可独立选择。 |
 
 ## 60 秒快速开始
 
 安装 Skill 后，可以直接使用下面的短提示词：
 
 ```text
-使用 $bootstrap-ai-native-dev-team。先检查这个仓库和任务，区分已确认事实、推断和待核验项，提出最小安全拓扑。现在不要修改文件。
+使用 $ai-native-dev-team。先检查这个仓库和任务，区分已确认事实、推断和待核验项，提出最小安全拓扑。现在不要修改文件。
 ```
 
 ```text
@@ -105,7 +111,7 @@ Git 历史、远程副本、回退、恢复、集成、安装和发布是不同�
 
 ## 工作流
 
-![检查、分级、提案、批准、执行并验证准确候选版本](docs/images/bootstrap-workflow.png)
+![检查、分级、提案、批准、执行并验证准确候选版本](docs/images/ai-native-dev-team-workflow.png)
 
 1. 检查仓库、任务基线、任务合同、权限、测试入口、集成积压、回退和恢复。
 2. 分开记录已确认事实、推断和待核验项，分别评估复杂度与风险。
@@ -134,26 +140,26 @@ Git 历史、远程副本、回退、恢复、集成、安装和发布是不同�
 | 层级 | 负责什么 |
 |---|---|
 | 全局 `AGENTS.md` | 决定何时触发这个 Skill，并保留少数硬边界。 |
-| `bootstrap-ai-native-dev-team` | 检查、分级、提案、初始化和调整。 |
+| `ai-native-dev-team` | 检查、分级、提案、初始化和调整。 |
 | 项目真源 | 保存实际产品、任务合同、决策、风险和版本证据。 |
 
 精简的全局触发规则见 [examples/global-agents-snippet.md](examples/global-agents-snippet.md)。
 
 ## 深入参考
 
-- [Skill 入口](skills/bootstrap-ai-native-dev-team/SKILL.md)：权限、选择和执行生命周期。Windows 无人值守 Writer 默认使用 `pty=false`、`background=true` 和 `notify_on_complete=true`；仅将 `pty=true` 保留给交互式输入，并且只有进程 registry 报告 `exited` 时才接受完成，不得创建重复 Writer 或反复 `wait/reconnect`。
-- [路由与拓扑](skills/bootstrap-ai-native-dev-team/references/routing-and-topologies.md)：完整的复杂度/风险门禁、拓扑、能力路由和证据复用规则。
-- [Core 层](skills/bootstrap-ai-native-dev-team/references/core.md)与 [Controlled 层](skills/bootstrap-ai-native-dev-team/references/controlled.md)：各层的具体规则。
-- [Linear Git 隔离](skills/bootstrap-ai-native-dev-team/references/git-isolation-bootstrap.md)：身份、基线、分支、Worktree、checkpoint 和阻断状态门禁。
-- [Delivery Quality Review](skills/bootstrap-ai-native-dev-team/references/delivery-quality-review.md)：Controlled 内的按任务验收协议。
-- [可选的 OpenAI + GLM5.3 路由配置（DeepSeek 证据门控回退）](skills/bootstrap-ai-native-dev-team/references/model-routing-openai-glm5.3-deepseek-fallback.md)：需显式选择；仅在记录主路由不可用证据后允许回退，默认不启用。
-- [可选指标指南](skills/bootstrap-ai-native-dev-team/references/metrics.md)与 [指标事件格式定义](skills/bootstrap-ai-native-dev-team/references/metrics-event.schema.json)：本地台账及其字段。
+- [Team Skill 入口](skills/ai-native-dev-team/SKILL.md)：权限、选择和执行生命周期。Windows 无人值守 Writer 默认使用 `pty=false`、`background=true` 和 `notify_on_complete=true`；仅将 `pty=true` 保留给交互式输入，并且只有进程 registry 报告 `exited` 时才接受完成，不得创建重复 Writer 或反复 `wait/reconnect`。
+- [Team 路由与拓扑](skills/ai-native-dev-team/references/routing-and-topologies.md)：完整的复杂度/风险门禁、拓扑、能力路由和证据复用规则。
+- [Core 层](skills/ai-native-dev-team/references/core.md)与 [Controlled 层](skills/ai-native-dev-team/references/controlled.md)：各层的具体规则。
+- [Linear Git 隔离](skills/ai-native-dev-team/references/git-isolation-bootstrap.md)：身份、基线、分支、Worktree、checkpoint 和阻断状态门禁。
+- [Delivery Quality Review](skills/ai-native-dev-team/references/delivery-quality-review.md)：Controlled 内的按任务验收协议。
+- [Model Router 入口](skills/ai-native-model-router/SKILL.md)：可选的项目级路由解析和证据门控回退。
+- [可选指标指南](skills/ai-native-dev-team/references/metrics.md)与 [指标事件格式定义](skills/ai-native-dev-team/references/metrics-event.schema.json)：本地台账及其字段。
 - [发布与迁移历史](releases/)：既有发布记录和历史边界。
 
 ## 仓库结构
 
 ```text
-skills/bootstrap-ai-native-dev-team/
+skills/ai-native-dev-team/
 ├── SKILL.md              # 入口
 ├── references/           # 路由、开发层、隔离、DQR、指标和治理
 ├── scripts/              # Git 隔离与可选指标工具

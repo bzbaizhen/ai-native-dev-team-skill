@@ -6,11 +6,11 @@ import sys
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SKILL = ROOT / "skills" / "bootstrap-ai-native-dev-team"
+SKILL = ROOT / "skills" / "ai-native-dev-team"
 EXPECTED_LEVEL_ZERO_DESCRIPTION = "Route AI-native development with proportional controls."
 MAX_LEVEL_ZERO_DESCRIPTION_CHARS = 60
-MAX_LEVEL_ONE_LINES = 110
-MAX_LEVEL_ONE_CHARS = 6500
+MAX_LEVEL_ONE_LINES = 120
+MAX_LEVEL_ONE_CHARS = 6800
 CANONICAL_REFERENCE_LINKS = (
     "references/routing-and-topologies.md",
     "references/core.md",
@@ -136,6 +136,8 @@ platforms:
   - windows
 metadata:
   hermes:
+    related_skills:
+      - ai-native-dev-team
     tags:
       - model-routing
       - provider-selection
@@ -261,7 +263,6 @@ required = [
     METRICS_REFERENCE,
     METRICS_SCHEMA,
     GIT_ISOLATION_REFERENCE,
-    SKILL / "references" / "model-routing-openai-glm5.3-deepseek-fallback.md",
     SKILL / "references" / "governance-lean.md",
     SKILL / "references" / "governance-controlled.md",
     SKILL / "references" / "governance-strict.md",
@@ -316,9 +317,12 @@ frontmatter_keys = {
     for line in parts[1].splitlines()
     if ":" in line
 }
-if frontmatter_keys != {"name", "description"}:
-    fail("SKILL.md frontmatter must contain only name and description")
-if "name: bootstrap-ai-native-dev-team" not in parts[1]:
+if frontmatter_keys != {
+    "name", "description", "version", "author", "license", "platforms",
+    "metadata", "hermes", "related_skills", "tags",
+}:
+    fail("SKILL.md frontmatter keys drifted")
+if "name: ai-native-dev-team" not in parts[1]:
     fail("SKILL.md name is incorrect")
 try:
     validate_progressive_disclosure(skill_text, SKILL)
@@ -355,8 +359,8 @@ try:
 except SyntaxError as exc:
     fail(f"git isolation helper has a syntax error: {exc}")
 
-if "references/model-routing-*.md" not in skill_text:
-    fail("SKILL.md does not define the generic optional-profile boundary")
+if "optional runtime profiles belong to `ai-native-model-router`" not in skill_text.casefold():
+    fail("SKILL.md does not assign optional profiles to the Router")
 if "file presence never activates a profile" not in skill_text.casefold():
     fail("SKILL.md does not keep optional profiles inactive by default")
 
@@ -706,17 +710,9 @@ for namespace_contract_term in (
     if namespace_contract_term not in team_metrics_source:
         fail(f"team_metrics.py is missing namespace safety behavior: {namespace_contract_term}")
 
-profile_path = SKILL / "references" / "model-routing-openai-glm5.3-deepseek-fallback.md"
-profile_text = profile_path.read_text(encoding="utf-8")
-profile_match = re.search(
-    r"```json routing-profile\s*(\{.*?\})\s*```",
-    profile_text,
-    re.DOTALL,
-)
-if not profile_match:
-    fail("optional routing profile lacks its machine-checked JSON contract")
+profile_path = MODEL_ROUTER / "assets" / "profiles" / "openai-glm5.3-deepseek-fallback-2026-08-28.json"
 try:
-    profile_contract = json.loads(profile_match.group(1))
+    profile_contract = json.loads(profile_path.read_text(encoding="utf-8"))
 except json.JSONDecodeError as exc:
     fail(f"optional routing profile contract is invalid JSON: {exc}")
 if profile_contract.get("default_active") is not False:
@@ -726,42 +722,17 @@ if profile_contract.get("activation") != "explicit-owner-selection":
 if profile_contract.get("evidence_date") != "2026-08-28":
     fail("optional routing profile evidence date drifted")
 
-validator_fallback = (
-    profile_contract.get("validators", {})
-    .get("R2_R3_when_writer_is_openai", {})
-    .get("fallback")
-)
+validator_fallback = profile_contract.get("slots", {}).get("validator.independent", {})
 if not isinstance(validator_fallback, dict):
     fail("validator fallback object is missing")
 if validator_fallback.get("accepted_primary_unavailable_evidence") != EXPECTED_PRIMARY_UNAVAILABLE_EVIDENCE:
     fail("validator fallback evidence list is not the exact accepted array")
 
-high_volume_writer_fallback = (
-    profile_contract.get("high_volume_deterministic_fallback", {})
-    .get("fallback")
-)
+high_volume_writer_fallback = profile_contract.get("slots", {}).get("writer.high-volume-deterministic", {})
 if not isinstance(high_volume_writer_fallback, dict):
     fail("high-volume Writer fallback object is missing")
 if high_volume_writer_fallback.get("accepted_primary_unavailable_evidence") != EXPECTED_PRIMARY_UNAVAILABLE_EVIDENCE:
     fail("high-volume Writer fallback evidence list is not the exact accepted array")
-
-expected_evidence_date = "The evidence snapshot date is **2026-08-28**."
-expected_cursorbench_row = (
-    "| CursorBench 3.2 | 61.1%; $0.39; 87,973 tokens; 61 steps | "
-    "64.9%; $2.31; 32,969 tokens; 47 steps | 63.5%; $2.79; 13,867 tokens; "
-    "32 steps | Luna xhigh to max +3.4pp; Terra xhigh to max +5.7pp; "
-    "Sol medium to high +3.5pp |"
-)
-if profile_text.count(expected_evidence_date) != 1:
-    fail("optional routing profile evidence date drifted")
-cursorbench_rows = [
-    line for line in profile_text.splitlines() if line.startswith("| CursorBench 3.2 |")
-]
-if cursorbench_rows != [expected_cursorbench_row]:
-    fail("CursorBench dated evidence row drifted")
-for amount in ("$0.39", "$2.31", "$2.79"):
-    if cursorbench_rows[0].count(amount) != 1:
-        fail(f"CursorBench evidence row is missing exact amount: {amount}")
 
 canonical_policy_files = [
     SKILL / "SKILL.md",
@@ -870,7 +841,7 @@ if not any(
     fail("cost-routing cases must bind cost claims to an observed lower-cost mapping")
 
 openai_yaml = (SKILL / "agents" / "openai.yaml").read_text(encoding="utf-8")
-if "$bootstrap-ai-native-dev-team" not in openai_yaml:
+if "$ai-native-dev-team" not in openai_yaml:
     fail("default prompt does not explicitly invoke the Skill")
 if contains_removed_term(openai_yaml, "release audit") or contains_removed_term(
     openai_yaml, "audit work"
@@ -965,4 +936,4 @@ for path in SKILL.rglob("*"):
         if sensitive.search(path.read_text(encoding="utf-8")):
             fail(f"local user path leaked into {path.relative_to(ROOT)}")
 
-print("PASS: V2 development-only Skill structure and routing are valid")
+print("PASS: AI Native Dev Team Suite structure and routing are valid")

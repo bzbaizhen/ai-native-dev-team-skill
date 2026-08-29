@@ -11,7 +11,7 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SCRIPT = ROOT / "skills" / "bootstrap-ai-native-dev-team" / "scripts" / "team_metrics.py"
+SCRIPT = ROOT / "skills" / "ai-native-dev-team" / "scripts" / "team_metrics.py"
 SPEC = importlib.util.spec_from_file_location("team_metrics_under_test", SCRIPT)
 assert SPEC is not None and SPEC.loader is not None
 team_metrics = importlib.util.module_from_spec(SPEC)

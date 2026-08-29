@@ -1,11 +1,11 @@
-# ADR 0001: Decouple provider routing from the bootstrap-ai-native-dev-team Skill
+# ADR 0001: Decouple provider routing from the ai-native-dev-team Skill
 
 Status: accepted for Phase 1 contract freeze
 Date: 2026-08-28
 
 ## Decision
 
-The dependency direction is one-way: `bootstrap-ai-native-dev-team` owns governance and
+The dependency direction is one-way: `ai-native-dev-team` owns governance and
 emits semantic `route/v1` slots; `ai-native-model-router` owns project
 configuration and selection and returns a `RouteDecision`. The stable seam is
 `RouteRequest -> RouteDecision`. Governance must not import provider-selection

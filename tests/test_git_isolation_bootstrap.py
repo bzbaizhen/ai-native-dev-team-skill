@@ -22,7 +22,7 @@ VENDOR_TOKEN = re.compile(
 HELPER = (
     ROOT
     / "skills"
-    / "bootstrap-ai-native-dev-team"
+    / "ai-native-dev-team"
     / "scripts"
     / "git_isolation_bootstrap.py"
 )
@@ -245,7 +245,7 @@ class GitIsolationBootstrapContractTests(unittest.TestCase):
         reference = (
             ROOT
             / "skills"
-            / "bootstrap-ai-native-dev-team"
+            / "ai-native-dev-team"
             / "references"
             / "git-isolation-bootstrap.md"
         )
@@ -254,7 +254,7 @@ class GitIsolationBootstrapContractTests(unittest.TestCase):
             self.assertNotIn("codex-git-isolation-bootstrap.lock", path.read_text(encoding="utf-8"))
         reference_text = reference.read_text(encoding="utf-8")
         self.assertIn(
-            "skills/bootstrap-ai-native-dev-team/scripts/git_isolation_bootstrap.py",
+            "skills/ai-native-dev-team/scripts/git_isolation_bootstrap.py",
             reference_text,
         )
         self.assertNotIn("python -B scripts/git_isolation_bootstrap.py", reference_text)

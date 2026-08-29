@@ -1,10 +1,14 @@
-# AI-Native Development Team Skill
+# AI Native Dev Team Suite
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
 **A control-plane Skill for developers who want Coding Agents to change a repository with explicit ownership, independent evidence, and recoverable delivery.**
 
 It is for developers and technical leads using Codex, Hermes Agent, or a manually installed compatible agent. Generic multi-agent orchestration starts with a roster; this Skill starts with the task: inspect the facts, choose the smallest topology, and bind work and evidence to an allowed path and an exact candidate.
+
+The suite has a governance Core/Entry Skill and an optional Routing Extension. The Core
+remains useful without the Router; the Extension supplies a separate project-local route
+contract when a host mapping is needed.
 
 Released: [v2.1.0](https://github.com/bzbaizhen/ai-native-dev-team-skill/releases/tag/v2.1.0)
 
@@ -39,18 +43,21 @@ The project had frontend, backend, and QA agents, but its delivery system was un
 
 ## Install
 
-| Host | Install | Notes |
-|---|---|---|
-| Codex | `$skill-installer install https://github.com/bzbaizhen/ai-native-dev-team-skill/tree/main/skills/bootstrap-ai-native-dev-team` | Source-backed repository install. |
-| Hermes Agent | Clone or download this repository, then copy the complete `skills/bootstrap-ai-native-dev-team/` directory into `$HERMES_HOME/skills/`. | The complete directory is required because its references, assets, and scripts are linked. |
-| Manual compatible agent | Copy the complete [`skills/bootstrap-ai-native-dev-team/`](skills/bootstrap-ai-native-dev-team/) directory into the agent's supported Skill location. | References, assets, and scripts are required. Copying only `SKILL.md` is incomplete. |
+| Component | Host | Install | Notes |
+|---|---|---|---|
+| Core/Entry — `ai-native-dev-team` | Codex | `$skill-installer install https://github.com/bzbaizhen/ai-native-dev-team-skill/tree/main/skills/ai-native-dev-team` | Governance and delivery controls. |
+| Routing Extension — `ai-native-model-router` | Codex | `$skill-installer install https://github.com/bzbaizhen/ai-native-dev-team-skill/tree/main/skills/ai-native-model-router` | Optional project-local route contract. |
+| Core/Entry — `ai-native-dev-team` | Hermes Agent | Copy the complete `skills/ai-native-dev-team/` directory into `$HERMES_HOME/skills/`. | Keep references, assets, and scripts together. |
+| Routing Extension — `ai-native-model-router` | Hermes Agent | Copy the complete `skills/ai-native-model-router/` directory into `$HERMES_HOME/skills/`. | Install separately when routing is needed. |
+| Core/Entry — `ai-native-dev-team` | Manual compatible agent | Copy the complete [`skills/ai-native-dev-team/`](skills/ai-native-dev-team/) directory into the supported Skill location. | Copying only `SKILL.md` is incomplete. |
+| Routing Extension — `ai-native-model-router` | Manual compatible agent | Copy the complete [`skills/ai-native-model-router/`](skills/ai-native-model-router/) directory into the supported Skill location. | The Extension is independently optional. |
 
 ## 60-second Quick Start
 
 Install the Skill, then use one of these short prompts:
 
 ```text
-Use $bootstrap-ai-native-dev-team. Inspect this repository and task, separate confirmed facts, inferences, and items to verify, and propose the smallest safe topology. Do not modify files yet.
+Use $ai-native-dev-team. Inspect this repository and task, separate confirmed facts, inferences, and items to verify, and propose the smallest safe topology. Do not modify files yet.
 ```
 
 ```text
@@ -105,7 +112,7 @@ The main agent may explicitly select a local prospective ledger for a task set. 
 
 ## Workflow
 
-![Inspect, classify, propose, approve, execute, and verify the exact candidate](docs/images/bootstrap-workflow.png)
+![Inspect, classify, propose, approve, execute, and verify the exact candidate](docs/images/ai-native-dev-team-workflow.png)
 
 1. Inspect the repository, task baseline, contracts, permissions, test entry points, integration backlog, rollback, and recovery.
 2. Separate confirmed facts, inferences, and items to verify. Score complexity and risk independently.
@@ -134,26 +141,26 @@ The backend/frontend/TypeScript checks in the origin story do not prove the targ
 | Layer | Responsibility |
 |---|---|
 | Global `AGENTS.md` | Decide when this Skill should trigger and retain a few hard boundaries. |
-| `bootstrap-ai-native-dev-team` | Inspect, classify, propose, initialize, and adjust. |
+| `ai-native-dev-team` | Inspect, classify, propose, initialize, and adjust. |
 | Project sources of truth | Store the actual product, task, contract, decision, risk, and version evidence. |
 
 The compact global trigger is available in [examples/global-agents-snippet.md](examples/global-agents-snippet.md).
 
 ## Deeper references
 
-- [Skill entrypoint](skills/bootstrap-ai-native-dev-team/SKILL.md): authority, selection, and execution lifecycle. On Windows, unattended Writers default to `pty=false`, `background=true`, and `notify_on_complete=true`; reserve `pty=true` for interactive input, and accept completion only when the process registry reports `exited`, without duplicate Writers or repeated `wait/reconnect`.
-- [Routing and topologies](skills/bootstrap-ai-native-dev-team/references/routing-and-topologies.md): full complexity/risk gates, topology, capability routing, and evidence reuse.
-- [Core layer](skills/bootstrap-ai-native-dev-team/references/core.md) and [Controlled layer](skills/bootstrap-ai-native-dev-team/references/controlled.md): layer-specific rules.
-- [Linear Git isolation](skills/bootstrap-ai-native-dev-team/references/git-isolation-bootstrap.md): identity, base, branch, worktree, checkpoint, and blocker gates.
-- [Delivery Quality Review](skills/bootstrap-ai-native-dev-team/references/delivery-quality-review.md): the per-task acceptance protocol inside Controlled.
-- [Optional OpenAI + GLM5.3 profile with evidence-gated DeepSeek fallback](skills/bootstrap-ai-native-dev-team/references/model-routing-openai-glm5.3-deepseek-fallback.md): explicit selection, runtime limits, evidence gaps, and recalibration rules. It is inactive by default.
-- [Optional metrics guide](skills/bootstrap-ai-native-dev-team/references/metrics.md) and [metrics event schema](skills/bootstrap-ai-native-dev-team/references/metrics-event.schema.json): the local ledger and its fields.
+- [Team Skill entrypoint](skills/ai-native-dev-team/SKILL.md): authority, selection, and execution lifecycle. On Windows, unattended Writers default to `pty=false`, `background=true`, and `notify_on_complete=true`; reserve `pty=true` for interactive input, and accept completion only when the process registry reports `exited`, without duplicate Writers or repeated `wait/reconnect`.
+- [Team routing and topologies](skills/ai-native-dev-team/references/routing-and-topologies.md): full complexity/risk gates, topology, capability routing, and evidence reuse.
+- [Core layer](skills/ai-native-dev-team/references/core.md) and [Controlled layer](skills/ai-native-dev-team/references/controlled.md): layer-specific rules.
+- [Linear Git isolation](skills/ai-native-dev-team/references/git-isolation-bootstrap.md): identity, base, branch, worktree, checkpoint, and blocker gates.
+- [Delivery Quality Review](skills/ai-native-dev-team/references/delivery-quality-review.md): the per-task acceptance protocol inside Controlled.
+- [Model Router entrypoint](skills/ai-native-model-router/SKILL.md): optional project-local route resolution with evidence-bound fallbacks.
+- [Optional metrics guide](skills/ai-native-dev-team/references/metrics.md) and [metrics event schema](skills/ai-native-dev-team/references/metrics-event.schema.json): the local ledger and its fields.
 - [Release and migration history](releases/): prior release records and historical boundaries.
 
 ## Repository map
 
 ```text
-skills/bootstrap-ai-native-dev-team/
+skills/ai-native-dev-team/
 ├── SKILL.md              # entrypoint
 ├── references/           # routing, layers, isolation, DQR, metrics, and governance
 ├── scripts/              # Git isolation and optional metrics helpers
