@@ -583,9 +583,9 @@ class SuitePackagingTests(unittest.TestCase):
     def test_readmes_have_one_migration_release_boundary(self):
         english = (ROOT / "README.md").read_text(encoding="utf-8")
         chinese = (ROOT / "README.zh-CN.md").read_text(encoding="utf-8")
-        self.assertEqual(english.count("## Migration and release boundary"), 1)
+        self.assertEqual(english.count("## Migrate from the legacy name"), 1)
         self.assertNotIn("## V2 migration boundary", english)
-        self.assertEqual(chinese.count("## 迁移与发布边界"), 1)
+        self.assertEqual(chinese.count("## 从旧名称迁移"), 1)
         self.assertNotIn("## V2 迁移边界", chinese)
 
     def test_plan_refuses_pycaches_secrets_symlinks_and_nested_roots(self):

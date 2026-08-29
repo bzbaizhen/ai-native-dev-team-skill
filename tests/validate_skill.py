@@ -946,8 +946,8 @@ for path in active_terminology_files:
             fail(f"active policy exposes removed terminology: {path.relative_to(ROOT)}: {removed}")
 
 for readme, heading in (
-    (ROOT / "README.md", "## migration and release boundary"),
-    (ROOT / "README.zh-CN.md", "## 迁移与发布边界"),
+    (ROOT / "README.md", "## migrate from the legacy name"),
+    (ROOT / "README.zh-CN.md", "## 从旧名称迁移"),
 ):
     text = readme.read_text(encoding="utf-8")
     active_text, marker, _ = text.casefold().partition(heading)
