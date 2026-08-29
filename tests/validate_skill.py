@@ -2,6 +2,7 @@ import ast
 import json
 from pathlib import Path
 import re
+import subprocess
 import sys
 
 
@@ -82,6 +83,14 @@ MODEL_ROUTER_CONFIG_ID = "project-router-2026-08-28"
 MODEL_ROUTER_FORBIDDEN_TOKENS = re.compile(
     r"\b(?:core|controlled|dqr|linear|governance)\b", re.IGNORECASE
 )
+OLD_COMPONENT_NAME = "bootstrap" + "-ai-native-dev-team"
+LEGACY_REFERENCE_ALLOWLIST = {
+    "suite-manifest.json": (1, '"migration_only": true'),
+    "README.md": (1, "migration input only"),
+    "README.zh-CN.md": (1, "仅作为迁移输入"),
+    "tools/migrate_suite_install.py": (1, "OLD_COMPONENT_NAME"),
+    "tests/test_suite_packaging.py": (3, "migration_only"),
+}
 
 
 def fail(message: str) -> None:
@@ -307,6 +316,53 @@ for path in (SKILL / "references").iterdir():
     lowered = path.name.casefold()
     if lowered.startswith(("release-", "p2-", "p3-", "zhe125-")):
         fail(f"removed protocol file still exists: {path.relative_to(ROOT)}")
+
+tracked_files = subprocess.check_output(
+    ["git", "ls-files", "-z"], cwd=ROOT, text=False
+).decode("utf-8").split("\0")
+manifest_path = ROOT / "suite-manifest.json"
+try:
+    suite_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+except (OSError, json.JSONDecodeError) as exc:
+    fail(f"suite manifest is unreadable: {exc}")
+if suite_manifest.get("schema_version") != 1:
+    fail("suite manifest schema_version drifted")
+for component in suite_manifest.get("components", []):
+    component_id = component.get("id")
+    tracked_component_files = sorted(
+        relative.split("/", 2)[2]
+        for relative in tracked_files
+        if relative.startswith(f"skills/{component_id}/")
+    )
+    if component.get("files") != tracked_component_files:
+        fail(f"suite manifest inventory drifted: {component_id}")
+
+legacy_scan_paths = {
+    item for item in tracked_files if item and not item.startswith("releases/")
+}
+legacy_scan_paths.update(LEGACY_REFERENCE_ALLOWLIST)
+for relative in sorted(legacy_scan_paths):
+    path = ROOT / relative
+    if not path.is_file() or path.suffix.lower() not in {
+        ".md", ".markdown", ".txt", ".json", ".jsonl", ".yaml", ".yml",
+        ".toml", ".ini", ".cfg", ".conf", ".py", ".js", ".ts", ".tsx",
+        ".jsx", ".css", ".html", ".xml", ".svg", ".sh", ".ps1", ".bat",
+    }:
+        continue
+    text = path.read_text(encoding="utf-8")
+    if relative in LEGACY_REFERENCE_ALLOWLIST:
+        expected_count, context = LEGACY_REFERENCE_ALLOWLIST[relative]
+        if text.count(OLD_COMPONENT_NAME) != expected_count or context not in text:
+            fail(f"legacy reference is outside its bounded exception: {relative}")
+    elif OLD_COMPONENT_NAME in text or "skills/" + OLD_COMPONENT_NAME in text:
+        fail(f"active file contains legacy component reference: {relative}")
+release_count = sum(
+    (ROOT / relative).read_text(encoding="utf-8").count(OLD_COMPONENT_NAME)
+    for relative in tracked_files
+    if relative.startswith("releases/") and (ROOT / relative).is_file()
+)
+if release_count != 8:
+    fail(f"release history legacy occurrence count drifted: {release_count}")
 
 skill_text = (SKILL / "SKILL.md").read_text(encoding="utf-8")
 parts = skill_text.split("---", 2)
@@ -890,8 +946,8 @@ for path in active_terminology_files:
             fail(f"active policy exposes removed terminology: {path.relative_to(ROOT)}: {removed}")
 
 for readme, heading in (
-    (ROOT / "README.md", "## v2 migration boundary"),
-    (ROOT / "README.zh-CN.md", "## v2 迁移边界"),
+    (ROOT / "README.md", "## migration and release boundary"),
+    (ROOT / "README.zh-CN.md", "## 迁移与发布边界"),
 ):
     text = readme.read_text(encoding="utf-8")
     active_text, marker, _ = text.casefold().partition(heading)

@@ -177,7 +177,7 @@ git diff --check
 
 The repository includes a GitHub Actions workflow for the Python checks.
 
-## V2 migration boundary
+## Migration and release boundary
 
 ### Release
 
@@ -186,6 +186,21 @@ This landing page describes the active `v2.1.0` line. The [GitHub release](https
 ### Migration history
 
 Historical migration and release notes live in [release history](releases/). Repository-external channels and any publication decision remain separate Owner decisions.
+
+The current source is canonical and contains exactly these two Skills: `ai-native-dev-team` and `ai-native-model-router`. The legacy name `bootstrap-ai-native-dev-team` is migration input only. It is not an installed alias and is not discoverable.
+
+The standard-library migration tool is fail-closed and operates only on the explicit roots supplied to it. `plan` is read-only and does not create receipts or backup tasks. Applying the breaking rename and removing the legacy directory require separate Owner authorization for the actual installation/removal target; running tests or accepting a candidate does not provide that authorization.
+
+The `source-root` must be a clean, exact materialization of the manifest: every declared file must be present with no `__pycache__`, generated cache, or arbitrary extra. These are deliberate plan blockers. Use a clean Commit or fresh materialization for migration; do not use a dirty development Worktree. Actual installation still has the declared process-kill and power-loss limitations; this tool does not add a crash journal.
+
+```text
+python tools/migrate_suite_install.py plan --source-root <ABSOLUTE_SOURCE_ROOT> --install-root <ABSOLUTE_INSTALL_ROOT_A> --install-root <ABSOLUTE_INSTALL_ROOT_B> --backup-root <ABSOLUTE_BACKUP_ROOT>
+python tools/migrate_suite_install.py apply --source-root <ABSOLUTE_SOURCE_ROOT> --install-root <ABSOLUTE_INSTALL_ROOT_A> --install-root <ABSOLUTE_INSTALL_ROOT_B> --backup-root <ABSOLUTE_BACKUP_ROOT> --receipt <ABSOLUTE_APPLIED_RECEIPT> --plan-digest <PLAN_DIGEST> --confirm-breaking-rename
+python tools/migrate_suite_install.py verify --source-root <ABSOLUTE_SOURCE_ROOT> --install-root <ABSOLUTE_INSTALL_ROOT_A> --install-root <ABSOLUTE_INSTALL_ROOT_B> --backup-root <ABSOLUTE_BACKUP_ROOT> --receipt <ABSOLUTE_APPLIED_RECEIPT>
+python tools/migrate_suite_install.py rollback --install-root <ABSOLUTE_INSTALL_ROOT_A> --install-root <ABSOLUTE_INSTALL_ROOT_B> --receipt <ABSOLUTE_APPLIED_RECEIPT> --rollback-receipt <ABSOLUTE_ROLLBACK_RECEIPT> --receipt-hash <RECEIPT_HASH> --confirm-rollback
+```
+
+Use the plan digest printed by `plan` and the receipt hash printed by `apply`; do not substitute a newly generated or implicit path. `rollback` writes a separate receipt and leaves the applied receipt unchanged.
 
 ## References and acknowledgements
 

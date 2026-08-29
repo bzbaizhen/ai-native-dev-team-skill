@@ -176,7 +176,7 @@ git diff --check
 
 仓库包含对 Python 检查执行相同命令的 GitHub Actions 工作流。
 
-## V2 迁移边界
+## 迁移与发布边界
 
 ### 发布
 
@@ -185,6 +185,21 @@ git diff --check
 ### 迁移历史
 
 历史迁移和发布说明见 [发布历史](releases/)。仓库外渠道及任何公开发布决策仍由 Owner 单独授权。
+
+当前源只包含以下两个规范 Skill：`ai-native-dev-team` 和 `ai-native-model-router`。旧名称 `bootstrap-ai-native-dev-team` 仅作为迁移输入，不是已安装的别名，也不可被发现。
+
+标准库迁移工具采用 fail-closed 策略，只操作命令中明确给出的根目录。`plan` 只读，不创建回执或备份任务。对实际安装目标执行破坏性改名和移除旧目录，需要 Owner 对该安装/移除目标另行授权；运行测试或验收候选版本都不等于取得这项授权。
+
+`source-root` 必须是清洁且与 manifest 完全一致的物化结果：所有声明文件都必须存在，不能包含 `__pycache__`、生成缓存或任意额外文件；这些情况按设计会阻止 `plan`。迁移应使用干净的 Commit 或全新物化结果，不要使用有未提交改动的开发 Worktree。实际安装仍保留已声明的进程被杀和断电限制；本工具不会扩展崩溃日志机制。
+
+```text
+python tools/migrate_suite_install.py plan --source-root <ABSOLUTE_SOURCE_ROOT> --install-root <ABSOLUTE_INSTALL_ROOT_A> --install-root <ABSOLUTE_INSTALL_ROOT_B> --backup-root <ABSOLUTE_BACKUP_ROOT>
+python tools/migrate_suite_install.py apply --source-root <ABSOLUTE_SOURCE_ROOT> --install-root <ABSOLUTE_INSTALL_ROOT_A> --install-root <ABSOLUTE_INSTALL_ROOT_B> --backup-root <ABSOLUTE_BACKUP_ROOT> --receipt <ABSOLUTE_APPLIED_RECEIPT> --plan-digest <PLAN_DIGEST> --confirm-breaking-rename
+python tools/migrate_suite_install.py verify --source-root <ABSOLUTE_SOURCE_ROOT> --install-root <ABSOLUTE_INSTALL_ROOT_A> --install-root <ABSOLUTE_INSTALL_ROOT_B> --backup-root <ABSOLUTE_BACKUP_ROOT> --receipt <ABSOLUTE_APPLIED_RECEIPT>
+python tools/migrate_suite_install.py rollback --install-root <ABSOLUTE_INSTALL_ROOT_A> --install-root <ABSOLUTE_INSTALL_ROOT_B> --receipt <ABSOLUTE_APPLIED_RECEIPT> --rollback-receipt <ABSOLUTE_ROLLBACK_RECEIPT> --receipt-hash <RECEIPT_HASH> --confirm-rollback
+```
+
+请使用 `plan` 输出的计划摘要和 `apply` 输出的回执哈希；不要替换成新生成的值或隐含路径。`rollback` 会写入独立回执，不改写已应用回执。
 
 ## 参考与致谢
 

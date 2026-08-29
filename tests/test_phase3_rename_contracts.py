@@ -11,6 +11,13 @@ TEAM = SKILLS / "ai-native-dev-team"
 ROUTER = SKILLS / "ai-native-model-router"
 OLD_NAME = "bootstrap" + "-ai-native-dev-team"
 OLD_DIR = SKILLS / OLD_NAME
+LEGACY_REFERENCE_ALLOWLIST = {
+    "suite-manifest.json": (1, '"migration_only": true'),
+    "README.md": (1, "migration input only"),
+    "README.zh-CN.md": (1, "仅作为迁移输入"),
+    "tools/migrate_suite_install.py": (1, "OLD_COMPONENT_NAME"),
+    "tests/test_suite_packaging.py": (3, "migration_only"),
+}
 
 EXPECTED_TEAM_FILES = {
     "SKILL.md",
@@ -146,16 +153,32 @@ class Phase3RenameContractTests(unittest.TestCase):
             ["git", "ls-files", "-z"], cwd=ROOT, text=False
         ).decode("utf-8").split("\0")
         legacy_image = "docs/images/" + "bootstrap" + "-workflow.png"
-        for relative in (item for item in tracked if item and not item.startswith("releases/")):
+        paths_to_scan = {
+            item for item in tracked if item and not item.startswith("releases/")
+        }
+        paths_to_scan.update(LEGACY_REFERENCE_ALLOWLIST)
+        for relative in sorted(paths_to_scan):
             path = ROOT / relative
             if not path.is_file():
                 continue
             if path.suffix.lower() not in TEXT_EXTENSIONS:
                 continue
             text = path.read_text(encoding="utf-8")
-            self.assertNotIn(OLD_NAME, text, relative)
+            if relative in LEGACY_REFERENCE_ALLOWLIST:
+                expected_count, context = LEGACY_REFERENCE_ALLOWLIST[relative]
+                self.assertEqual(text.count(OLD_NAME), expected_count, relative)
+                self.assertIn(context, text, relative)
+            else:
+                self.assertNotIn(OLD_NAME, text, relative)
             self.assertNotIn("skills/" + OLD_NAME, text, relative)
             self.assertNotIn(legacy_image, text, relative)
+
+        release_count = sum(
+            (ROOT / relative).read_text(encoding="utf-8").count(OLD_NAME)
+            for relative in tracked
+            if relative.startswith("releases/") and (ROOT / relative).is_file()
+        )
+        self.assertEqual(release_count, 8)
 
     def test_image_and_active_links_use_canonical_name(self):
         image = ROOT / "docs" / "images" / "ai-native-dev-team-workflow.png"
