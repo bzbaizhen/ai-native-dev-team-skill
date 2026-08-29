@@ -1,219 +1,142 @@
-# AI Native Dev Team Suite
+# AI Native Dev Team Suite v3.0.0
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-**A control-plane Skill for developers who want Coding Agents to change a repository with explicit ownership, independent evidence, and recoverable delivery.**
+A two-Skill control plane for giving Coding Agents bounded ownership, evidence-based validation, and recoverable delivery decisions.
 
-It is for developers and technical leads using Codex, Hermes Agent, or a manually installed compatible agent. Generic multi-agent orchestration starts with a roster; this Skill starts with the task: inspect the facts, choose the smallest topology, and bind work and evidence to an allowed path and an exact candidate.
+For developers and technical leads using Codex, Hermes Agent, or another compatible Skill host. Current release: [v3.0.0](https://github.com/bzbaizhen/ai-native-dev-team-skill/releases/tag/v3.0.0).
 
-The suite has a governance Core/Entry Skill and an optional Routing Extension. The Core
-remains useful without the Router; the Extension supplies a separate project-local route
-contract when a host mapping is needed.
+One GitHub repository contains exactly two independently installable canonical Skills:
 
-Released: [v2.1.0](https://github.com/bzbaizhen/ai-native-dev-team-skill/releases/tag/v2.1.0)
+- `skills/ai-native-dev-team/` v3.0.0 — the required governance-entry Skill.
+- `skills/ai-native-model-router/` v0.1.0 — the optional routing-extension Skill.
 
-## In brief
+## What is in the Suite
 
-| Concern | Rule |
-|---|---|
-| Control plane | The main agent owns facts, scope, contracts, routing, permissions, integration, evidence review, stop decisions, and final acceptance. |
-| Implementation and validation | A task- and path-bounded Writer edits the frozen scope. An independent Validator reads the exact candidate without silently fixing it. Delivery Quality Review (DQR) is the per-task acceptance protocol inside Controlled. |
-| Active layers | Core and Controlled are the only layers. DQR is not a third layer. |
-| Routing | Complexity `C0-C3` selects decomposition, capability, and reasoning. Risk `R0-R3` selects authority, review, approval, rollback, and recovery gates. |
-| Linear isolation | A Linear-governed issue uses its exact issue branch, accepted base, and canonical Git worktree before Writer dispatch; shared roots are not a substitute. |
-| Recovery | Checks and acceptance name an immutable candidate. Rollback and recovery stay executable for that candidate. |
-| Measurements | Local prospective metrics are optional, main-agent-only, and descriptive. Missing observations remain `null` or `unknown`; metrics do not decide acceptance. |
+| Skill | Version | Role | Owns |
+|---|---:|---|---|
+| `ai-native-dev-team` | 3.0.0 | governance-entry | C/R classification, Core/Controlled, topology, permissions, DQR, Git isolation, candidate identity, integration, and recovery. |
+| `ai-native-model-router` | 0.1.0 | routing-extension | Deterministic provider/model resolution through `route/v1` and `.ai-native/model-router.json`. It does not execute a host. |
 
-![More agents do not automatically make a team](docs/images/ai-native-dev-team-hero.png)
+The Team is complete on its own. Install the Router only when a project needs a local provider/model decision at the Host boundary.
 
-[Install](#install) · [60-second Quick Start](#60-second-quick-start) · [Workflow](#workflow) · [Boundaries](#boundaries-and-evidence)
-
-## Why it exists
-
-This Skill grew out of a real multi-agent project where every automated check was green:
+## How the two Skills work together
 
 ```text
-Backend: 39/39
-Frontend: 8/8
-TypeScript: 0 diagnostics
-Target WeChat runtime: blank screen, 9 errors
+task
+  -> Team semantic route slot
+  -> optional Router RouteDecision via route/v1
+  -> Host Adapter
 ```
 
-The project had frontend, backend, and QA agents, but its delivery system was underspecified: the authoritative contract, writable paths, tested Commit, and stop rule for insufficient evidence were unclear. The useful correction was to make those boundaries explicit and add an independent acceptance path.
+The Team emits the semantic slot. Team works without the Router. If the Router is absent, provider/model mapping stays unknown or host-inherited; it is never inferred. The Router returns a decision for the Host Adapter and makes no claim that a provider was called or a route was enforced.
+
+Throughout this README, Team, Router, Writer, Validator, RouteDecision, route slot, and Host Adapter are fixed names.
+
+![Team route slot to optional Router decision and Host Adapter](docs/images/ai-native-dev-team-workflow.png)
 
 ## Install
 
-| Component | Host | Install | Notes |
+Install each Skill independently. Every source install must copy the complete Skill directory, including its references, assets, agents metadata, and scripts.
+
+| Skill | Codex | Hermes Agent | Manual source install |
 |---|---|---|---|
-| Core/Entry — `ai-native-dev-team` | Codex | `$skill-installer install https://github.com/bzbaizhen/ai-native-dev-team-skill/tree/main/skills/ai-native-dev-team` | Governance and delivery controls. |
-| Routing Extension — `ai-native-model-router` | Codex | `$skill-installer install https://github.com/bzbaizhen/ai-native-dev-team-skill/tree/main/skills/ai-native-model-router` | Optional project-local route contract. |
-| Core/Entry — `ai-native-dev-team` | Hermes Agent | Copy the complete `skills/ai-native-dev-team/` directory into `$HERMES_HOME/skills/`. | Keep references, assets, and scripts together. |
-| Routing Extension — `ai-native-model-router` | Hermes Agent | Copy the complete `skills/ai-native-model-router/` directory into `$HERMES_HOME/skills/`. | Install separately when routing is needed. |
-| Core/Entry — `ai-native-dev-team` | Manual compatible agent | Copy the complete [`skills/ai-native-dev-team/`](skills/ai-native-dev-team/) directory into the supported Skill location. | Copying only `SKILL.md` is incomplete. |
-| Routing Extension — `ai-native-model-router` | Manual compatible agent | Copy the complete [`skills/ai-native-model-router/`](skills/ai-native-model-router/) directory into the supported Skill location. | The Extension is independently optional. |
+| `ai-native-dev-team` | `$skill-installer install https://github.com/bzbaizhen/ai-native-dev-team-skill/tree/main/skills/ai-native-dev-team` | Copy `skills/ai-native-dev-team/` to `$HERMES_HOME/skills/`. | Copy the complete [`skills/ai-native-dev-team/`](skills/ai-native-dev-team/) directory to the host's Skill directory. |
+| `ai-native-model-router` | `$skill-installer install https://github.com/bzbaizhen/ai-native-dev-team-skill/tree/main/skills/ai-native-model-router` | Copy `skills/ai-native-model-router/` to `$HERMES_HOME/skills/`. | Copy the complete [`skills/ai-native-model-router/`](skills/ai-native-model-router/) directory to the host's Skill directory. |
 
-## 60-second Quick Start
+There is one repository and one current GitHub Release for the suite; the optional Router is not a separate repository or release.
 
-Install the Skill, then use one of these short prompts:
+## 60-second quick start
+
+After installing the Team Skill, start with a Team-only prompt:
 
 ```text
-Use $ai-native-dev-team. Inspect this repository and task, separate confirmed facts, inferences, and items to verify, and propose the smallest safe topology. Do not modify files yet.
+Use $ai-native-dev-team. Inspect this task and repository, separate confirmed facts, inferences, and items to verify, score C/R, and propose the smallest safe topology. Do not modify files yet.
 ```
+
+When the project also has the Router installed:
 
 ```text
-Implement the accepted task. Freeze the contract and file ownership first; give each Writer only its allowed path, use an independent Validator for material work, and bind every check to the exact candidate.
+Use $ai-native-dev-team with $ai-native-model-router. Inspect the task, emit the semantic route slot, resolve it through route/v1 only after explicit profile and availability inputs are present, and keep Host execution separate. Do not modify files yet.
 ```
 
-```text
-Prepare this project for release. Re-score complexity and risk, verify the exact candidate, rollback and recovery, and Owner approval. Release actions remain separately authorized.
+## Configure the Router
+
+Create `.ai-native/model-router.json` with the exact v1 shape below. `active_profile` is explicit: merely having the file or profile does not activate routing. No secrets belong in this file.
+
+```json
+{
+  "schema_version": 1,
+  "router_api_version": "route/v1",
+  "config_id": "project-router-2026-08-28",
+  "active_profile": "openai-glm5.3-deepseek-fallback-2026-08-28",
+  "project_profile_dirs": [".ai-native/profiles"],
+  "updated_reason": "Explicit project profile selection for route/v1."
+}
 ```
 
-## Core concepts
-
-### Main agent as the control plane
-
-The main agent keeps the project context and makes the control-plane decisions. It does not repeat a Writer's repository exploration, implementation, or test/debug loop. A strict C0 micro edit may stay with the main agent only when it is tiny, deterministic, low-risk, single-file, and needs one deterministic verification; uncertainty sends the work to a task-scoped Writer.
-
-### One Writer, one path, independent validation
-
-Material work uses one Writer with an exact path lease and one independent Validator. The Validator reads the candidate in a clean or controlled state, records findings against the contract and candidate identity, and does not silently fix product code. If a fix changes the candidate, affected evidence is invalidated and the checks run again.
-
-For a material Controlled candidate, DQR records the frozen contract, lease, exact candidate, independent findings, revalidation, limitations, acceptance, and rollback or recovery. It remains inside Controlled.
-
-### Complexity and risk are separate axes
-
-| Axis | Selects |
-|---|---|
-| Complexity `C0-C3` | Task decomposition, context preparation, model capability, and reasoning. |
-| Risk `R0-R3` | Permissions, independent review, approval, rollback, and recovery. |
-
-Risk changes the gates, not the implementation capability. A difficult refactor can need stronger reasoning without gaining production authority; a small production permission change can need Owner approval and strong rollback evidence.
-
-The active layers are deliberately limited:
-
-| Layer | Default use |
-|---|---|
-| **Core** | Non-material C0/C1 and R0/R1 work. |
-| **Controlled** | Material behavior, C2/C3, R2/R3, interface or dependency changes, concurrency, production, release, or public action. |
-
-Controlled adds only the contract, ownership, validation, approval, and recovery evidence that the task needs. Release, deployment, and publication are Controlled/R3 and remain Owner-gated.
-
-### Linear Git isolation
-
-For a Linear-governed issue, read back the issue identity, status, blocker, exact `gitBranchName`, accepted base ref and Commit, and canonical worktree before dispatch. Run the Skill's isolation helper from the repository environment. A mismatch in issue, branch, base, repository, worktree, or checkpoint is a stop condition; do not make an ambiguous state fit by resetting, replacing, or reusing a shared root.
-
-### Rollback and recovery
-
-Git history, a remote copy, rollback, recovery, integration, installation, and release are separate states. Acceptance means that the main agent accepted evidence for the exact verified candidate; it does not authorize integration, installation, push, merge, deployment, or publication. Keep an executable rollback or recovery method with the candidate and preserve known limitations.
-
-### Optional measurements
-
-The main agent may explicitly select a local prospective ledger for a task set. It records observed lifecycle facts only. Writers and Validators provide handoff facts; they do not append the ledger. The resulting audit and comparison are descriptive and cannot replace independent validation, DQR, acceptance authority, or a project decision.
+See the [configuration schema](skills/ai-native-model-router/assets/model-router-config.v1.schema.json) and [example](skills/ai-native-model-router/assets/model-router-config.example.json). Configuration-only switching is limited to an existing Host Adapter contract. New authentication, transport, or host injection requires Adapter code; the Router does not add any of those capabilities.
 
 ## Workflow
 
-![Inspect, classify, propose, approve, execute, and verify the exact candidate](docs/images/ai-native-dev-team-workflow.png)
+Complexity and risk are separate inputs:
 
-1. Inspect the repository, task baseline, contracts, permissions, test entry points, integration backlog, rollback, and recovery.
-2. Separate confirmed facts, inferences, and items to verify. Score complexity and risk independently.
-3. Select Core or Controlled, then choose no delegation, one Writer, a Writer-Validator cell, or a larger team only when the work requires it.
-4. Freeze the smallest useful contract, allowed paths, interface, candidate identity, checks, authority limits, and rollback. For Linear issues, establish the isolated branch and worktree before Writer dispatch.
-5. Execute within the standing authorization envelope for ordinary reversible work. If the user asked only for a plan, scope is unbounded, or a real authority boundary exists, stop at proposal-only.
-6. Validate the exact candidate independently, review limitations and recovery, and accept only with the required authority. Integration, installation, release, and publication each need their own authorization and readback.
-
-## When not to use
-
-- A read-only question or a strict, deterministic, low-risk, single-file C0 edit can stay with the main agent.
-- A task with no repository change does not need a team topology or file lease.
-- If the repository root, task baseline, authoritative contract, allowed path, or authority boundary cannot be confirmed, stay in proposal-only or stop until it is resolved.
-- Do not expect this Skill to grant credentials or permission for production, destructive, irreversible, release, or public actions. Those actions remain separately authorized.
-
-## Boundaries and evidence
-
-This Skill is a workflow, not the source of truth for a product, task, contract, or release. Keep `Confirmed facts / Inferences / To verify` distinct, and report missing evidence instead of filling it in.
-
-Designed, written, run, verified, accepted, integrated, installed, and released are separate states. A command start, green static check, or Push is not acceptance. Runtime, external, platform, visual, and recovery checks that were not run remain limitations.
-
-The backend/frontend/TypeScript checks in the origin story do not prove the target runtime. Exact-candidate validation and recovery remain part of the active workflow. Public, release, destructive, credential, real-data, and production actions remain separately authorized; optional metrics never become a go/no-go threshold.
-
-## Global rule and Skill
-
-| Layer | Responsibility |
+| Input | Decides |
 |---|---|
-| Global `AGENTS.md` | Decide when this Skill should trigger and retain a few hard boundaries. |
-| `ai-native-dev-team` | Inspect, classify, propose, initialize, and adjust. |
-| Project sources of truth | Store the actual product, task, contract, decision, risk, and version evidence. |
+| `C0-C3` complexity | Decomposition, capability, and reasoning effort. |
+| `R0-R3` risk | Permission level, independent review, approval, rollback, and recovery gates. |
 
-The compact global trigger is available in [examples/global-agents-snippet.md](examples/global-agents-snippet.md).
+The Team selects `Core` for ordinary low-risk work and `Controlled` when material behavior, higher complexity/risk, interface or dependency change, concurrency, production, release, or public effect needs stronger gates. DQR is the per-task acceptance protocol inside `Controlled`, not a third layer.
 
-## Deeper references
-
-- [Team Skill entrypoint](skills/ai-native-dev-team/SKILL.md): authority, selection, and execution lifecycle. On Windows, unattended Writers default to `pty=false`, `background=true`, and `notify_on_complete=true`; reserve `pty=true` for interactive input, and accept completion only when the process registry reports `exited`, without duplicate Writers or repeated `wait/reconnect`.
-- [Team routing and topologies](skills/ai-native-dev-team/references/routing-and-topologies.md): full complexity/risk gates, topology, capability routing, and evidence reuse.
-- [Core layer](skills/ai-native-dev-team/references/core.md) and [Controlled layer](skills/ai-native-dev-team/references/controlled.md): layer-specific rules.
-- [Linear Git isolation](skills/ai-native-dev-team/references/git-isolation-bootstrap.md): identity, base, branch, worktree, checkpoint, and blocker gates.
-- [Delivery Quality Review](skills/ai-native-dev-team/references/delivery-quality-review.md): the per-task acceptance protocol inside Controlled.
-- [Model Router entrypoint](skills/ai-native-model-router/SKILL.md): optional project-local route resolution with evidence-bound fallbacks.
-- [Optional metrics guide](skills/ai-native-dev-team/references/metrics.md) and [metrics event schema](skills/ai-native-dev-team/references/metrics-event.schema.json): the local ledger and its fields.
-- [Release and migration history](releases/): prior release records and historical boundaries.
-
-## Repository map
+For material work, one path-bounded `Writer` writes the frozen scope and an independent `Validator` checks the exact candidate without silently fixing it. The Team owns the contract, permissions, topology, candidate identity, integration order, and recovery decision.
 
 ```text
-skills/ai-native-dev-team/
-├── SKILL.md              # entrypoint
-├── references/           # routing, layers, isolation, DQR, metrics, and governance
-├── scripts/              # Git isolation and optional metrics helpers
-└── assets/               # proposal, contract, and team templates
+inspect -> classify -> authorize -> isolate -> write -> independently validate exact candidate
+       -> accept -> separately integrate/install/release -> rollback or recover when needed
 ```
+
+Acceptance, integration, installation, and release are different states. A green check or accepted candidate does not authorize the next state.
+
+## Safety boundaries
+
+- Permissions are layered: the Team controls task scope and authority; `Writer` receives only its path lease; `Validator` is independent; Owner approval remains required where risk calls for it.
+- The default validation profile uses GLM-5.3 as the primary `Validator`, GLM-5.3 Flash as the explicitly selected high-volume `Writer`, and an evidence-gated DeepSeek fallback only with accepted primary-unavailable evidence. Availability remains an input; it is not inferred.
+- Router output is advisory and not executed: every `RouteDecision` has `enforcement_status: not-executed`. The Host Adapter owns invocation, credentials, transport, and execution.
+- Fallback evidence must be explicit and accepted by the active profile. An unspecified error, subjective quality judgment, or missing availability is not enough.
+- For unattended non-interactive Coding CLI exec, Writer, or Validator invocations on Windows, use `pty=false`, `background=true`, and `notify_on_complete=true` by default. `pty=true` is reserved for an interactive TUI, login, or a command that genuinely requires terminal input; never apply it unconditionally to unattended exec. Final output text, a final-answer marker, or a tokens-used line is not process-exit evidence: accept only after registry status `exited` captures the exit code. Use one short bounded grace check, inspect fresh process status, terminate only the exact tracked process if necessary, never start a duplicate Writer, and never repeatedly wait/reconnect.
+- A process-kill or power-loss crash journal is not automated by the migration tool. Recovery remains an explicit, separately reviewed operation.
+
+## Migrate from the legacy name
+
+The old component name `bootstrap-ai-native-dev-team` is migration input only. It is not a third Skill, installed alias, or discoverable route. Use the [migration tool](tools/migrate_suite_install.py); its bounded CLI provides `plan`, `apply`, `verify`, and `rollback`.
+
+The actual install/removal target needs separate Owner authorization. `plan` is read-only; apply, verification, and rollback bind to explicit roots and the tool's returned integrity values. Running tests or accepting a candidate does not grant migration authorization.
+
+## Repository layout
+
+```text
+skills/ai-native-dev-team/       # governance-entry Skill
+skills/ai-native-model-router/   # optional routing-extension Skill
+tools/migrate_suite_install.py   # bounded plan/apply/verify/rollback tool
+tests/                           # Skill, routing, packaging, and contract checks
+```
+
+Start with the [Team Skill](skills/ai-native-dev-team/SKILL.md), [Router Skill](skills/ai-native-model-router/SKILL.md), [routing and topology reference](skills/ai-native-dev-team/references/routing-and-topologies.md), or [delivery review reference](skills/ai-native-dev-team/references/delivery-quality-review.md).
 
 ## Validation
 
-```bash
-python tests/validate_skill.py
-python -m unittest discover -s tests -p "test_*.py" -v
+Run the public checks from the repository root:
+
+```text
+python -X utf8 tests/validate_skill.py
+python -X utf8 -m unittest discover -s tests -p "test_*.py" -v
 git diff --check
 ```
 
-The repository includes a GitHub Actions workflow for the Python checks.
+These checks validate source structure, routing policy, complete Skill packaging, and documentation contracts. They do not prove host execution, provider availability, or a visual/runtime result that was not run.
 
-## Migration and release boundary
+## Release and license
 
-### Release
+The current release is [v3.0.0 on GitHub](https://github.com/bzbaizhen/ai-native-dev-team-skill/releases/tag/v3.0.0). Both canonical Skills are released from this repository; no separate component repository or release is implied.
 
-This landing page describes the active `v2.1.0` line. The [GitHub release](https://github.com/bzbaizhen/ai-native-dev-team-skill/releases/tag/v2.1.0) is the release record.
-
-### Migration history
-
-Historical migration and release notes live in [release history](releases/). Repository-external channels and any publication decision remain separate Owner decisions.
-
-The current source is canonical and contains exactly these two Skills: `ai-native-dev-team` and `ai-native-model-router`. The legacy name `bootstrap-ai-native-dev-team` is migration input only. It is not an installed alias and is not discoverable.
-
-The standard-library migration tool is fail-closed and operates only on the explicit roots supplied to it. `plan` is read-only and does not create receipts or backup tasks. Applying the breaking rename and removing the legacy directory require separate Owner authorization for the actual installation/removal target; running tests or accepting a candidate does not provide that authorization.
-
-The `source-root` must be a clean, exact materialization of the manifest: every declared file must be present with no `__pycache__`, generated cache, or arbitrary extra. These are deliberate plan blockers. Use a clean Commit or fresh materialization for migration; do not use a dirty development Worktree. Actual installation still has the declared process-kill and power-loss limitations; this tool does not add a crash journal.
-
-```text
-python tools/migrate_suite_install.py plan --source-root <ABSOLUTE_SOURCE_ROOT> --install-root <ABSOLUTE_INSTALL_ROOT_A> --install-root <ABSOLUTE_INSTALL_ROOT_B> --backup-root <ABSOLUTE_BACKUP_ROOT>
-python tools/migrate_suite_install.py apply --source-root <ABSOLUTE_SOURCE_ROOT> --install-root <ABSOLUTE_INSTALL_ROOT_A> --install-root <ABSOLUTE_INSTALL_ROOT_B> --backup-root <ABSOLUTE_BACKUP_ROOT> --receipt <ABSOLUTE_APPLIED_RECEIPT> --plan-digest <PLAN_DIGEST> --confirm-breaking-rename
-python tools/migrate_suite_install.py verify --source-root <ABSOLUTE_SOURCE_ROOT> --install-root <ABSOLUTE_INSTALL_ROOT_A> --install-root <ABSOLUTE_INSTALL_ROOT_B> --backup-root <ABSOLUTE_BACKUP_ROOT> --receipt <ABSOLUTE_APPLIED_RECEIPT>
-python tools/migrate_suite_install.py rollback --install-root <ABSOLUTE_INSTALL_ROOT_A> --install-root <ABSOLUTE_INSTALL_ROOT_B> --receipt <ABSOLUTE_APPLIED_RECEIPT> --rollback-receipt <ABSOLUTE_ROLLBACK_RECEIPT> --receipt-hash <RECEIPT_HASH> --confirm-rollback
-```
-
-Use the plan digest printed by `plan` and the receipt hash printed by `apply`; do not substitute a newly generated or implicit path. `rollback` writes a separate receipt and leaves the applied receipt unchanged.
-
-## References and acknowledgements
-
-This project learned from useful patterns in:
-
-- [obra/superpowers](https://github.com/obra/superpowers)
-- [wshobson/agents](https://github.com/wshobson/agents)
-- [github/awesome-copilot](https://github.com/github/awesome-copilot)
-
-The workflow is independently authored, with additional emphasis on bounded execution authority, proposal-only conditions, C/R separation, complexity-aware, cost-conscious routing, path ownership, exact-version evidence, native environments, rollback, and recovery.
-
-The English launch post and development visuals are available on [X](https://x.com/Bzbaizhen/status/2087828830627205527).
-
-## License
-
-[MIT](LICENSE)
+Licensed under [MIT](LICENSE).
