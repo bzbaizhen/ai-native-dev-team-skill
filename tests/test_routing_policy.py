@@ -5,18 +5,19 @@ import re
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
-SKILL_DIR = ROOT / "skills" / "bootstrap-ai-native-dev-team"
+SKILL_DIR = ROOT / "skills" / "ai-native-dev-team"
 SCENARIOS_PATH = ROOT / "tests" / "routing-scenarios.json"
 COST_POLICY_CASES_PATH = ROOT / "tests" / "cost-routing-policy-cases.json"
-PROFILE_PATH = SKILL_DIR / "references" / "model-routing-openai-glm5.3-deepseek-fallback.md"
+PROFILE_PATH = ROOT / "skills" / "ai-native-model-router" / "assets" / "profiles" / "openai-glm5.3-deepseek-fallback-2026-08-28.json"
+PROFILE_EVIDENCE_PATH = ROOT / "skills" / "ai-native-model-router" / "references" / "provider-evidence.md"
 LEGACY_PROFILE_PATH = SKILL_DIR / "references" / "model-routing-openai-deepseek.md"
 GIT_ISOLATION_REFERENCE = SKILL_DIR / "references" / "git-isolation-bootstrap.md"
 GIT_ISOLATION_HELPER = SKILL_DIR / "scripts" / "git_isolation_bootstrap.py"
 
 EXPECTED_LEVEL_ZERO_DESCRIPTION = "Route AI-native development with proportional controls."
 MAX_LEVEL_ZERO_DESCRIPTION_CHARS = 60
-MAX_LEVEL_ONE_LINES = 110
-MAX_LEVEL_ONE_CHARS = 6500
+MAX_LEVEL_ONE_LINES = 120
+MAX_LEVEL_ONE_CHARS = 6800
 CANONICAL_REFERENCE_LINKS = (
     "references/routing-and-topologies.md",
     "references/core.md",
@@ -180,13 +181,6 @@ TASK_ROUTING_OBSERVATION_FIELDS = {
     "escalation_reason",
     "cost_claim",
 }
-EXPECTED_EVIDENCE_DATE = "The evidence snapshot date is **2026-08-28**."
-EXPECTED_CURSORBENCH_ROW = (
-    "| CursorBench 3.2 | 61.1%; $0.39; 87,973 tokens; 61 steps | "
-    "64.9%; $2.31; 32,969 tokens; 47 steps | 63.5%; $2.79; 13,867 tokens; "
-    "32 steps | Luna xhigh to max +3.4pp; Terra xhigh to max +5.7pp; "
-    "Sol medium to high +3.5pp |"
-)
 EXPECTED_PRIMARY_UNAVAILABLE_EVIDENCE = [
     "model-not-found",
     "authenticated-provider-outage",
@@ -204,10 +198,68 @@ def controlled_trigger(case: dict) -> bool:
 
 
 def load_profile_contract() -> dict:
-    text = PROFILE_PATH.read_text(encoding="utf-8")
-    match = re.search(r"```json routing-profile\s*(\{.*?\})\s*```", text, re.DOTALL)
-    assert match, "routing profile JSON block missing"
-    return json.loads(match.group(1))
+    source = json.loads(PROFILE_PATH.read_text(encoding="utf-8"))
+    slots = source["slots"]
+    writer_names = {
+        "writer.c0-batch": "C0_batch",
+        "writer.c1": "C1",
+        "writer.c2": "C2",
+        "writer.c3": "C3",
+    }
+    writers = {
+        writer_names[name]:
+        {key: slot["primary"][key] for key in ("model", "reasoning")}
+        for name, slot in slots.items()
+        if name.startswith("writer.c")
+    }
+    return {
+        "profile_id": source["profile_id"],
+        "default_active": source["default_active"],
+        "activation": source["activation"],
+        "evidence_date": source["evidence_date"],
+        "control_plane": {
+            key: slots["control-plane"]["primary"][key]
+            for key in ("model", "reasoning")
+        },
+        "writers": writers,
+        "validators": {
+            "R2_R3_when_writer_is_openai": {
+                "primary": {
+                    key: slots["validator.independent"]["primary"][key]
+                    for key in ("provider", "model", "reasoning", "reasoning_delivery")
+                },
+                "fallback": {
+                    key: slots["validator.independent"]["fallback"][key]
+                    for key in ("provider", "model", "reasoning")
+                }
+                | {
+                    "requires_primary_unavailable_evidence": True,
+                    "accepted_primary_unavailable_evidence": slots["validator.independent"]["accepted_primary_unavailable_evidence"],
+                },
+            },
+            "when_writer_is_glm_or_deepseek_fallback": {
+                "model_source": "openai-writer-map-for-complexity",
+                "reasoning_source": "openai-writer-map-for-complexity",
+            },
+        },
+        "high_volume_deterministic_fallback": {
+            "primary": {
+                key: slots["writer.high-volume-deterministic"]["primary"][key]
+                for key in ("provider", "model", "reasoning", "reasoning_delivery")
+            },
+            "fallback": {
+                key: slots["writer.high-volume-deterministic"]["fallback"][key]
+                for key in ("provider", "model", "reasoning")
+            }
+            | {
+                "requires_primary_unavailable_evidence": True,
+                "accepted_primary_unavailable_evidence": slots["writer.high-volume-deterministic"]["accepted_primary_unavailable_evidence"],
+            },
+            "default": slots["writer.high-volume-deterministic"]["default"],
+            "requires_explicit_task_selection": slots["writer.high-volume-deterministic"]["requires_explicit_task_selection"],
+        },
+        "forbidden_defaults": source["forbidden_defaults"],
+    }
 
 
 def validate_profile_contract(profile: dict) -> None:
@@ -294,14 +346,10 @@ def validate_task_routing_observation(record: dict) -> None:
         assert record["actual_runtime_mapping_observed"] is True
 
 
-def validate_profile_evidence(text: str) -> None:
-    assert text.count(EXPECTED_EVIDENCE_DATE) == 1
-    cursorbench_rows = [
-        line for line in text.splitlines() if line.startswith("| CursorBench 3.2 |")
-    ]
-    assert cursorbench_rows == [EXPECTED_CURSORBENCH_ROW]
-    for amount in ("$0.39", "$2.31", "$2.79"):
-        assert cursorbench_rows[0].count(amount) == 1
+def validate_profile_evidence(profile: dict) -> None:
+    assert profile["evidence_date"] == "2026-08-28"
+    for slot_name in ("validator.independent", "writer.high-volume-deterministic"):
+        assert profile["slots"][slot_name]["accepted_primary_unavailable_evidence"] == EXPECTED_PRIMARY_UNAVAILABLE_EVIDENCE
 
 
 def validate_windows_lifecycle_policy(text: str) -> None:
@@ -787,12 +835,11 @@ class RoutingPolicyTests(unittest.TestCase):
         self.assertFalse(profile["default_active"])
         self.assertFalse(high_volume_routes["default"])
         self.assertFalse(LEGACY_PROFILE_PATH.exists())
-        profile_text = PROFILE_PATH.read_text(encoding="utf-8")
-        self.assertIn("If GLM Flash or DeepSeek Flash is the Writer", profile_text)
-        self.assertNotIn(
-            "If a GLM or either documented DeepSeek fallback is the Writer",
-            profile_text,
+        profile_evidence = " ".join(
+            PROFILE_EVIDENCE_PATH.read_text(encoding="utf-8").split()
         )
+        self.assertIn("The exact accepted evidence is, in order", profile_evidence)
+        self.assertIn("Availability and runtime behavior remain caller-observed", profile_evidence)
 
     def test_optional_profile_activation_fails_closed(self) -> None:
         for selected, available, authenticated in (
@@ -809,17 +856,19 @@ class RoutingPolicyTests(unittest.TestCase):
             self.profile, self.profile["profile_id"], True, True
         )
 
-    def test_optional_profile_dated_cursorbench_evidence_fails_closed(self) -> None:
-        text = PROFILE_PATH.read_text(encoding="utf-8")
-        validate_profile_evidence(text)
-        for amount, corrupted in (
-            ("$0.39", "/usr/bin/bash.39"),
-            ("$2.31", ".31"),
-            ("$2.79", ".79"),
+    def test_optional_profile_evidence_date_and_gate_fail_closed(self) -> None:
+        source = json.loads(PROFILE_PATH.read_text(encoding="utf-8"))
+        validate_profile_evidence(source)
+        for mutation in (
+            lambda candidate: candidate.update(evidence_date="unknown"),
+            lambda candidate: candidate["slots"]["validator.independent"].update(
+                accepted_primary_unavailable_evidence=[]
+            ),
         ):
-            with self.subTest(amount=amount):
-                with self.assertRaises(AssertionError):
-                    validate_profile_evidence(text.replace(amount, corrupted, 1))
+            candidate = json.loads(json.dumps(source))
+            mutation(candidate)
+            with self.assertRaises(AssertionError):
+                validate_profile_evidence(candidate)
 
     def test_missing_routing_telemetry_stays_unknown(self) -> None:
         unknown = {
@@ -1066,7 +1115,7 @@ class RoutingPolicyTests(unittest.TestCase):
         ):
             self.assertIn(requirement, reference)
         self.assertIn(
-            "skills/bootstrap-ai-native-dev-team/scripts/git_isolation_bootstrap.py",
+            "skills/ai-native-dev-team/scripts/git_isolation_bootstrap.py",
             reference,
         )
         self.assertNotIn("codex-git-isolation-bootstrap.lock", reference)

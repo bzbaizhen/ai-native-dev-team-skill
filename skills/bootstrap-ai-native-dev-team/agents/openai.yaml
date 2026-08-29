@@ -1,6 +1,0 @@
-interface:
-  display_name: "AI-Native Dev Team Bootstrap"
-  short_description: "Route delivery review and local metrics safely"
-  default_prompt: "Use $bootstrap-ai-native-dev-team to keep the main agent as a control plane, route C0 batches and C1+ implementation to a task-scoped Writer, load DQR for material Controlled acceptance, and use optional local metrics only when explicitly selected."
-policy:
-  allow_implicit_invocation: true

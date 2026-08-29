@@ -37,7 +37,7 @@ Run the stdlib helper from the selected repository environment before Writer dis
 resolving it through the Skill directory from the repository root:
 
 ```text
-python -B skills/bootstrap-ai-native-dev-team/scripts/git_isolation_bootstrap.py --mode plan|inspect|apply \
+python -B skills/ai-native-dev-team/scripts/git_isolation_bootstrap.py --mode plan|inspect|apply \
   --issue-id <LINEAR-ID> --issue-uuid <UUID> \
   --linear-status-category started --linear-blocker false \
   --git-branch-name <EXACT-LINEAR-gitBranchName> \

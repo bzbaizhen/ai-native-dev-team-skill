@@ -7,7 +7,7 @@ so ordinary tasks do not carry it in every prompt.
 ## Default AI-native development team
 
 - Route work first as `no-delegation`, `single-worker`, `task-cell`, or `team-required`.
-- For a new software project, substantial cross-component work, multi-agent parallel implementation, release preparation, or high-risk engineering change, use `bootstrap-ai-native-dev-team` to design or adjust the development team before implementation.
+- For a new software project, substantial cross-component work, multi-agent parallel implementation, release preparation, or high-risk engineering change, use `ai-native-dev-team` to design or adjust the development team before implementation.
 - Separate complexity from risk. Map C0 batch / C1 / C2 / C3 to Economy-Low / Standard-Medium / Advanced-High / Frontier-Max; map R0-R3 to stronger permission, review, approval, rollback, and recovery gates.
 - Keep the main Agent as the control plane for scope, architecture decisions, contracts, permissions, integration, evidence review, stop decisions, and final acceptance. It must not duplicate a Writer's repository exploration, implementation, or test/debug loop.
 - Permit direct main-Agent work only for read-only control-plane work or one tiny deterministic, low-risk, single-file C0 edit with no material behavior, interface, dependency, data, security, concurrency, production, or public effect; no debugging loop or test authoring; and exactly one deterministic verification. Missing or uncertain evidence delegates.

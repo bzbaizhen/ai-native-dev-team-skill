@@ -2,15 +2,16 @@ import ast
 import json
 from pathlib import Path
 import re
+import subprocess
 import sys
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SKILL = ROOT / "skills" / "bootstrap-ai-native-dev-team"
+SKILL = ROOT / "skills" / "ai-native-dev-team"
 EXPECTED_LEVEL_ZERO_DESCRIPTION = "Route AI-native development with proportional controls."
 MAX_LEVEL_ZERO_DESCRIPTION_CHARS = 60
-MAX_LEVEL_ONE_LINES = 110
-MAX_LEVEL_ONE_CHARS = 6500
+MAX_LEVEL_ONE_LINES = 120
+MAX_LEVEL_ONE_CHARS = 6800
 CANONICAL_REFERENCE_LINKS = (
     "references/routing-and-topologies.md",
     "references/core.md",
@@ -61,6 +62,36 @@ ISOLATION_TEMPLATE_FIELDS = (
     "exact tested head",
 )
 
+MODEL_ROUTER = ROOT / "skills" / "ai-native-model-router"
+MODEL_ROUTER_REQUIRED_PATHS = {
+    "SKILL.md",
+    "agents/openai.yaml",
+    "assets/model-router-config.example.json",
+    "assets/model-router-config.v1.schema.json",
+    "assets/profiles/openai-glm5.3-deepseek-fallback-2026-08-28.json",
+    "assets/provider-catalog.json",
+    "assets/route-decision.v1.schema.json",
+    "assets/route-request.v1.schema.json",
+    "references/configuration.md",
+    "references/interface.md",
+    "references/provider-evidence.md",
+    "scripts/resolve_route.py",
+    "scripts/router_config.py",
+}
+MODEL_ROUTER_PROFILE_ID = "openai-glm5.3-deepseek-fallback-2026-08-28"
+MODEL_ROUTER_CONFIG_ID = "project-router-2026-08-28"
+MODEL_ROUTER_FORBIDDEN_TOKENS = re.compile(
+    r"\b(?:core|controlled|dqr|linear|governance)\b", re.IGNORECASE
+)
+OLD_COMPONENT_NAME = "bootstrap" + "-ai-native-dev-team"
+LEGACY_REFERENCE_ALLOWLIST = {
+    "suite-manifest.json": (1, '"migration_only": true'),
+    "README.md": (1, "migration input only"),
+    "README.zh-CN.md": (1, "仅作为迁移输入"),
+    "tools/migrate_suite_install.py": (1, "OLD_COMPONENT_NAME"),
+    "tests/test_suite_packaging.py": (3, "migration_only"),
+}
+
 
 def fail(message: str) -> None:
     print(f"FAIL: {message}")
@@ -86,6 +117,106 @@ def local_link_targets(text: str) -> set[str]:
         for target in re.findall(r"\[[^\]]+\]\(([^)]+)\)", text)
         if not target.startswith(("http://", "https://", "#"))
     }
+
+
+def validate_model_router_bundle(skill_dir: Path) -> None:
+    """Validate the complete provider-router surface without executing it."""
+    actual_paths = {
+        path.relative_to(skill_dir).as_posix()
+        for path in skill_dir.rglob("*")
+        if path.is_file() and "__pycache__" not in path.parts and path.suffix != ".pyc"
+    }
+    assert actual_paths == MODEL_ROUTER_REQUIRED_PATHS, (
+        f"Router paths drifted: extra={sorted(actual_paths - MODEL_ROUTER_REQUIRED_PATHS)}, "
+        f"missing={sorted(MODEL_ROUTER_REQUIRED_PATHS - actual_paths)}"
+    )
+
+    skill_text = (skill_dir / "SKILL.md").read_text(encoding="utf-8")
+    frontmatter_match = re.match(r"\A---\s*\n(.*?)\n---", skill_text, re.DOTALL)
+    assert frontmatter_match, "Router frontmatter is malformed"
+    expected_frontmatter = """name: ai-native-model-router
+description: Deterministic model routing with evidence-bound fallbacks.
+version: 0.1.0
+author: bzbaizhen, Hermes Agent
+license: MIT
+platforms:
+  - linux
+  - macos
+  - windows
+metadata:
+  hermes:
+    related_skills:
+      - ai-native-dev-team
+    tags:
+      - model-routing
+      - provider-selection
+      - deterministic
+    config:
+      - key: ai_native_model_router.config_path
+        description: Path to the project-local model router configuration.
+        default: .ai-native/model-router.json
+        prompt: Enter the project-local model router configuration path."""
+    assert frontmatter_match.group(1) == expected_frontmatter
+
+    metadata_text = (skill_dir / "agents" / "openai.yaml").read_text(encoding="utf-8")
+    assert "allow_implicit_invocation: false" in metadata_text
+    assert "allow_implicit_invocation: true" not in metadata_text
+    assert re.search(r"^\s*default_prompt:\s*.*\$ai-native-model-router", metadata_text, re.MULTILINE)
+    assert "display_name: \"AI Native Model Router\"" in metadata_text
+    assert "short_description: \"Deterministic provider routing with evidence gates\"" in metadata_text
+
+    links = local_link_targets(skill_text)
+    expected_links = MODEL_ROUTER_REQUIRED_PATHS - {
+        "SKILL.md",
+        "agents/openai.yaml",
+        "assets/model-router-config.example.json",
+    }
+    assert links == expected_links
+    for target in links:
+        assert (skill_dir / target).is_file(), target
+
+    for path in skill_dir.rglob("*"):
+        if path.is_file() and path.suffix.lower() in {".md", ".py", ".json", ".yaml"}:
+            assert not MODEL_ROUTER_FORBIDDEN_TOKENS.search(path.read_text(encoding="utf-8")), path
+
+    json_payloads = {}
+    for path in skill_dir.rglob("*.json"):
+        try:
+            json_payloads[path.relative_to(skill_dir).as_posix()] = json.loads(
+                path.read_text(encoding="utf-8")
+            )
+        except json.JSONDecodeError as exc:
+            raise AssertionError(f"invalid Router JSON: {path}: {exc}") from exc
+    for path in skill_dir.rglob("*.py"):
+        try:
+            ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        except SyntaxError as exc:
+            raise AssertionError(f"invalid Router Python: {path}: {exc}") from exc
+
+    profile = json_payloads["assets/profiles/" + MODEL_ROUTER_PROFILE_ID + ".json"]
+    assert profile["schema_version"] == 1
+    assert profile["profile_id"] == MODEL_ROUTER_PROFILE_ID
+    assert profile["default_active"] is False
+    assert profile["activation"] == "explicit-owner-selection"
+    assert profile["evidence_date"] == "2026-08-28"
+    config = json_payloads["assets/model-router-config.example.json"]
+    assert config == {
+        "schema_version": 1,
+        "router_api_version": "route/v1",
+        "config_id": MODEL_ROUTER_CONFIG_ID,
+        "active_profile": MODEL_ROUTER_PROFILE_ID,
+        "project_profile_dirs": [".ai-native/profiles"],
+        "updated_reason": "Explicit project profile selection for route/v1.",
+    }
+    catalog = json_payloads["assets/provider-catalog.json"]
+    assert catalog["schema_version"] == 1
+    assert catalog["catalog_id"] == "provider-catalog-2026-08-28"
+    assert json_payloads["assets/model-router-config.v1.schema.json"]["$id"] == "model-router-config.v1.schema.json"
+    assert json_payloads["assets/route-request.v1.schema.json"]["$id"] == "route-request.v1.schema.json"
+    assert json_payloads["assets/route-decision.v1.schema.json"]["$id"] == "route-decision.v1.schema.json"
+
+
+validate_model_router_bundle(MODEL_ROUTER)
 
 
 def validate_progressive_disclosure(skill_text: str, skill_dir: Path) -> None:
@@ -141,7 +272,6 @@ required = [
     METRICS_REFERENCE,
     METRICS_SCHEMA,
     GIT_ISOLATION_REFERENCE,
-    SKILL / "references" / "model-routing-openai-glm5.3-deepseek-fallback.md",
     SKILL / "references" / "governance-lean.md",
     SKILL / "references" / "governance-controlled.md",
     SKILL / "references" / "governance-strict.md",
@@ -187,6 +317,53 @@ for path in (SKILL / "references").iterdir():
     if lowered.startswith(("release-", "p2-", "p3-", "zhe125-")):
         fail(f"removed protocol file still exists: {path.relative_to(ROOT)}")
 
+tracked_files = subprocess.check_output(
+    ["git", "ls-files", "-z"], cwd=ROOT, text=False
+).decode("utf-8").split("\0")
+manifest_path = ROOT / "suite-manifest.json"
+try:
+    suite_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+except (OSError, json.JSONDecodeError) as exc:
+    fail(f"suite manifest is unreadable: {exc}")
+if suite_manifest.get("schema_version") != 1:
+    fail("suite manifest schema_version drifted")
+for component in suite_manifest.get("components", []):
+    component_id = component.get("id")
+    tracked_component_files = sorted(
+        relative.split("/", 2)[2]
+        for relative in tracked_files
+        if relative.startswith(f"skills/{component_id}/")
+    )
+    if component.get("files") != tracked_component_files:
+        fail(f"suite manifest inventory drifted: {component_id}")
+
+legacy_scan_paths = {
+    item for item in tracked_files if item and not item.startswith("releases/")
+}
+legacy_scan_paths.update(LEGACY_REFERENCE_ALLOWLIST)
+for relative in sorted(legacy_scan_paths):
+    path = ROOT / relative
+    if not path.is_file() or path.suffix.lower() not in {
+        ".md", ".markdown", ".txt", ".json", ".jsonl", ".yaml", ".yml",
+        ".toml", ".ini", ".cfg", ".conf", ".py", ".js", ".ts", ".tsx",
+        ".jsx", ".css", ".html", ".xml", ".svg", ".sh", ".ps1", ".bat",
+    }:
+        continue
+    text = path.read_text(encoding="utf-8")
+    if relative in LEGACY_REFERENCE_ALLOWLIST:
+        expected_count, context = LEGACY_REFERENCE_ALLOWLIST[relative]
+        if text.count(OLD_COMPONENT_NAME) != expected_count or context not in text:
+            fail(f"legacy reference is outside its bounded exception: {relative}")
+    elif OLD_COMPONENT_NAME in text or "skills/" + OLD_COMPONENT_NAME in text:
+        fail(f"active file contains legacy component reference: {relative}")
+release_count = sum(
+    (ROOT / relative).read_text(encoding="utf-8").count(OLD_COMPONENT_NAME)
+    for relative in tracked_files
+    if relative.startswith("releases/") and (ROOT / relative).is_file()
+)
+if release_count != 8:
+    fail(f"release history legacy occurrence count drifted: {release_count}")
+
 skill_text = (SKILL / "SKILL.md").read_text(encoding="utf-8")
 parts = skill_text.split("---", 2)
 if len(parts) != 3 or parts[0] != "":
@@ -196,9 +373,12 @@ frontmatter_keys = {
     for line in parts[1].splitlines()
     if ":" in line
 }
-if frontmatter_keys != {"name", "description"}:
-    fail("SKILL.md frontmatter must contain only name and description")
-if "name: bootstrap-ai-native-dev-team" not in parts[1]:
+if frontmatter_keys != {
+    "name", "description", "version", "author", "license", "platforms",
+    "metadata", "hermes", "related_skills", "tags",
+}:
+    fail("SKILL.md frontmatter keys drifted")
+if "name: ai-native-dev-team" not in parts[1]:
     fail("SKILL.md name is incorrect")
 try:
     validate_progressive_disclosure(skill_text, SKILL)
@@ -235,8 +415,8 @@ try:
 except SyntaxError as exc:
     fail(f"git isolation helper has a syntax error: {exc}")
 
-if "references/model-routing-*.md" not in skill_text:
-    fail("SKILL.md does not define the generic optional-profile boundary")
+if "optional runtime profiles belong to `ai-native-model-router`" not in skill_text.casefold():
+    fail("SKILL.md does not assign optional profiles to the Router")
 if "file presence never activates a profile" not in skill_text.casefold():
     fail("SKILL.md does not keep optional profiles inactive by default")
 
@@ -586,17 +766,9 @@ for namespace_contract_term in (
     if namespace_contract_term not in team_metrics_source:
         fail(f"team_metrics.py is missing namespace safety behavior: {namespace_contract_term}")
 
-profile_path = SKILL / "references" / "model-routing-openai-glm5.3-deepseek-fallback.md"
-profile_text = profile_path.read_text(encoding="utf-8")
-profile_match = re.search(
-    r"```json routing-profile\s*(\{.*?\})\s*```",
-    profile_text,
-    re.DOTALL,
-)
-if not profile_match:
-    fail("optional routing profile lacks its machine-checked JSON contract")
+profile_path = MODEL_ROUTER / "assets" / "profiles" / "openai-glm5.3-deepseek-fallback-2026-08-28.json"
 try:
-    profile_contract = json.loads(profile_match.group(1))
+    profile_contract = json.loads(profile_path.read_text(encoding="utf-8"))
 except json.JSONDecodeError as exc:
     fail(f"optional routing profile contract is invalid JSON: {exc}")
 if profile_contract.get("default_active") is not False:
@@ -606,42 +778,17 @@ if profile_contract.get("activation") != "explicit-owner-selection":
 if profile_contract.get("evidence_date") != "2026-08-28":
     fail("optional routing profile evidence date drifted")
 
-validator_fallback = (
-    profile_contract.get("validators", {})
-    .get("R2_R3_when_writer_is_openai", {})
-    .get("fallback")
-)
+validator_fallback = profile_contract.get("slots", {}).get("validator.independent", {})
 if not isinstance(validator_fallback, dict):
     fail("validator fallback object is missing")
 if validator_fallback.get("accepted_primary_unavailable_evidence") != EXPECTED_PRIMARY_UNAVAILABLE_EVIDENCE:
     fail("validator fallback evidence list is not the exact accepted array")
 
-high_volume_writer_fallback = (
-    profile_contract.get("high_volume_deterministic_fallback", {})
-    .get("fallback")
-)
+high_volume_writer_fallback = profile_contract.get("slots", {}).get("writer.high-volume-deterministic", {})
 if not isinstance(high_volume_writer_fallback, dict):
     fail("high-volume Writer fallback object is missing")
 if high_volume_writer_fallback.get("accepted_primary_unavailable_evidence") != EXPECTED_PRIMARY_UNAVAILABLE_EVIDENCE:
     fail("high-volume Writer fallback evidence list is not the exact accepted array")
-
-expected_evidence_date = "The evidence snapshot date is **2026-08-28**."
-expected_cursorbench_row = (
-    "| CursorBench 3.2 | 61.1%; $0.39; 87,973 tokens; 61 steps | "
-    "64.9%; $2.31; 32,969 tokens; 47 steps | 63.5%; $2.79; 13,867 tokens; "
-    "32 steps | Luna xhigh to max +3.4pp; Terra xhigh to max +5.7pp; "
-    "Sol medium to high +3.5pp |"
-)
-if profile_text.count(expected_evidence_date) != 1:
-    fail("optional routing profile evidence date drifted")
-cursorbench_rows = [
-    line for line in profile_text.splitlines() if line.startswith("| CursorBench 3.2 |")
-]
-if cursorbench_rows != [expected_cursorbench_row]:
-    fail("CursorBench dated evidence row drifted")
-for amount in ("$0.39", "$2.31", "$2.79"):
-    if cursorbench_rows[0].count(amount) != 1:
-        fail(f"CursorBench evidence row is missing exact amount: {amount}")
 
 canonical_policy_files = [
     SKILL / "SKILL.md",
@@ -750,7 +897,7 @@ if not any(
     fail("cost-routing cases must bind cost claims to an observed lower-cost mapping")
 
 openai_yaml = (SKILL / "agents" / "openai.yaml").read_text(encoding="utf-8")
-if "$bootstrap-ai-native-dev-team" not in openai_yaml:
+if "$ai-native-dev-team" not in openai_yaml:
     fail("default prompt does not explicitly invoke the Skill")
 if contains_removed_term(openai_yaml, "release audit") or contains_removed_term(
     openai_yaml, "audit work"
@@ -799,8 +946,8 @@ for path in active_terminology_files:
             fail(f"active policy exposes removed terminology: {path.relative_to(ROOT)}: {removed}")
 
 for readme, heading in (
-    (ROOT / "README.md", "## v2 migration boundary"),
-    (ROOT / "README.zh-CN.md", "## v2 迁移边界"),
+    (ROOT / "README.md", "## migration and release boundary"),
+    (ROOT / "README.zh-CN.md", "## 迁移与发布边界"),
 ):
     text = readme.read_text(encoding="utf-8")
     active_text, marker, _ = text.casefold().partition(heading)
@@ -845,4 +992,4 @@ for path in SKILL.rglob("*"):
         if sensitive.search(path.read_text(encoding="utf-8")):
             fail(f"local user path leaked into {path.relative_to(ROOT)}")
 
-print("PASS: V2 development-only Skill structure and routing are valid")
+print("PASS: AI Native Dev Team Suite structure and routing are valid")

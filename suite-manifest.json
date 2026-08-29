@@ -1,0 +1,91 @@
+{
+  "schema_version": 1,
+  "suite": {
+    "id": "ai-native-dev-team-suite",
+    "name": "AI Native Dev Team Suite"
+  },
+  "components": [
+    {
+      "id": "ai-native-dev-team",
+      "version": "3.0.0",
+      "role": "governance-entry",
+      "files": [
+        "SKILL.md",
+        "agents/openai.yaml",
+        "assets/project-team-charter.md",
+        "assets/task-contract.md",
+        "assets/team-bootstrap-proposal.md",
+        "references/controlled.md",
+        "references/core.md",
+        "references/delivery-quality-review.md",
+        "references/git-isolation-bootstrap.md",
+        "references/governance-controlled.md",
+        "references/governance-lean.md",
+        "references/governance-strict.md",
+        "references/metrics-event.schema.json",
+        "references/metrics.md",
+        "references/routing-and-topologies.md",
+        "references/team-governance-template.zh-CN.md",
+        "scripts/git_isolation_bootstrap.py",
+        "scripts/team_metrics.py"
+      ]
+    },
+    {
+      "id": "ai-native-model-router",
+      "version": "0.1.0",
+      "role": "routing-extension",
+      "files": [
+        "SKILL.md",
+        "agents/openai.yaml",
+        "assets/model-router-config.example.json",
+        "assets/model-router-config.v1.schema.json",
+        "assets/profiles/openai-glm5.3-deepseek-fallback-2026-08-28.json",
+        "assets/provider-catalog.json",
+        "assets/route-decision.v1.schema.json",
+        "assets/route-request.v1.schema.json",
+        "references/configuration.md",
+        "references/interface.md",
+        "references/provider-evidence.md",
+        "scripts/resolve_route.py",
+        "scripts/router_config.py"
+      ]
+    }
+  ],
+  "route_interface": {
+    "name": "route/v1",
+    "compatible": true
+  },
+  "router": {
+    "id": "ai-native-model-router",
+    "optional": true
+  },
+  "legacy": {
+    "id": "bootstrap-ai-native-dev-team",
+    "migration_only": true,
+    "discoverable": false
+  },
+  "install_inventory": {
+    "policy": "tracked-source-files-only",
+    "exclude": [
+      "__pycache__",
+      "*.pyc",
+      "secrets"
+    ]
+  },
+  "compatibility_matrix": {
+    "route/v1": [
+      "ai-native-dev-team",
+      "ai-native-model-router"
+    ],
+    "components": {
+      "ai-native-dev-team": {
+        "route/v1": true,
+        "required": true
+      },
+      "ai-native-model-router": {
+        "route/v1": true,
+        "optional": true
+      }
+    }
+  }
+}

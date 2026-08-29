@@ -1,0 +1,6 @@
+interface:
+  display_name: "AI Native Dev Team"
+  short_description: "Governance-first delivery with optional routing extension"
+  default_prompt: "Use $ai-native-dev-team to keep the main agent as a control plane, route C0 batches and C1+ implementation to a task-scoped Writer, optionally load ai-native-model-router for generic route slots, load DQR for material Controlled acceptance, and use optional local metrics only when explicitly selected."
+policy:
+  allow_implicit_invocation: true
