@@ -5,16 +5,16 @@ names, runtime provider labels, exact model IDs, reasoning capabilities, and
 delivery semantics only. It contains no authentication material, endpoints,
 prices, or transport instructions.
 
-The preserved profile maps the control plane to `openai/gpt-5.6-sol:high`, C0
-batch and C1 Writers to `openai/gpt-5.6-luna:max`, C2 to
-`openai/gpt-5.6-terra:max`, and C3 to `openai/gpt-5.6-sol:high`.
-Independent validation uses `zai/glm-5.3:max` when the Writer is OpenAI, with
-`deepseek/deepseek-v4-pro:max` as an evidence-gated fallback. High-volume
-deterministic writing uses `zai/glm-5.3-flash:max`, with
-`deepseek/deepseek-v4-flash:max` under the same gate.
+The bundled `gpt5.6` Profile maps the control plane to
+`openai/gpt-5.6-sol:high`, C0 batch and C1 Writers to
+`openai/gpt-5.6-luna:max`, C2 to `openai/gpt-5.6-terra:max`, and C3 to
+`openai/gpt-5.6-sol:high`. Its explicitly selected high-volume deterministic
+Writer uses `zai/glm-5.3-flash:max`, with
+`deepseek/deepseek-v4-flash:max` under the same evidence gate. The route/v1
+contract remains available for safe project-local Profiles; its independent
+validation slots use the catalog identities selected by that project Profile.
 
-The v1 profile remains an immutable, explicitly selected profile. The v2
-profile is also `default_active: false` and explicitly selected. Its
+The bundled Profile is `default_active: false` and explicitly selected. Its
 `validator.assurance` routes are exact: R1 is
 `gpt-5.6-luna:max -> gpt-5.6-terra:max -> gpt-5.6-sol:high`; R2 is
 `gpt-5.6-terra:max -> gpt-5.6-sol:high`; and R3 requires

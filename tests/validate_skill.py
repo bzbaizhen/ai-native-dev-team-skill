@@ -69,7 +69,6 @@ MODEL_ROUTER_REQUIRED_PATHS = {
     "assets/model-router-config.example.json",
     "assets/model-router-config.v1.schema.json",
     "assets/model-router-config.v2.schema.json",
-    "assets/profiles/glm+deepseek.json",
     "assets/profiles/gpt5.6.json",
     "assets/provider-catalog.json",
     "assets/route-decision.v1.schema.json",
@@ -82,9 +81,8 @@ MODEL_ROUTER_REQUIRED_PATHS = {
     "scripts/resolve_route.py",
     "scripts/router_config.py",
 }
-MODEL_ROUTER_PROFILE_ID = "glm+deepseek"
-MODEL_ROUTER_V2_PROFILE_ID = "gpt5.6"
-MODEL_ROUTER_CONFIG_ID = "project-router-2026-08-28"
+MODEL_ROUTER_PROFILE_ID = "gpt5.6"
+MODEL_ROUTER_CONFIG_ID = "project-router-v2-2026-08-31"
 MODEL_ROUTER_SCHEMA_IDS = {
     "assets/model-router-config.v1.schema.json": "model-router-config.v1.schema.json",
     "assets/model-router-config.v2.schema.json": "model-router-config.v2.schema.json",
@@ -199,7 +197,7 @@ def validate_model_router_bundle(skill_dir: Path) -> None:
     assert frontmatter_match, "Router frontmatter is malformed"
     expected_frontmatter = """name: ai-native-model-router
 description: Deterministic model routing with evidence-bound fallbacks.
-version: 0.3.0
+version: 0.4.0
 author: bzbaizhen, Hermes Agent
 license: MIT
 platforms:
@@ -296,17 +294,11 @@ metadata:
             raise AssertionError(f"invalid Router Python: {path}: {exc}") from exc
 
     profile = json_payloads["assets/profiles/" + MODEL_ROUTER_PROFILE_ID + ".json"]
-    assert profile["schema_version"] == 1
+    assert profile["schema_version"] == 2
     assert profile["profile_id"] == MODEL_ROUTER_PROFILE_ID
     assert profile["default_active"] is False
     assert profile["activation"] == "explicit-owner-selection"
-    assert profile["evidence_date"] == "2026-08-28"
-    v2_profile = json_payloads["assets/profiles/" + MODEL_ROUTER_V2_PROFILE_ID + ".json"]
-    assert v2_profile["schema_version"] == 2
-    assert v2_profile["profile_id"] == MODEL_ROUTER_V2_PROFILE_ID
-    assert v2_profile["default_active"] is False
-    assert v2_profile["activation"] == "explicit-owner-selection"
-    assert v2_profile["evidence_date"] == "2026-08-31"
+    assert profile["evidence_date"] == "2026-08-31"
     shared_slots = {
         "control-plane",
         "writer.c0-batch",
@@ -315,10 +307,8 @@ metadata:
         "writer.c3",
         "writer.high-volume-deterministic",
     }
-    assert set(v2_profile["slots"]) == shared_slots | {"validator.assurance"}
-    for slot in shared_slots:
-        assert v2_profile["slots"][slot] == profile["slots"][slot], slot
-    assurance = v2_profile["slots"]["validator.assurance"]
+    assert set(profile["slots"]) == shared_slots | {"validator.assurance"}
+    assurance = profile["slots"]["validator.assurance"]
     assert set(assurance) == {
         "allow_same_model_as_writer",
         "accepted_route_failure_evidence",
@@ -329,15 +319,15 @@ metadata:
     assert assurance["accepted_route_failure_evidence"] == EXPECTED_PRIMARY_UNAVAILABLE_EVIDENCE
     assert assurance["routes_by_risk"] == MODEL_ROUTER_V2_ROUTE_MATRIX
     assert assurance["exhaustion_action"] == "blocked-owner"
-    assert "validator.independent" not in v2_profile["slots"]
+    assert "validator.independent" not in profile["slots"]
     config = json_payloads["assets/model-router-config.example.json"]
     assert config == {
-        "schema_version": 1,
-        "router_api_version": "route/v1",
+        "schema_version": 2,
+        "router_api_version": "route/v2",
         "config_id": MODEL_ROUTER_CONFIG_ID,
         "active_profile": MODEL_ROUTER_PROFILE_ID,
         "project_profile_dirs": [".ai-native/profiles"],
-        "updated_reason": "Explicit project profile selection for route/v1.",
+        "updated_reason": "Explicit project profile selection for route/v2.",
     }
     catalog = json_payloads["assets/provider-catalog.json"]
     assert catalog["schema_version"] == 1
@@ -481,7 +471,7 @@ router_components = [
 if len(router_components) != 1:
     fail("suite manifest must contain exactly one ai-native-model-router component")
 router_component = router_components[0]
-if router_component.get("version") != "0.3.0":
+if router_component.get("version") != "0.4.0":
     fail("ai-native-model-router component version drifted")
 if router_component.get("files") != sorted(MODEL_ROUTER_REQUIRED_PATHS):
     fail("ai-native-model-router manifest inventory is not the complete sorted v2 inventory")
@@ -924,34 +914,22 @@ for namespace_contract_term in (
     if namespace_contract_term not in team_metrics_source:
         fail(f"team_metrics.py is missing namespace safety behavior: {namespace_contract_term}")
 
-profile_path = MODEL_ROUTER / "assets" / "profiles" / "glm+deepseek.json"
+profile_path = MODEL_ROUTER / "assets" / "profiles" / f"{MODEL_ROUTER_PROFILE_ID}.json"
 try:
     profile_contract = json.loads(profile_path.read_text(encoding="utf-8"))
 except json.JSONDecodeError as exc:
     fail(f"optional routing profile contract is invalid JSON: {exc}")
+if profile_contract.get("schema_version") != 2:
+    fail("bundled routing profile schema version drifted")
+if profile_contract.get("profile_id") != MODEL_ROUTER_PROFILE_ID:
+    fail("bundled routing profile identity drifted")
 if profile_contract.get("default_active") is not False:
-    fail("optional routing profile must be inactive by default")
+    fail("bundled routing profile must be inactive by default")
 if profile_contract.get("activation") != "explicit-owner-selection":
-    fail("optional routing profile requires explicit Owner selection")
-if profile_contract.get("evidence_date") != "2026-08-28":
-    fail("optional routing profile evidence date drifted")
-
-v2_profile_path = MODEL_ROUTER / "assets" / "profiles" / f"{MODEL_ROUTER_V2_PROFILE_ID}.json"
-try:
-    v2_profile_contract = json.loads(v2_profile_path.read_text(encoding="utf-8"))
-except json.JSONDecodeError as exc:
-    fail(f"v2 optional routing profile contract is invalid JSON: {exc}")
-if v2_profile_contract.get("schema_version") != 2:
-    fail("v2 optional routing profile schema version drifted")
-if v2_profile_contract.get("profile_id") != MODEL_ROUTER_V2_PROFILE_ID:
-    fail("v2 optional routing profile identity drifted")
-if v2_profile_contract.get("default_active") is not False:
-    fail("v2 optional routing profile must be inactive by default")
-if v2_profile_contract.get("activation") != "explicit-owner-selection":
-    fail("v2 optional routing profile requires explicit Owner selection")
-if v2_profile_contract.get("evidence_date") != "2026-08-31":
-    fail("v2 optional routing profile evidence date drifted")
-v2_assurance = v2_profile_contract.get("slots", {}).get("validator.assurance", {})
+    fail("bundled routing profile requires explicit Owner selection")
+if profile_contract.get("evidence_date") != "2026-08-31":
+    fail("bundled routing profile evidence date drifted")
+v2_assurance = profile_contract.get("slots", {}).get("validator.assurance", {})
 if set(v2_assurance) != {
     "allow_same_model_as_writer",
     "accepted_route_failure_evidence",
@@ -967,14 +945,8 @@ if v2_assurance.get("routes_by_risk") != MODEL_ROUTER_V2_ROUTE_MATRIX:
     fail("v2 Validator assurance route matrix drifted")
 if v2_assurance.get("exhaustion_action") != "blocked-owner":
     fail("v2 Validator assurance exhaustion action drifted")
-if "validator.independent" in v2_profile_contract.get("slots", {}):
+if "validator.independent" in profile_contract.get("slots", {}):
     fail("v2 profile must not expose the v1 independent Validator slot")
-
-validator_fallback = profile_contract.get("slots", {}).get("validator.independent", {})
-if not isinstance(validator_fallback, dict):
-    fail("validator fallback object is missing")
-if validator_fallback.get("accepted_primary_unavailable_evidence") != EXPECTED_PRIMARY_UNAVAILABLE_EVIDENCE:
-    fail("validator fallback evidence list is not the exact accepted array")
 
 high_volume_writer_fallback = profile_contract.get("slots", {}).get("writer.high-volume-deterministic", {})
 if not isinstance(high_volume_writer_fallback, dict):

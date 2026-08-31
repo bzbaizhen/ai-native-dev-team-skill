@@ -17,7 +17,7 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[1]
 SKILL_DIR = ROOT / "skills" / "ai-native-model-router"
 ASSET_DIR = SKILL_DIR / "assets"
-PROFILE_ID = "glm+deepseek"
+PROFILE_ID = "custom-v1"
 NEW_PROFILE_ID = "gpt5.6"
 EVIDENCE = [
     "model-not-found",
@@ -30,7 +30,7 @@ sys.path.insert(0, str(SKILL_DIR / "scripts"))
 from resolve_route import (  # noqa: E402
     load_catalog,
     load_profile,
-    resolve_route,
+    resolve_route as _resolve_route,
     validate_profile,
     validate_profile_v2,
     validate_profile_versioned,
@@ -39,6 +39,55 @@ from resolve_route import (  # noqa: E402
 )
 from router_config import config_digest, validate_config  # noqa: E402
 sys.path.insert(0, str(ROOT / "tests"))
+
+
+def custom_v1_profile(profile_id=PROFILE_ID):
+    """Return a valid route/v1 profile for bounded project-only test use."""
+
+    profile = json.loads(
+        (ASSET_DIR / "profiles" / f"{NEW_PROFILE_ID}.json").read_text(encoding="utf-8")
+    )
+    profile["schema_version"] = 1
+    profile["profile_id"] = profile_id
+    profile["evidence_date"] = "2026-08-28"
+    del profile["slots"]["validator.assurance"]
+    profile["slots"]["validator.independent"] = {
+        "primary": {
+            "provider": "zai",
+            "model": "glm-5.3",
+            "reasoning": "max",
+            "reasoning_delivery": "provider-default",
+        },
+        "fallback": {
+            "provider": "deepseek",
+            "model": "deepseek-v4-pro",
+            "reasoning": "max",
+            "reasoning_delivery": "explicit",
+        },
+        "accepted_primary_unavailable_evidence": EVIDENCE,
+        "independent_validator_source": "openai-complexity-map",
+    }
+    return profile
+
+
+_DEFAULT_V1_CONTEXT = None
+
+
+def resolve_route(request, **kwargs):
+    """Use the class-scoped temporary v1 fixture for legacy route tests."""
+
+    if (
+        _DEFAULT_V1_CONTEXT is not None
+        and request.get("router_api_version") == "route/v1"
+        and request.get("profile_id") == PROFILE_ID
+        and not kwargs
+    ):
+        return _resolve_route(
+            request,
+            cwd=_DEFAULT_V1_CONTEXT["project"],
+            config_path=_DEFAULT_V1_CONTEXT["config"],
+        )
+    return _resolve_route(request, **kwargs)
 
 
 _validate_skill_import_failure = None
@@ -208,7 +257,7 @@ class SkillSurfaceTests(unittest.TestCase):
         self.assertLessEqual(len(description), 60)
         self.assertTrue(description.endswith("."))
         for required in (
-            "version: 0.3.0",
+            "version: 0.4.0",
             "author: bzbaizhen, Hermes Agent",
             "license: MIT",
             "platforms:",
@@ -245,7 +294,7 @@ class SkillSurfaceTests(unittest.TestCase):
             "references/configuration.md",
             "references/provider-evidence.md",
             "assets/provider-catalog.json",
-            f"assets/profiles/{PROFILE_ID}.json",
+            f"assets/profiles/{NEW_PROFILE_ID}.json",
             "assets/model-router-config.v1.schema.json",
             "assets/route-request.v1.schema.json",
             "assets/route-decision.v1.schema.json",
@@ -274,7 +323,7 @@ class SkillSurfaceTests(unittest.TestCase):
 
             skill_path = candidate / "SKILL.md"
             original = skill_path.read_text(encoding="utf-8")
-            mutated = original.replace("version: 0.3.0", "version: 0.3.1")
+            mutated = original.replace("version: 0.4.0", "version: 0.4.1")
             self.assertNotEqual(mutated, original)
             skill_path.write_text(mutated, encoding="utf-8")
             with self.assertRaises(AssertionError):
@@ -293,7 +342,7 @@ class SkillSurfaceTests(unittest.TestCase):
             metadata_path.write_text(metadata, encoding="utf-8")
             config_path = candidate / "assets" / "model-router-config.example.json"
             config = config_path.read_text(encoding="utf-8")
-            config_path.write_text(config.replace("project-router-2026-08-28", "wrong-config"), encoding="utf-8")
+            config_path.write_text(config.replace("project-router-v2-2026-08-31", "wrong-config"), encoding="utf-8")
             with self.assertRaises(AssertionError):
                 validate_model_router_bundle(candidate)
 
@@ -347,9 +396,10 @@ class CatalogAndProfileTests(unittest.TestCase):
             r"credential|secret|token|endpoint|price|command|transport",
         )
 
-    def test_profile_preserves_mappings_and_exact_fallback_evidence(self):
-        profile = load_profile(PROFILE_ID)
-        self.assertEqual(profile["profile_id"], PROFILE_ID)
+    def test_bundled_profile_preserves_v2_mappings_and_high_volume_writer(self):
+        profile = load_profile(NEW_PROFILE_ID)
+        self.assertEqual(profile["profile_id"], NEW_PROFILE_ID)
+        self.assertEqual(profile["schema_version"], 2)
         self.assertFalse(profile["default_active"])
         self.assertEqual(
             set(profile["slots"]),
@@ -359,7 +409,7 @@ class CatalogAndProfileTests(unittest.TestCase):
                 "writer.c1",
                 "writer.c2",
                 "writer.c3",
-                "validator.independent",
+                "validator.assurance",
                 "writer.high-volume-deterministic",
             },
         )
@@ -373,32 +423,22 @@ class CatalogAndProfileTests(unittest.TestCase):
         for slot, identity in expected.items():
             route = profile["slots"][slot]["primary"]
             self.assertEqual((route["provider"], route["model"], route["reasoning"]), identity)
-        for slot, fallback_model in (
-            ("validator.independent", "deepseek-v4-pro"),
-            ("writer.high-volume-deterministic", "deepseek-v4-flash"),
-        ):
-            slot_data = profile["slots"][slot]
-            self.assertEqual(slot_data["fallback"]["model"], fallback_model)
-            self.assertEqual(slot_data["accepted_primary_unavailable_evidence"], EVIDENCE)
-        self.assertTrue(profile["slots"]["writer.high-volume-deterministic"]["requires_explicit_task_selection"])
+        high_volume = profile["slots"]["writer.high-volume-deterministic"]
+        self.assertEqual(high_volume["primary"]["model"], "glm-5.3-flash")
+        self.assertEqual(high_volume["fallback"]["model"], "deepseek-v4-flash")
+        self.assertEqual(high_volume["accepted_primary_unavailable_evidence"], EVIDENCE)
+        self.assertTrue(high_volume["requires_explicit_task_selection"])
         self.assertEqual(
-            set(profile["slots"]["validator.independent"]),
-            {"primary", "fallback", "accepted_primary_unavailable_evidence", "independent_validator_source"},
-        )
-        self.assertEqual(
-            profile["slots"]["writer.high-volume-deterministic"]["independent_validator_source"],
-            "openai-complexity-map",
+            set(profile["slots"]["validator.assurance"]),
+            {"allow_same_model_as_writer", "accepted_route_failure_evidence", "routes_by_risk", "exhaustion_action"},
         )
 
     def test_profile_mutations_and_catalog_drift_fail_closed(self):
-        profile = load_profile(PROFILE_ID)
+        profile = load_profile(NEW_PROFILE_ID)
         for mutation in (
             lambda p: p["slots"]["writer.c1"]["primary"].update(model="unknown-model"),
             lambda p: p["slots"]["writer.c1"].update(extra=True),
             lambda p: p["slots"]["writer.high-volume-deterministic"].update(default=True),
-            lambda p: p["slots"]["validator.independent"].update(
-                independent_validator_source="other-source"
-            ),
             lambda p: p["slots"]["writer.high-volume-deterministic"].update(
                 independent_validator_source="other-source"
             ),
@@ -406,11 +446,11 @@ class CatalogAndProfileTests(unittest.TestCase):
             candidate = copy.deepcopy(profile)
             mutation(candidate)
             with self.assertRaises(ValueError):
-                validate_profile(candidate, load_catalog())
+                validate_profile_v2(candidate, load_catalog())
 
     def test_new_profile_asset_preserves_non_validator_slots_and_exact_assurance_routes(self):
         old_profile = json.loads(
-            (ASSET_DIR / "profiles" / f"{PROFILE_ID}.json").read_text(encoding="utf-8")
+            (ASSET_DIR / "profiles" / f"{NEW_PROFILE_ID}.json").read_text(encoding="utf-8")
         )
         new_profile = json.loads(
             (ASSET_DIR / "profiles" / f"{NEW_PROFILE_ID}.json").read_text(encoding="utf-8")
@@ -494,6 +534,35 @@ class CatalogAndProfileTests(unittest.TestCase):
 
 
 class ResolutionTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        global _DEFAULT_V1_CONTEXT
+        project = ROOT / "tests" / f".model-router-v1-{uuid.uuid4().hex}"
+        project.mkdir()
+        profile_dir = project / "profiles"
+        profile_dir.mkdir()
+        (profile_dir / f"{PROFILE_ID}.json").write_text(
+            json.dumps(custom_v1_profile()), encoding="utf-8"
+        )
+        config = {
+            "schema_version": 1,
+            "router_api_version": "route/v1",
+            "config_id": "default-v1-test-config",
+            "active_profile": PROFILE_ID,
+            "project_profile_dirs": ["profiles"],
+            "updated_reason": "bounded route/v1 test fixture",
+        }
+        config_path = project / "config.json"
+        config_path.write_text(json.dumps(config), encoding="utf-8")
+        _DEFAULT_V1_CONTEXT = {"project": project, "config": config_path}
+
+    @classmethod
+    def tearDownClass(cls):
+        global _DEFAULT_V1_CONTEXT
+        if _DEFAULT_V1_CONTEXT is not None:
+            shutil.rmtree(_DEFAULT_V1_CONTEXT["project"])
+            _DEFAULT_V1_CONTEXT = None
+
     def test_v2_request_validation_rejects_mixed_versions_and_invalid_evidence_keys(self):
         self.assertEqual(validate_route_request_v2(route_v2_request()), route_v2_request())
         with self.assertRaises(ValueError):
@@ -1147,7 +1216,7 @@ class ResolutionTests(unittest.TestCase):
         self.assertNotEqual(decision["selected_route"]["model"], request["writer_identity"]["model"])
 
     def test_self_validation_blocks_logical_or_runtime_identity_matches(self):
-        profile = load_profile(PROFILE_ID)
+        profile = custom_v1_profile()
         profile["slots"]["validator.independent"]["primary"] = {
             "provider": "openai", "model": "gpt-5.6-luna", "reasoning": "max", "reasoning_delivery": "explicit"
         }
@@ -1170,10 +1239,10 @@ class ResolutionTests(unittest.TestCase):
         with temporary_project() as project:
             profile_dir = project / ".ai-native" / "profiles"
             profile_dir.mkdir(parents=True)
-            bundled = SKILL_DIR / "assets" / "profiles" / f"{PROFILE_ID}.json"
+            bundled = SKILL_DIR / "assets" / "profiles" / f"{NEW_PROFILE_ID}.json"
             changed = json.loads(bundled.read_text(encoding="utf-8"))
             changed["evidence_date"] = "2099-01-01"
-            candidate = profile_dir / f"{PROFILE_ID}.json"
+            candidate = profile_dir / f"{NEW_PROFILE_ID}.json"
             candidate.write_text(json.dumps(changed), encoding="utf-8")
 
             class SameDigest:
@@ -1182,18 +1251,18 @@ class ResolutionTests(unittest.TestCase):
 
             with patch("hashlib.sha256", return_value=SameDigest()):
                 with self.assertRaises(ValueError):
-                    load_profile(PROFILE_ID, project_root=project, project_profile_dirs=[".ai-native/profiles"])
+                    load_profile(NEW_PROFILE_ID, project_root=project, project_profile_dirs=[".ai-native/profiles"])
 
     def test_collision_blocks_changed_bundled_profile(self):
         with temporary_project() as project:
             profile_dir = project / ".ai-native" / "profiles"
             profile_dir.mkdir(parents=True)
-            bundled = SKILL_DIR / "assets" / "profiles" / f"{PROFILE_ID}.json"
+            bundled = SKILL_DIR / "assets" / "profiles" / f"{NEW_PROFILE_ID}.json"
             changed = json.loads(bundled.read_text(encoding="utf-8"))
             changed["evidence_date"] = "2099-01-01"
-            (profile_dir / f"{PROFILE_ID}.json").write_text(json.dumps(changed), encoding="utf-8")
+            (profile_dir / f"{NEW_PROFILE_ID}.json").write_text(json.dumps(changed), encoding="utf-8")
             with self.assertRaises(ValueError):
-                load_profile(PROFILE_ID, project_root=project, project_profile_dirs=[".ai-native/profiles"])
+                load_profile(NEW_PROFILE_ID, project_root=project, project_profile_dirs=[".ai-native/profiles"])
 
     def test_collision_blocks_changed_new_bundled_profile(self):
         with temporary_project() as project:
@@ -1265,17 +1334,25 @@ class CliTests(unittest.TestCase):
     def test_list_validate_and_resolve_commands_emit_json(self):
         listed = self.run_cli("list-profiles")
         self.assertEqual(listed.returncode, 0, listed.stderr)
-        self.assertIn(PROFILE_ID, json.loads(listed.stdout)["profiles"])
-        self.assertIn(NEW_PROFILE_ID, json.loads(listed.stdout)["profiles"])
-        validated = self.run_cli("validate-profile", "--profile", PROFILE_ID)
+        self.assertEqual(json.loads(listed.stdout)["profiles"], [NEW_PROFILE_ID])
+        validated = self.run_cli("validate-profile", "--profile", NEW_PROFILE_ID)
         self.assertEqual(validated.returncode, 0, validated.stderr)
-        self.assertEqual(json.loads(validated.stdout)["profile_id"], PROFILE_ID)
-        validated_new = self.run_cli("validate-profile", "--profile", NEW_PROFILE_ID)
-        self.assertEqual(validated_new.returncode, 0, validated_new.stderr)
-        self.assertEqual(json.loads(validated_new.stdout)["profile_id"], NEW_PROFILE_ID)
+        self.assertEqual(json.loads(validated.stdout)["profile_id"], NEW_PROFILE_ID)
         with temporary_project() as project:
             request_path = project / "request.json"
-            request_path.write_text(json.dumps(route_request()), encoding="utf-8")
+            request_path.write_text(
+                json.dumps(
+                    route_v2_request(
+                        route_slot="writer.c1",
+                        writer_route_slot=None,
+                        risk_level=None,
+                        writer_identity=None,
+                        candidate_id=None,
+                        availability={"openai/gpt-5.6-luna": "available"},
+                    )
+                ),
+                encoding="utf-8",
+            )
             resolved = self.run_cli("resolve", "--request", str(request_path))
             self.assertEqual(resolved.returncode, 0, resolved.stderr)
             self.assertEqual(json.loads(resolved.stdout)["decision_status"], "selected")

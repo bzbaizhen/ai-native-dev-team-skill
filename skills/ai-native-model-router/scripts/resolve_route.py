@@ -28,7 +28,6 @@ ROOT = Path(__file__).resolve().parents[1]
 ASSET_DIR = ROOT / "assets"
 PROFILE_DIR = ASSET_DIR / "profiles"
 CATALOG_PATH = ASSET_DIR / "provider-catalog.json"
-V1_PROFILE_ID = "glm+deepseek"
 V2_PROFILE_ID = "gpt5.6"
 ROUTE_SLOTS = (
     "control-plane",
@@ -54,7 +53,7 @@ ROUTE_SLOTS_V2 = (
     "validator.assurance",
     "writer.high-volume-deterministic",
 )
-PROFILE_IDS = (V1_PROFILE_ID, V2_PROFILE_ID)
+PROFILE_IDS = (V2_PROFILE_ID,)
 EVIDENCE = (
     "model-not-found",
     "authenticated-provider-outage",
@@ -389,7 +388,7 @@ def _profile_candidates(profile_id: str, project_root: Path, dirs: list[str]) ->
 
 
 def load_profile(
-    profile_id: str = V1_PROFILE_ID,
+    profile_id: str = V2_PROFILE_ID,
     *,
     project_root: Any = None,
     project_profile_dirs: list[str] | None = None,
@@ -411,8 +410,7 @@ def load_profile(
         normalized = validate_profile_versioned(_load_json(bundled_path), catalog)
         if normalized["profile_id"] != profile_id:
             _fail("profile_id does not match bundled profile path")
-        expected_schema_version = 2 if profile_id == V2_PROFILE_ID else 1
-        if normalized["schema_version"] != expected_schema_version:
+        if normalized["schema_version"] != 2:
             _fail("bundled profile schema version drifted")
         return normalized
     if len(candidates) != 1:

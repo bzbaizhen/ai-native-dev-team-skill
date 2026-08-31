@@ -9,14 +9,14 @@
 一个 GitHub 仓库正好包含两个可独立安装的规范 Skill：
 
 - `skills/ai-native-dev-team/` v3.0.0：必需的治理入口（governance-entry）。
-- `skills/ai-native-model-router/` v0.3.0：可选的路由扩展（routing-extension）。
+- `skills/ai-native-model-router/` v0.4.0：可选的路由扩展（routing-extension）。
 
 ## 套件包含什么
 
 | Skill | 版本 | 角色 | 负责内容 |
 |---|---:|---|---|
 | `ai-native-dev-team` | 3.0.0 | governance-entry | C/R 分类、Core/Controlled、拓扑、权限、DQR、Git 隔离、候选版本身份、集成和恢复。 |
-| `ai-native-model-router` | 0.3.0 | routing-extension | 通过 `route/v1`、`route/v2` 和 `.ai-native/model-router.json` 确定具体供应商和模型（provider/model）。它不执行宿主。 |
+| `ai-native-model-router` | 0.4.0 | routing-extension | 通过 `route/v1`、`route/v2` 和 `.ai-native/model-router.json` 确定具体供应商和模型（provider/model）。它不执行宿主。 |
 
 Team 本身可以独立工作。只有项目需要在宿主边界确定具体供应商和模型时，才安装 Router。
 
@@ -62,20 +62,7 @@ Team 先给出语义路由槽位（`route slot`），即使没有 Router 也能�
 
 ## 配置 Router
 
-在项目中创建 `.ai-native/model-router.json`，内容使用下面匹配版本的完整结构。其中 `active_profile` 必须显式选择。必须分别显式选择 profile 和 Router API/配置版本；仅有 profile 文件不会启用任何路由。配置中不放密钥或其他敏感信息。Router v0.3.0 是一次破坏性的 Profile-ID 重命名：bundled v1 profile 使用 `glm+deepseek`，bundled v2 profile 使用 `gpt5.6`。之前的 ID 和 profile 文件名已移除，不是别名，也不支持旧名称发现；已有项目配置必须先更新。
-
-```json
-{
-  "schema_version": 1,
-  "router_api_version": "route/v1",
-  "config_id": "project-router-2026-08-28",
-  "active_profile": "glm+deepseek",
-  "project_profile_dirs": [".ai-native/profiles"],
-  "updated_reason": "Explicit project profile selection for route/v1."
-}
-```
-
-对于新增的 v2 assurance 合同，要显式选择匹配的 v2 profile 和配置版本：
+在项目中创建 `.ai-native/model-router.json`，内容使用下面匹配版本的完整结构。其中 `active_profile` 必须显式选择。必须分别显式选择 Profile 和 Router API/配置版本；仅有 Profile 文件不会启用任何路由。配置中不放密钥或其他敏感信息。Router v0.4.0 移除了 bundled route/v1 Profile：唯一的 bundled 示例是使用 route/v2 的 `gpt5.6`。通用 route/v1 schema 和 API 仍可用于安全的项目 Profile；退休的 Profile ID 会被拒绝，不是别名，也不支持发现。
 
 ```json
 {
@@ -88,7 +75,7 @@ Team 先给出语义路由槽位（`route slot`），即使没有 Router 也能�
 }
 ```
 
-Assurance 矩阵是：R1：Luna Max -> Terra Max -> Sol High；R2：Terra Max -> Sol High；R3：严格使用 Terra Max + Sol High，不会降级为一个 Validator。API/配置版本和 profile 必须匹配；仅有 profile 文件不会启用任何路由。参见 [v1 配置 Schema](skills/ai-native-model-router/assets/model-router-config.v1.schema.json)、[v2 配置 Schema](skills/ai-native-model-router/assets/model-router-config.v2.schema.json) 和 [v1 示例](skills/ai-native-model-router/assets/model-router-config.example.json)。仅改配置只适用于已有的宿主适配器合同。新增认证方式、传输机制或宿主注入方式时，仍需修改适配器代码；Router 不会凭配置增加这些能力。
+Assurance 矩阵是：R1：Luna Max -> Terra Max -> Sol High；R2：Terra Max -> Sol High；R3：严格使用 Terra Max + Sol High，不会降级为一个 Validator。API/配置版本和 Profile 必须匹配；仅有 Profile 文件不会启用任何路由。参见 [v1 配置 Schema](skills/ai-native-model-router/assets/model-router-config.v1.schema.json)、[v2 配置 Schema](skills/ai-native-model-router/assets/model-router-config.v2.schema.json) 和 [bundled v2 示例](skills/ai-native-model-router/assets/model-router-config.example.json)。仅改配置只适用于已有的宿主适配器合同。新增认证方式、传输机制或宿主注入方式时，仍需修改适配器代码；Router 不会凭配置增加这些能力。
 
 ## 工作流
 
@@ -113,7 +100,7 @@ Team 对普通低风险工作选择 `Core`；出现实质行为变化、更高�
 ## 安全边界
 
 - 权限分层：Team 控制任务范围和授权边界；`Writer` 只获得自己的路径租约；`Validator` 保持独立；风险要求 Owner 审批时不能省略。
-- 保留的 v1 profile 用 GLM-5.3 做主要 `Validator`，用 GLM-5.3 Flash 做必须显式选择的高吞吐 `Writer`；只有主模型不可用且证据被接受时才回退到 DeepSeek。v2 assurance profile 使用上面的 GPT-5.6 矩阵。两者都必须显式选择匹配的 profile/API，均不是默认项，也不会自动启用。可用性必须由调用方提供，不能推断。
+- bundled `gpt5.6` Profile 使用上面的 GPT-5.6 assurance 矩阵。它明确选择的高吞吐 `Writer` 仍使用 GLM-5.3 Flash，并在证据满足门禁时回退到 DeepSeek V4 Flash。通用 route/v1 合同仍可用于安全的项目 Profile。Profile/API 始终必须显式选择；bundled Profile 不是默认项，也不会自动启用。可用性必须由调用方提供，不能推断。
 - Router 只给出建议，不执行调用。每个 `RouteDecision` 都带有 `enforcement_status: not-executed`；宿主适配器负责凭证、传输和实际执行。
 - 回退必须有明确、被配置档接受的“主模型不可用”证据。未说明的错误、主观质量判断或缺少可用性信息都不够。
 - Windows 上运行无人值守、非交互式 Coding CLI（Writer 或 Validator）时，默认使用 `pty=false`、`background=true` 和 `notify_on_complete=true`。只有 interactive TUI、login 或确实需要终端输入时才使用 `pty=true`，不能把它无条件用于 unattended exec。最终输出、final-answer marker 或 tokens-used 行都不是进程退出证据；必须等 registry status 为 `exited` 并取得 exit code。只做 one short bounded grace check，再读取 fresh process status；必要时只 terminate exact tracked process，不启动 duplicate Writer，也不反复 wait/reconnect。

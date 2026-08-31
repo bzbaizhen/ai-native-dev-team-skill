@@ -32,7 +32,7 @@
     },
     {
       "id": "ai-native-model-router",
-      "version": "0.3.0",
+      "version": "0.4.0",
       "role": "routing-extension",
       "files": [
         "SKILL.md",
@@ -40,7 +40,6 @@
         "assets/model-router-config.example.json",
         "assets/model-router-config.v1.schema.json",
         "assets/model-router-config.v2.schema.json",
-        "assets/profiles/glm+deepseek.json",
         "assets/profiles/gpt5.6.json",
         "assets/provider-catalog.json",
         "assets/route-decision.v1.schema.json",

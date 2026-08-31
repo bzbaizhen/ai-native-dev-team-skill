@@ -18,7 +18,6 @@ TOOL_PATH = ROOT / "tools" / "migrate_suite_install.py"
 MANIFEST_PATH = ROOT / "suite-manifest.json"
 MODEL_ROUTER = ROOT / "skills" / "ai-native-model-router"
 MODEL_ROUTER_PROFILE_IDS = {
-    "glm+deepseek",
     "gpt5.6",
 }
 MODEL_ROUTER_INVENTORY = [
@@ -27,7 +26,6 @@ MODEL_ROUTER_INVENTORY = [
     "assets/model-router-config.example.json",
     "assets/model-router-config.v1.schema.json",
     "assets/model-router-config.v2.schema.json",
-    "assets/profiles/glm+deepseek.json",
     "assets/profiles/gpt5.6.json",
     "assets/provider-catalog.json",
     "assets/route-decision.v1.schema.json",
@@ -176,7 +174,7 @@ class SuitePackagingTests(unittest.TestCase):
                 },
                 {
                     "id": "ai-native-model-router",
-                    "version": "0.3.0",
+                    "version": "0.4.0",
                     "role": "routing-extension",
                     "files": [
                         "SKILL.md",
@@ -184,7 +182,6 @@ class SuitePackagingTests(unittest.TestCase):
                         "assets/model-router-config.example.json",
                         "assets/model-router-config.v1.schema.json",
                         "assets/model-router-config.v2.schema.json",
-                        "assets/profiles/glm+deepseek.json",
                         "assets/profiles/gpt5.6.json",
                         "assets/provider-catalog.json",
                         "assets/route-decision.v1.schema.json",
@@ -223,9 +220,9 @@ class SuitePackagingTests(unittest.TestCase):
     def test_model_router_version_and_inventory_are_exact_and_sorted(self):
         manifest = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
         component = next(item for item in manifest["components"] if item["id"] == "ai-native-model-router")
-        self.assertEqual(component["version"], "0.3.0")
+        self.assertEqual(component["version"], "0.4.0")
         skill = (MODEL_ROUTER / "SKILL.md").read_text(encoding="utf-8")
-        self.assertEqual(re.search(r"^version:\s*(.+)$", skill, re.MULTILINE).group(1), "0.3.0")
+        self.assertEqual(re.search(r"^version:\s*(.+)$", skill, re.MULTILINE).group(1), "0.4.0")
         self.assertEqual(component["files"], MODEL_ROUTER_INVENTORY)
         self.assertEqual(component["files"], sorted(component["files"]))
         self.assertEqual(
@@ -234,7 +231,6 @@ class SuitePackagingTests(unittest.TestCase):
                 "agents/openai.yaml",
                 "assets/model-router-config.example.json",
                 "assets/model-router-config.v1.schema.json",
-                "assets/profiles/glm+deepseek.json",
                 "assets/provider-catalog.json",
                 "assets/route-decision.v1.schema.json",
                 "assets/route-request.v1.schema.json",

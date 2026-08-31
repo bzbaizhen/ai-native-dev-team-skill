@@ -105,7 +105,6 @@ class Phase3RenameContractTests(unittest.TestCase):
         self.assertEqual(
             router_profiles,
             [
-                "glm+deepseek.json",
                 "gpt5.6.json",
             ],
         )

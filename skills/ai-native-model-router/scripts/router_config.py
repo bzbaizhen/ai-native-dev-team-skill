@@ -23,9 +23,10 @@ SCHEMA_VERSION = 1
 ROUTER_API_VERSION = "route/v1"
 SCHEMA_VERSION_V2 = 2
 ROUTER_API_VERSION_V2 = "route/v2"
-VERIFIED_PROFILE_ID = "glm+deepseek"
+CURRENT_BUNDLED_PROFILE_ID = "gpt5.6"
 RETIRED_PROFILE_IDS = frozenset(
     {
+        "glm+deepseek",
         "openai-glm5.3-deepseek-fallback-2026-08-28",
         "openai-gpt5.6-validator-assurance-2026-08-31",
     }
@@ -75,7 +76,7 @@ def _fail(message: str) -> None:
 
 
 def reject_retired_profile_id(profile_id: Any, field: str = "profile_id") -> None:
-    """Reject IDs removed by the Router v0.3.0 breaking rename."""
+    """Reject profile IDs retired by a breaking bundled-profile change."""
 
     if isinstance(profile_id, str) and profile_id in RETIRED_PROFILE_IDS:
         _fail(f"{field} is retired and unsupported")
@@ -279,16 +280,16 @@ def migrate_legacy_profile(profile: Any) -> dict[str, Any]:
         _fail("legacy profile activation is ambiguous")
     profile_id = _require_string(profile["profile_id"], "profile_id")
     reject_retired_profile_id(profile_id)
-    if profile_id != VERIFIED_PROFILE_ID:
+    if profile_id != CURRENT_BUNDLED_PROFILE_ID:
         _fail("legacy profile_id is not the current verified profile")
     if type(profile["default_active"]) is not bool or profile["default_active"]:
         _fail("legacy profile must not be active by default")
     if profile["activation"] != "explicit-owner-selection":
         _fail("legacy profile activation must be explicit-owner-selection")
-    return validate_config(
+    return validate_config_v2(
         {
-            "schema_version": 1,
-            "router_api_version": ROUTER_API_VERSION,
+            "schema_version": SCHEMA_VERSION_V2,
+            "router_api_version": ROUTER_API_VERSION_V2,
             "config_id": f"migrated-{profile_id}",
             "active_profile": profile_id,
             "project_profile_dirs": [],

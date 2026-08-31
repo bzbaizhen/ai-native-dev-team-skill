@@ -48,9 +48,7 @@ V2_ROUTE_SLOTS = [
     "validator.assurance",
     "writer.high-volume-deterministic",
 ]
-V1_PROFILE_PATH = ASSET_DIR / "profiles" / "glm+deepseek.json"
-V1_PROFILE_GIT_BLOB = "e75e6e1c70872178d688608fe8fa54e1953426c7"
-V1_PROFILE_SHA256 = "aef1517b10de39ea487f8c3eed63d5cf0e5c268dda42c6bb13808ee7570dd17b"
+CURRENT_BUNDLED_PROFILE_ID = "gpt5.6"
 
 
 def valid_config(**overrides):
@@ -58,7 +56,7 @@ def valid_config(**overrides):
         "schema_version": 1,
         "router_api_version": "route/v1",
         "config_id": "test-config",
-        "active_profile": "glm+deepseek",
+        "active_profile": "custom-v1",
         "project_profile_dirs": [".ai-native/profiles"],
         "updated_reason": "test fixture",
     }
@@ -470,18 +468,15 @@ class SchemaContractTests(unittest.TestCase):
         self.assertEqual(schema["properties"]["schema_version"]["const"], 2)
         self.assertEqual(schema["properties"]["router_api_version"]["const"], "route/v2")
 
-    def test_preserved_profile_matches_frozen_git_blob_and_sha256(self):
-        profile_bytes = V1_PROFILE_PATH.read_bytes()
-        self.assertEqual(hashlib.sha256(profile_bytes).hexdigest(), V1_PROFILE_SHA256)
+    def test_only_gpt56_is_bundled_and_uses_route_v2(self):
+        profile_dir = ASSET_DIR / "profiles"
         self.assertEqual(
-            subprocess.check_output(
-                ["git", "hash-object", "--", str(V1_PROFILE_PATH)],
-                cwd=ROOT,
-                text=True,
-                encoding="utf-8",
-            ).strip(),
-            V1_PROFILE_GIT_BLOB,
+            sorted(path.name for path in profile_dir.glob("*.json")),
+            ["gpt5.6.json"],
         )
+        profile = json.loads((profile_dir / "gpt5.6.json").read_text(encoding="utf-8"))
+        self.assertEqual(profile["profile_id"], CURRENT_BUNDLED_PROFILE_ID)
+        self.assertEqual(profile["schema_version"], 2)
 
     def test_route_request_contract_has_exact_required_surface(self):
         schema = self.load("route-request.v1.schema.json")
@@ -586,7 +581,9 @@ class SchemaContractTests(unittest.TestCase):
             r"(^|[/\\])(?:\.|\.\.)(?=$|[/\\])",
         )
         example = self.load("model-router-config.example.json")
-        self.assertEqual(example["active_profile"], "glm+deepseek")
+        self.assertEqual(example["schema_version"], 2)
+        self.assertEqual(example["router_api_version"], "route/v2")
+        self.assertEqual(example["active_profile"], CURRENT_BUNDLED_PROFILE_ID)
         self.assertEqual(example["project_profile_dirs"], [".ai-native/profiles"])
         self.assertNotRegex(json.dumps(example).casefold(), r"credential|secret|token|endpoint|command|script")
 
@@ -733,7 +730,7 @@ class ConfigValidationTests(unittest.TestCase):
         second = {
             "updated_reason": "test fixture",
             "project_profile_dirs": [".ai-native/profiles"],
-            "active_profile": "glm+deepseek",
+            "active_profile": "custom-v1",
             "config_id": "test-config",
             "router_api_version": "route/v1",
             "schema_version": 1,
@@ -767,7 +764,7 @@ class ConfigValidationTests(unittest.TestCase):
 class LegacyMigrationTests(unittest.TestCase):
     def legacy(self, **overrides):
         payload = {
-            "profile_id": "glm+deepseek",
+            "profile_id": CURRENT_BUNDLED_PROFILE_ID,
             "default_active": False,
             "activation": "explicit-owner-selection",
             "evidence_date": "2026-08-28",
@@ -779,20 +776,20 @@ class LegacyMigrationTests(unittest.TestCase):
         payload.update(overrides)
         return payload
 
-    def test_migration_selects_profile_only_and_validates_v1(self):
+    def test_migration_selects_the_current_profile_only_and_validates_v2(self):
         migrated = migrate_legacy_profile(self.legacy())
         self.assertEqual(
             migrated,
             {
-                "schema_version": 1,
-                "router_api_version": "route/v1",
-                "config_id": "migrated-glm+deepseek",
-                "active_profile": "glm+deepseek",
+                "schema_version": 2,
+                "router_api_version": "route/v2",
+                "config_id": "migrated-gpt5.6",
+                "active_profile": CURRENT_BUNDLED_PROFILE_ID,
                 "project_profile_dirs": [],
                 "updated_reason": "Migrated from legacy embedded profile; explicit profile selection remains required.",
             },
         )
-        self.assertEqual(validate_config(migrated), migrated)
+        self.assertEqual(validate_config_v2(migrated), migrated)
 
     def test_migration_rejects_active_by_default_or_ambiguous_legacy_profile(self):
         for bad in (

@@ -1,7 +1,7 @@
 ---
 name: ai-native-model-router
 description: Deterministic model routing with evidence-bound fallbacks.
-version: 0.3.0
+version: 0.4.0
 author: bzbaizhen, Hermes Agent
 license: MIT
 platforms:
@@ -30,9 +30,11 @@ assurance routing. It owns project-local selection and returns a machine-readabl
 `RouteDecision`; it does not execute a host, call a provider, load credentials,
 or claim that a route was enforced.
 
-Version 0.3.0 is a breaking Profile-ID rename: the bundled v1 Profile ID is
-`glm+deepseek` and the bundled v2 Profile ID is `gpt5.6`. The previous IDs and
-profile filenames are removed; they are not aliases or supported discovery names.
+Version 0.4.0 removes the bundled route/v1 Profile. The only bundled Profile is
+`gpt5.6`, and it uses route/v2. The route/v1 schemas and APIs remain available
+for explicitly selected safe project Profiles. Retired Profile IDs are rejected
+before configuration, discovery, or Profile loading; they are not aliases or
+supported discovery names.
 
 ## Contract navigation
 
@@ -45,8 +47,7 @@ profile filenames are removed; they are not aliases or supported discovery names
 - Use [resolve_route.py](scripts/resolve_route.py) for validation and resolution.
   The Phase 1 config helper remains [router_config.py](scripts/router_config.py).
 - The package contract is in [provider-catalog.json](assets/provider-catalog.json),
-  the immutable [v1 profile](assets/profiles/glm+deepseek.json),
-  the immutable [v2 profile](assets/profiles/gpt5.6.json),
+  the immutable bundled [gpt5.6 profile](assets/profiles/gpt5.6.json),
   and the [v1 config](assets/model-router-config.v1.schema.json),
   [v1 request](assets/route-request.v1.schema.json),
   [v1 decision](assets/route-decision.v1.schema.json),
@@ -56,7 +57,7 @@ profile filenames are removed; they are not aliases or supported discovery names
 
 ## Operating rules
 
-1. Every request explicitly selects a profile. Both bundled profiles are
+1. Every request explicitly selects a profile. The bundled `gpt5.6` profile is
    `default_active: false` with `explicit-owner-selection`; file presence never
    activates a profile. Require explicit task selection for
    `writer.high-volume-deterministic`.

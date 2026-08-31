@@ -8,7 +8,6 @@ README_PATHS = (ROOT / "README.md", ROOT / "README.zh-CN.md")
 RELEASE_URL = "https://github.com/bzbaizhen/ai-native-dev-team-skill/releases/tag/v3.0.0"
 LEGACY_NAME = "bootstrap" + "-ai-native-dev-team"
 ROUTER_PROFILE_IDS = (
-    "glm+deepseek",
     "gpt5.6",
 )
 
@@ -60,7 +59,7 @@ class ReadmeV3ContractTests(unittest.TestCase):
         english, chinese = self.texts
         for text in self.texts:
             self.assertIn("v3.0.0", text)
-            self.assertIn("`skills/ai-native-model-router/` v0.3.0", text)
+            self.assertIn("`skills/ai-native-model-router/` v0.4.0", text)
             self.assertNotIn("v0.1.0", text)
             self.assertIn(RELEASE_URL, text)
             self.assertIn("ai-native-dev-team", text)
@@ -96,8 +95,9 @@ class ReadmeV3ContractTests(unittest.TestCase):
         self.assertIn("R2: Terra Max -> Sol High", english)
         self.assertIn("R3 requires strict Terra Max + Sol High", english)
         self.assertIn("never degrades to one Validator", english)
-        self.assertIn("The preserved v1 profile uses GLM-5.3", english)
-        self.assertIn("neither profile is a default or auto-activated", english)
+        self.assertIn("The bundled `gpt5.6` Profile uses the GPT-5.6 assurance matrix", english)
+        self.assertIn("The generic route/v1 contract remains available", english)
+        self.assertIn("the bundled Profile is not a default or auto-activated", english)
         self.assertNotIn("The default validation profile", english)
         self.assertIn("Team 本身可以独立工作", chinese)
         self.assertIn("Team、Router、Writer、Validator、RouteDecision、route slot 和 Host Adapter 作为固定名称", chinese)
@@ -107,20 +107,13 @@ class ReadmeV3ContractTests(unittest.TestCase):
         self.assertIn("R2：Terra Max -> Sol High", chinese)
         self.assertIn("R3：严格使用 Terra Max + Sol High", chinese)
         self.assertIn("不会降级为一个 Validator", chinese)
-        self.assertIn("保留的 v1 profile 用 GLM-5.3", chinese)
-        self.assertIn("均不是默认项，也不会自动启用", chinese)
+        self.assertIn("bundled `gpt5.6` Profile 使用上面的 GPT-5.6 assurance 矩阵", chinese)
+        self.assertIn("通用 route/v1 合同仍可用于安全的项目 Profile", chinese)
+        self.assertIn("bundled Profile 不是默认项，也不会自动启用", chinese)
         self.assertNotIn("默认路由配置", chinese)
 
     def test_router_example_is_exact_and_no_secrets_are_advertised(self) -> None:
         expected = (
-            '"schema_version": 1',
-            '"router_api_version": "route/v1"',
-            '"config_id": "project-router-2026-08-28"',
-            '"active_profile": "glm+deepseek"',
-            '"project_profile_dirs": [".ai-native/profiles"]',
-            '"updated_reason": "Explicit project profile selection for route/v1."',
-        )
-        v2_expected = (
             '"schema_version": 2',
             '"router_api_version": "route/v2"',
             '"config_id": "project-router-v2-2026-08-31"',
@@ -131,20 +124,19 @@ class ReadmeV3ContractTests(unittest.TestCase):
         for text in self.texts:
             for field in expected:
                 self.assertIn(field, text)
-            for field in v2_expected:
-                self.assertIn(field, text)
             for profile_id in ROUTER_PROFILE_IDS:
                 self.assertIn(profile_id, text)
-        self.assertIn("No secrets belong in this file.", self.texts[0])
+        self.assertIn("No secrets", self.texts[0])
         self.assertIn("配置中不放密钥或其他敏感信息", self.texts[1])
         self.assertIn("active_profile` is explicit", self.texts[0])
         self.assertIn("active_profile` 必须显式选择", self.texts[1])
-        self.assertIn("Both the profile and the Router API/configuration version are explicit", self.texts[0])
-        self.assertIn("必须分别显式选择 profile 和 Router API/配置版本", self.texts[1])
-        self.assertIn("A profile file's presence does not activate anything", self.texts[0])
-        self.assertIn("仅有 profile 文件不会启用任何路由", self.texts[1])
-        self.assertIn("breaking Profile-ID rename", self.texts[0])
-        self.assertIn("破坏性的 Profile-ID 重命名", self.texts[1])
+        self.assertIn("Both the Profile and Router API/configuration version", self.texts[0])
+        self.assertIn("are explicit", self.texts[0])
+        self.assertIn("必须分别显式选择 Profile 和 Router API/配置版本", self.texts[1])
+        self.assertIn("A Profile file's presence does not activate anything", self.texts[0])
+        self.assertIn("仅有 Profile 文件不会启用任何路由", self.texts[1])
+        self.assertIn("removes the bundled route/v1 Profile", self.texts[0])
+        self.assertIn("移除了 bundled route/v1 Profile", self.texts[1])
 
     def test_install_tables_and_commands_are_bilingual_contracts(self) -> None:
         english, chinese = self.texts
