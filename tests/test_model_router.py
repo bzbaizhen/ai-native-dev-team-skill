@@ -207,7 +207,7 @@ class SkillSurfaceTests(unittest.TestCase):
         self.assertLessEqual(len(description), 60)
         self.assertTrue(description.endswith("."))
         for required in (
-            "version: 0.1.0",
+            "version: 0.2.0",
             "author: bzbaizhen, Hermes Agent",
             "license: MIT",
             "platforms:",
@@ -273,7 +273,9 @@ class SkillSurfaceTests(unittest.TestCase):
 
             skill_path = candidate / "SKILL.md"
             original = skill_path.read_text(encoding="utf-8")
-            skill_path.write_text(original.replace("version: 0.1.0", "version: 0.1.1"), encoding="utf-8")
+            mutated = original.replace("version: 0.2.0", "version: 0.2.1")
+            self.assertNotEqual(mutated, original)
+            skill_path.write_text(mutated, encoding="utf-8")
             with self.assertRaises(AssertionError):
                 validate_model_router_bundle(candidate)
             skill_path.write_text(original.replace("provider-selection", "governance"), encoding="utf-8")
@@ -808,6 +810,45 @@ class ResolutionTests(unittest.TestCase):
                 self.assertEqual(decision["selected_routes"], [])
                 self.assertFalse(decision["escalation_used"])
                 self.assertTrue(any("Owner" in item for item in decision["limitations"]))
+
+    def test_v2_r3_mixed_unknown_and_unaccepted_unavailable_blocks_in_either_order(self):
+        cases = (
+            (
+                "terra unknown + sol unavailable with unaccepted evidence",
+                {
+                    "openai/gpt-5.6-terra": "unknown",
+                    "openai/gpt-5.6-sol": "unavailable",
+                },
+                {"openai/gpt-5.6-sol": ["valid-validator-rejection"]},
+            ),
+            (
+                "terra unavailable with unaccepted evidence + sol unknown",
+                {
+                    "openai/gpt-5.6-terra": "unavailable",
+                    "openai/gpt-5.6-sol": "unknown",
+                },
+                {"openai/gpt-5.6-terra": ["valid-validator-rejection"]},
+            ),
+        )
+        for case_name, availability, evidence in cases:
+            with self.subTest(case_name=case_name):
+                decision = resolve_route(
+                    route_v2_request(
+                        risk_level="R3",
+                        writer_route_slot="writer.c2",
+                        availability=availability,
+                        route_failure_evidence=evidence,
+                    )
+                )
+                self.assertEqual(decision["decision_status"], "blocked")
+                self.assertEqual(decision["validation_mode"], "dual")
+                self.assertEqual(decision["selected_routes"], [])
+                self.assertTrue(
+                    any(
+                        "missing or unaccepted route-bound failure evidence" in limitation
+                        for limitation in decision["limitations"]
+                    )
+                )
 
     def test_v2_r3_unavailable_with_accepted_evidence_blocks_without_degradation(self):
         decision = resolve_route(

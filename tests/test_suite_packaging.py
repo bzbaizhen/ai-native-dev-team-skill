@@ -2,6 +2,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -15,6 +16,44 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[1]
 TOOL_PATH = ROOT / "tools" / "migrate_suite_install.py"
 MANIFEST_PATH = ROOT / "suite-manifest.json"
+MODEL_ROUTER = ROOT / "skills" / "ai-native-model-router"
+MODEL_ROUTER_PROFILE_IDS = {
+    "openai-glm5.3-deepseek-fallback-2026-08-28",
+    "openai-gpt5.6-validator-assurance-2026-08-31",
+}
+MODEL_ROUTER_INVENTORY = [
+    "SKILL.md",
+    "agents/openai.yaml",
+    "assets/model-router-config.example.json",
+    "assets/model-router-config.v1.schema.json",
+    "assets/model-router-config.v2.schema.json",
+    "assets/profiles/openai-glm5.3-deepseek-fallback-2026-08-28.json",
+    "assets/profiles/openai-gpt5.6-validator-assurance-2026-08-31.json",
+    "assets/provider-catalog.json",
+    "assets/route-decision.v1.schema.json",
+    "assets/route-decision.v2.schema.json",
+    "assets/route-request.v1.schema.json",
+    "assets/route-request.v2.schema.json",
+    "references/configuration.md",
+    "references/interface.md",
+    "references/provider-evidence.md",
+    "scripts/resolve_route.py",
+    "scripts/router_config.py",
+]
+MODEL_ROUTER_SCHEMAS = {
+    "assets/model-router-config.v1.schema.json",
+    "assets/model-router-config.v2.schema.json",
+    "assets/route-request.v1.schema.json",
+    "assets/route-request.v2.schema.json",
+    "assets/route-decision.v1.schema.json",
+    "assets/route-decision.v2.schema.json",
+}
+ROUTE_FAILURE_EVIDENCE = (
+    "model-not-found",
+    "authenticated-provider-outage",
+    "quota-exhaustion",
+    "repeated-bounded-transport-failure",
+)
 
 
 def load_tool():
@@ -137,17 +176,21 @@ class SuitePackagingTests(unittest.TestCase):
                 },
                 {
                     "id": "ai-native-model-router",
-                    "version": "0.1.0",
+                    "version": "0.2.0",
                     "role": "routing-extension",
                     "files": [
                         "SKILL.md",
                         "agents/openai.yaml",
                         "assets/model-router-config.example.json",
                         "assets/model-router-config.v1.schema.json",
+                        "assets/model-router-config.v2.schema.json",
                         "assets/profiles/openai-glm5.3-deepseek-fallback-2026-08-28.json",
+                        "assets/profiles/openai-gpt5.6-validator-assurance-2026-08-31.json",
                         "assets/provider-catalog.json",
                         "assets/route-decision.v1.schema.json",
+                        "assets/route-decision.v2.schema.json",
                         "assets/route-request.v1.schema.json",
+                        "assets/route-request.v2.schema.json",
                         "references/configuration.md",
                         "references/interface.md",
                         "references/provider-evidence.md",
@@ -173,6 +216,111 @@ class SuitePackagingTests(unittest.TestCase):
         )
         self.assertIn("compatibility_matrix", manifest)
         self.assertEqual(manifest["compatibility_matrix"]["route/v1"], ["ai-native-dev-team", "ai-native-model-router"])
+        self.assertEqual(manifest["compatibility_matrix"]["route/v2"], ["ai-native-model-router"])
+        self.assertNotIn("route/v2", manifest["compatibility_matrix"]["components"]["ai-native-dev-team"])
+        self.assertTrue(manifest["compatibility_matrix"]["components"]["ai-native-model-router"]["route/v2"])
+
+    def test_model_router_version_and_inventory_are_exact_and_sorted(self):
+        manifest = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
+        component = next(item for item in manifest["components"] if item["id"] == "ai-native-model-router")
+        self.assertEqual(component["version"], "0.2.0")
+        skill = (MODEL_ROUTER / "SKILL.md").read_text(encoding="utf-8")
+        self.assertEqual(re.search(r"^version:\s*(.+)$", skill, re.MULTILINE).group(1), "0.2.0")
+        self.assertEqual(component["files"], MODEL_ROUTER_INVENTORY)
+        self.assertEqual(component["files"], sorted(component["files"]))
+        self.assertEqual(
+            set(component["files"]) - {
+                "SKILL.md",
+                "agents/openai.yaml",
+                "assets/model-router-config.example.json",
+                "assets/model-router-config.v1.schema.json",
+                "assets/profiles/openai-glm5.3-deepseek-fallback-2026-08-28.json",
+                "assets/provider-catalog.json",
+                "assets/route-decision.v1.schema.json",
+                "assets/route-request.v1.schema.json",
+                "references/configuration.md",
+                "references/interface.md",
+                "references/provider-evidence.md",
+                "scripts/resolve_route.py",
+                "scripts/router_config.py",
+            },
+            {
+                "assets/model-router-config.v2.schema.json",
+                "assets/profiles/openai-gpt5.6-validator-assurance-2026-08-31.json",
+                "assets/route-decision.v2.schema.json",
+                "assets/route-request.v2.schema.json",
+            },
+        )
+
+    def test_model_router_progressive_disclosure_links_both_profiles_and_all_schemas(self):
+        skill = (MODEL_ROUTER / "SKILL.md").read_text(encoding="utf-8")
+        links = set(re.findall(r"\[[^\]]+\]\(([^)#]+)", skill))
+        expected = {
+            "references/interface.md",
+            "references/configuration.md",
+            "references/provider-evidence.md",
+            "assets/provider-catalog.json",
+            *{f"assets/profiles/{profile_id}.json" for profile_id in MODEL_ROUTER_PROFILE_IDS},
+            *MODEL_ROUTER_SCHEMAS,
+            "scripts/router_config.py",
+            "scripts/resolve_route.py",
+        }
+        self.assertEqual(links, expected)
+        for target in expected:
+            self.assertTrue((MODEL_ROUTER / target).is_file(), target)
+
+    def test_model_router_docs_define_v1_v2_assurance_and_safety_boundaries(self):
+        docs = "\n".join(
+            (MODEL_ROUTER / relative).read_text(encoding="utf-8")
+            for relative in (
+                "SKILL.md",
+                "references/interface.md",
+                "references/configuration.md",
+                "references/provider-evidence.md",
+            )
+        )
+        normalized_docs = " ".join(docs.casefold().split())
+        for phrase in (
+            "route/v1",
+            "route/v2",
+            "validator.independent",
+            "validator.assurance",
+            "independent validation",
+            "same-model review is allowed",
+            "same_model_as_writer",
+            "not independent validation",
+            "gpt-5.6-luna:max -> gpt-5.6-terra:max -> gpt-5.6-sol:high",
+            "gpt-5.6-terra:max -> gpt-5.6-sol:high",
+            "gpt-5.6-terra:max + gpt-5.6-sol:high",
+            "never degrade to one Validator",
+            "route-bound evidence",
+            "unknown remains unknown",
+            "missing or unaccepted route-bound evidence for any unavailable required route => `decision_status: blocked`, even when the other required route is `unknown`",
+            "otherwise, any required route with `unknown` availability => `decision_status: unknown`",
+            "otherwise, accepted unavailability => `decision_status: blocked`",
+            "r3 never selects or degrades to one route",
+            "create a new candidate id before revalidation",
+            "substantive Validator rejection does not trigger escalation",
+            "every request explicitly selects a profile",
+            "file presence never activates a profile",
+            "enforcement_status: not-executed",
+            "not an execution receipt",
+            "provider execution, authentication, and transport remain outside this package",
+        ):
+            self.assertIn(phrase.casefold(), normalized_docs)
+        for evidence in ROUTE_FAILURE_EVIDENCE:
+            self.assertIn(f"`{evidence}`", normalized_docs)
+        structured = "\n".join(
+            (MODEL_ROUTER / relative).read_text(encoding="utf-8")
+            for relative in MODEL_ROUTER_SCHEMAS
+            | {"assets/profiles/openai-gpt5.6-validator-assurance-2026-08-31.json"}
+        )
+        self.assertEqual(
+            set(re.findall(r"https?://[^\"\s]+", structured, re.IGNORECASE)),
+            {"https://json-schema.org/draft/2020-12/schema"},
+        )
+        self.assertIsNone(re.search(r"-----BEGIN|sk-[A-Za-z0-9]|Bearer\s+", structured, re.IGNORECASE))
+        self.assertIsNone(re.search(r"\b(?:endpoint|credential|secret|token|price|command)\s*[:=]", structured, re.IGNORECASE))
 
     def test_plan_is_read_only_and_has_exact_inventories(self):
         before = self._snapshot(self.work)

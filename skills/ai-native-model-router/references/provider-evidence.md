@@ -13,6 +13,15 @@ Independent validation uses `zai/glm-5.3:max` when the Writer is OpenAI, with
 deterministic writing uses `zai/glm-5.3-flash:max`, with
 `deepseek/deepseek-v4-flash:max` under the same gate.
 
+The v1 profile remains an immutable, explicitly selected profile. The v2
+profile is also `default_active: false` and explicitly selected. Its
+`validator.assurance` routes are exact: R1 is
+`gpt-5.6-luna:max -> gpt-5.6-terra:max -> gpt-5.6-sol:high`; R2 is
+`gpt-5.6-terra:max -> gpt-5.6-sol:high`; and R3 requires
+`gpt-5.6-terra:max + gpt-5.6-sol:high`, never degrading to one Validator.
+Same-model review is allowed in v2 and is reported through
+`same_model_as_writer`; it is not independent validation.
+
 The exact accepted evidence is, in order:
 
 1. `model-not-found`
@@ -20,7 +29,14 @@ The exact accepted evidence is, in order:
 3. `quota-exhaustion`
 4. `repeated-bounded-transport-failure`
 
-These strings are routing evidence supplied by the caller, not facts that this
-package discovers. Subjective quality, cost preference, credential presence, and
-an unspecified error do not qualify. Availability and runtime behavior remain
-caller-observed inputs and may be `unknown`.
+These strings are route-bound routing evidence supplied by the caller, not facts
+that this package discovers. Subjective quality, cost preference, credential
+presence, and an unspecified error do not qualify. Availability and runtime
+behavior remain caller-observed inputs and may be `unknown`; unknown remains
+unknown. A valid Validator rejection is not a route failure and does not trigger
+escalation.
+
+No auth, credential, endpoint, command, price, token, transport, or secret values
+enter catalog, profile, request, or evidence data. Provider execution remains
+outside this package, and `enforcement_status: not-executed` is not an execution
+receipt.
