@@ -13,7 +13,13 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from router_config import CONVENTIONAL_CONFIG, config_digest, resolve_config_path, validate_config
+from router_config import (
+    CONVENTIONAL_CONFIG,
+    config_digest,
+    resolve_config_path,
+    validate_config_for_version,
+    validate_config_versioned,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -21,6 +27,7 @@ ASSET_DIR = ROOT / "assets"
 PROFILE_DIR = ASSET_DIR / "profiles"
 CATALOG_PATH = ASSET_DIR / "provider-catalog.json"
 PROFILE_ID = "openai-glm5.3-deepseek-fallback-2026-08-28"
+NEW_PROFILE_ID = "openai-gpt5.6-validator-assurance-2026-08-31"
 ROUTE_SLOTS = (
     "control-plane",
     "writer.c0-batch",
@@ -36,6 +43,16 @@ WRITER_ROUTE_SLOTS = (
     "writer.c2",
     "writer.c3",
 )
+ROUTE_SLOTS_V2 = (
+    "control-plane",
+    "writer.c0-batch",
+    "writer.c1",
+    "writer.c2",
+    "writer.c3",
+    "validator.assurance",
+    "writer.high-volume-deterministic",
+)
+PROFILE_IDS = (PROFILE_ID, NEW_PROFILE_ID)
 EVIDENCE = (
     "model-not-found",
     "authenticated-provider-outage",
@@ -49,6 +66,11 @@ FORBIDDEN_KEYS = {
     "tokens", "transport", "transports", "password", "key", "keys",
 }
 SAFE_RELATIVE = re.compile(r"^[^\\/:*?\"<>|\x00-\x1f\x7f]+(?:[/\\][^\\/:*?\"<>|\x00-\x1f\x7f]+)*$")
+V2_ROUTE_KEY = re.compile(r"^[^/\s]+/[^/\s]+$")
+OWNER_R3_LIMITATION = (
+    "Owner boundary: R3 dual assurance cannot proceed without both required "
+    "Validator routes; single-validator degradation is forbidden."
+)
 
 
 def _fail(message: str) -> None:
@@ -213,6 +235,110 @@ def validate_profile(profile: Any, catalog: dict[str, Any] | None = None) -> dic
     return json.loads(json.dumps(profile))
 
 
+def validate_profile_v2(profile: Any, catalog: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Validate the additive route/v2 assurance profile contract."""
+
+    catalog = validate_catalog(catalog if catalog is not None else load_catalog())
+    _scan_forbidden(profile)
+    required = {"schema_version", "profile_id", "default_active", "activation", "evidence_date", "slots", "forbidden_defaults"}
+    if not isinstance(profile, dict) or set(profile) != required:
+        _fail("profile keys are invalid")
+    if type(profile["schema_version"]) is not int or profile["schema_version"] != 2:
+        _fail("profile schema_version must be 2")
+    _string(profile["profile_id"], "profile_id")
+    if profile["default_active"] is not False or profile["activation"] != "explicit-owner-selection":
+        _fail("profile identity or activation drifted")
+    if profile["evidence_date"] != "2026-08-31":
+        _fail("profile evidence date drifted")
+
+    slots = profile["slots"]
+    if not isinstance(slots, dict) or set(slots) != set(ROUTE_SLOTS_V2):
+        _fail("profile slots are not exact")
+    for slot in ROUTE_SLOTS_V2[:5]:
+        item = slots[slot]
+        if not isinstance(item, dict) or set(item) != {"primary"}:
+            _fail(f"{slot} shape is invalid")
+        _validate_route(item["primary"], catalog, f"slots.{slot}.primary")
+
+    assurance = slots["validator.assurance"]
+    if not isinstance(assurance, dict) or set(assurance) != {
+        "allow_same_model_as_writer",
+        "accepted_route_failure_evidence",
+        "routes_by_risk",
+        "exhaustion_action",
+    }:
+        _fail("assurance validator slot shape is invalid")
+    if assurance["allow_same_model_as_writer"] is not True:
+        _fail("assurance validator same-model policy drifted")
+    if assurance["accepted_route_failure_evidence"] != list(EVIDENCE):
+        _fail("assurance validator evidence contract drifted")
+    if assurance["exhaustion_action"] != "blocked-owner":
+        _fail("assurance validator exhaustion action drifted")
+    expected_routes = {
+        "R1": [
+            {"provider": "openai", "model": "gpt-5.6-luna", "reasoning": "max", "reasoning_delivery": "explicit"},
+            {"provider": "openai", "model": "gpt-5.6-terra", "reasoning": "max", "reasoning_delivery": "explicit"},
+            {"provider": "openai", "model": "gpt-5.6-sol", "reasoning": "high", "reasoning_delivery": "explicit"},
+        ],
+        "R2": [
+            {"provider": "openai", "model": "gpt-5.6-terra", "reasoning": "max", "reasoning_delivery": "explicit"},
+            {"provider": "openai", "model": "gpt-5.6-sol", "reasoning": "high", "reasoning_delivery": "explicit"},
+        ],
+        "R3": [
+            {"provider": "openai", "model": "gpt-5.6-terra", "reasoning": "max", "reasoning_delivery": "explicit"},
+            {"provider": "openai", "model": "gpt-5.6-sol", "reasoning": "high", "reasoning_delivery": "explicit"},
+        ],
+    }
+    routes_by_risk = assurance["routes_by_risk"]
+    if not isinstance(routes_by_risk, dict) or set(routes_by_risk) != set(expected_routes):
+        _fail("assurance validator risk routes are invalid")
+    for risk, expected in expected_routes.items():
+        routes = routes_by_risk[risk]
+        if not isinstance(routes, list) or len(routes) != len(expected):
+            _fail(f"assurance validator {risk} route chain is invalid")
+        for index, (route, expected_route) in enumerate(zip(routes, expected)):
+            actual = _validate_route(route, catalog, f"slots.validator.assurance.routes_by_risk.{risk}[{index}]")
+            if actual != expected_route:
+                _fail(f"assurance validator {risk} route chain drifted")
+
+    expected_forbidden = [
+        "gpt-5.6-sol:xhigh", "gpt-5.6-sol:max", "gpt-5.6-sol:ultra",
+        "gpt-5.6-luna:low", "gpt-5.6-luna:medium", "gpt-5.6-luna:high", "gpt-5.6-luna:xhigh",
+        "gpt-5.6-terra:low", "gpt-5.6-terra:medium", "gpt-5.6-terra:high", "gpt-5.6-terra:xhigh",
+        "gpt-5.5:*", "gpt-5.4:*",
+    ]
+    if profile["forbidden_defaults"] != expected_forbidden:
+        _fail("forbidden defaults drifted")
+    high = slots["writer.high-volume-deterministic"]
+    if not isinstance(high, dict) or set(high) != {
+        "primary", "fallback", "accepted_primary_unavailable_evidence", "independent_validator_source",
+        "default", "requires_explicit_task_selection"
+    }:
+        _fail("high-volume slot shape is invalid")
+    _validate_route(high["primary"], catalog, "high-volume.primary")
+    _validate_route(high["fallback"], catalog, "high-volume.fallback")
+    if (
+        high["accepted_primary_unavailable_evidence"] != list(EVIDENCE)
+        or high["independent_validator_source"] != "openai-complexity-map"
+        or high["default"] is not False
+        or high["requires_explicit_task_selection"] is not True
+    ):
+        _fail("high-volume fallback contract drifted")
+    return json.loads(json.dumps(profile))
+
+
+def validate_profile_versioned(profile: Any, catalog: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Dispatch profile validation by its explicit schema version."""
+
+    if not isinstance(profile, dict):
+        _fail("profile must be an object")
+    if profile.get("schema_version") == 1:
+        return validate_profile(profile, catalog)
+    if profile.get("schema_version") == 2:
+        return validate_profile_v2(profile, catalog)
+    _fail("profile schema_version is unsupported")
+
+
 def _safe_relative(path: Any) -> str:
     if not isinstance(path, str) or not SAFE_RELATIVE.fullmatch(path):
         _fail("project profile directory must be a safe relative path")
@@ -262,20 +388,29 @@ def load_profile(
 ) -> dict[str, Any]:
     _string(profile_id, "profile_id")
     catalog = validate_catalog(catalog if catalog is not None else load_catalog())
-    bundled_path = PROFILE_DIR / f"{PROFILE_ID}.json"
+    bundled_path = PROFILE_DIR / f"{profile_id}.json"
     project = Path(project_root) if project_root is not None else Path.cwd()
     candidates = _profile_candidates(profile_id, project, project_profile_dirs or [])
-    if profile_id == PROFILE_ID:
+    if profile_id in PROFILE_IDS:
         if not bundled_path.is_file():
             _fail("bundled profile is missing")
         bundled_bytes = bundled_path.read_bytes()
         for candidate in candidates:
             if candidate.read_bytes() != bundled_bytes:
                 _fail("project profile collides with immutable bundled profile")
-        return validate_profile(_load_json(bundled_path), catalog)
+        normalized = validate_profile_versioned(_load_json(bundled_path), catalog)
+        if normalized["profile_id"] != profile_id:
+            _fail("profile_id does not match bundled profile path")
+        expected_schema_version = 2 if profile_id == NEW_PROFILE_ID else 1
+        if normalized["schema_version"] != expected_schema_version:
+            _fail("bundled profile schema version drifted")
+        return normalized
     if len(candidates) != 1:
         _fail(f"profile not found or ambiguous: {profile_id}")
-    return validate_profile(_load_json(candidates[0]), catalog)
+    normalized = validate_profile_versioned(_load_json(candidates[0]), catalog)
+    if normalized["profile_id"] != profile_id:
+        _fail("profile_id does not match requested profile")
+    return normalized
 
 
 def _default_config(profile_id: str) -> dict[str, Any]:
@@ -289,7 +424,18 @@ def _default_config(profile_id: str) -> dict[str, Any]:
     }
 
 
-def load_config(*, explicit_path: Any = None, injected_config: Any = None, cwd: Any = None, profile_id: str | None = None) -> tuple[dict[str, Any], str, Path | None]:
+def _default_config_v2(profile_id: str) -> dict[str, Any]:
+    return {
+        "schema_version": 2,
+        "router_api_version": "route/v2",
+        "config_id": "bundled-selection",
+        "active_profile": profile_id,
+        "project_profile_dirs": [],
+        "updated_reason": "Explicit route request selects the bundled profile.",
+    }
+
+
+def load_config(*, explicit_path: Any = None, injected_config: Any = None, cwd: Any = None, profile_id: str | None = None, router_api_version: str | None = None) -> tuple[dict[str, Any], str, Path | None]:
     base = Path(cwd) if cwd is not None else Path.cwd()
     injected_path = injected_config if isinstance(injected_config, (str, Path)) and Path(injected_config).exists() else None
     selected = resolve_config_path(explicit_path, injected_path, base)
@@ -305,8 +451,20 @@ def load_config(*, explicit_path: Any = None, injected_config: Any = None, cwd: 
     else:
         if profile_id is None:
             _fail(f"no config found; expected {CONVENTIONAL_CONFIG}")
-        payload = _default_config(profile_id)
-    normalized = validate_config(payload)
+        if router_api_version == "route/v2":
+            payload = _default_config_v2(profile_id)
+        elif router_api_version == "route/v1":
+            payload = _default_config(profile_id)
+        elif router_api_version is None and profile_id == NEW_PROFILE_ID:
+            payload = _default_config_v2(profile_id)
+        elif router_api_version is None:
+            payload = _default_config(profile_id)
+        else:
+            _fail("router_api_version is unsupported")
+    if router_api_version is None:
+        normalized = validate_config_versioned(payload)
+    else:
+        normalized = validate_config_for_version(payload, router_api_version)
     return normalized, config_digest(normalized), selected
 
 
@@ -360,6 +518,90 @@ def validate_route_request(request: Any) -> dict[str, Any]:
     return json.loads(json.dumps(request))
 
 
+def validate_route_request_v2(request: Any) -> dict[str, Any]:
+    """Validate and return a normalized route/v2 request."""
+
+    required = {
+        "router_api_version", "request_id", "route_slot", "writer_route_slot", "profile_id", "explicit_profile_selection",
+        "explicit_high_volume_selection", "availability", "route_failure_evidence", "risk_level", "writer_identity",
+        "candidate_id",
+    }
+    if not isinstance(request, dict) or set(request) != required:
+        _fail("RouteRequest v2 keys are invalid")
+    if request["router_api_version"] != "route/v2":
+        _fail("router_api_version must be route/v2")
+    _string(request["request_id"], "request_id")
+    if request["route_slot"] not in ROUTE_SLOTS_V2:
+        _fail("route_slot is invalid")
+    writer_route_slot = request["writer_route_slot"]
+    if writer_route_slot is not None and writer_route_slot not in WRITER_ROUTE_SLOTS:
+        _fail("writer_route_slot is invalid")
+    assurance_request = request["route_slot"] == "validator.assurance"
+    if assurance_request and writer_route_slot is None:
+        _fail("validator.assurance requires writer_route_slot")
+    if not assurance_request and writer_route_slot is not None:
+        _fail("writer_route_slot is only allowed for validator.assurance")
+    _string(request["profile_id"], "profile_id")
+    if type(request["explicit_profile_selection"]) is not bool or not request["explicit_profile_selection"]:
+        _fail("profile selection must be explicit")
+    if type(request["explicit_high_volume_selection"]) is not bool:
+        _fail("explicit_high_volume_selection must be boolean")
+    if request["route_slot"] == "writer.high-volume-deterministic" and not request["explicit_high_volume_selection"]:
+        _fail("high-volume selection must be explicit")
+
+    availability = request["availability"]
+    if not isinstance(availability, dict):
+        _fail("availability must be an object")
+    for key, value in availability.items():
+        _string(key, "availability key")
+        if value not in {"available", "unavailable", "unknown"}:
+            _fail("availability value is invalid")
+
+    route_failure_evidence = request["route_failure_evidence"]
+    if not isinstance(route_failure_evidence, dict):
+        _fail("route_failure_evidence must be an object")
+    for key, evidence in route_failure_evidence.items():
+        _string(key, "route_failure_evidence key")
+        if V2_ROUTE_KEY.fullmatch(key) is None:
+            _fail("route_failure_evidence key must be an exact logical route")
+        if not isinstance(evidence, list):
+            _fail("route_failure_evidence values must be arrays")
+        seen: set[str] = set()
+        for item in evidence:
+            _string(item, "route_failure_evidence item")
+            if item in seen:
+                _fail("route_failure_evidence values must be unique arrays")
+            seen.add(item)
+
+    risk_level = request["risk_level"]
+    if assurance_request:
+        if risk_level not in {"R1", "R2", "R3"}:
+            _fail("validator.assurance requires risk_level R1, R2, or R3")
+    elif risk_level is not None:
+        _fail("risk_level is only allowed for validator.assurance")
+
+    identity = request["writer_identity"]
+    if assurance_request:
+        if not isinstance(identity, dict) or set(identity) != {"provider", "runtime_provider", "model"}:
+            _fail("validator.assurance requires writer_identity")
+    elif identity is not None:
+        _fail("writer_identity is only allowed for validator.assurance")
+    if identity is not None:
+        _string(identity["provider"], "writer_identity.provider")
+        _string(identity["runtime_provider"], "writer_identity.runtime_provider")
+        _string(identity["model"], "writer_identity.model")
+
+    candidate_id = request["candidate_id"]
+    if assurance_request:
+        if candidate_id is None:
+            _fail("validator.assurance requires candidate_id")
+    elif candidate_id is not None:
+        _fail("candidate_id is only allowed for validator.assurance")
+    if candidate_id is not None:
+        _string(candidate_id, "candidate_id")
+    return json.loads(json.dumps(request))
+
+
 def _availability(availability: dict[str, str], route: dict[str, str]) -> str:
     keys = (
         f"{route['provider']}/{route['model']}",
@@ -403,9 +645,22 @@ def _decision(request: dict[str, Any], digest: str, *, status: str, selected: di
 
 
 def resolve_route(request: Any, *, cwd: Any = None, config_path: Any = None, injected_config: Any = None) -> dict[str, Any]:
+    if isinstance(request, dict) and request.get("router_api_version") == "route/v2":
+        return _resolve_route_v2(
+            request,
+            cwd=cwd,
+            config_path=config_path,
+            injected_config=injected_config,
+        )
     request = validate_route_request(request)
     base = Path(cwd) if cwd is not None else Path.cwd()
-    config, digest, _ = load_config(explicit_path=config_path, injected_config=injected_config, cwd=base, profile_id=request["profile_id"])
+    config, digest, _ = load_config(
+        explicit_path=config_path,
+        injected_config=injected_config,
+        cwd=base,
+        profile_id=request["profile_id"],
+        router_api_version=request["router_api_version"],
+    )
     if config["active_profile"] != request["profile_id"]:
         _fail("request profile_id does not match active_profile")
     catalog = load_catalog()
@@ -415,6 +670,8 @@ def resolve_route(request: Any, *, cwd: Any = None, config_path: Any = None, inj
         project_profile_dirs=config["project_profile_dirs"],
         catalog=catalog,
     )
+    if profile.get("schema_version") != 1:
+        _fail("profile schema version does not match route/v1")
     slot = profile["slots"][request["route_slot"]]
     source = "not-applicable"
     primary = slot["primary"]
@@ -460,6 +717,352 @@ def resolve_route(request: Any, *, cwd: Any = None, config_path: Any = None, inj
     return _decision(request, digest, status="unknown", selected=None, fallback=False, evidence=evidence, source=source, limitations=["fallback availability is not confirmed"])
 
 
+def _logical_route_key(route: dict[str, str]) -> str:
+    return f"{route['provider']}/{route['model']}"
+
+
+def _availability_v2(availability: dict[str, str], route: dict[str, str]) -> str:
+    """Read only the exact logical route key supplied by the caller."""
+
+    return availability.get(_logical_route_key(route), "unknown")
+
+
+def _route_failure_evidence_v2(
+    request: dict[str, Any], route: dict[str, str], accepted: list[str]
+) -> tuple[list[str], bool]:
+    key = _logical_route_key(route)
+    evidence = request["route_failure_evidence"].get(key)
+    if not evidence or any(item not in accepted for item in evidence):
+        return list(evidence or []), False
+    return list(evidence), True
+
+
+def _decision_v2(
+    request: dict[str, Any],
+    digest: str,
+    *,
+    status: str,
+    selected: list[dict[str, str]],
+    validation_mode: str,
+    escalation_used: bool,
+    evidence: dict[str, list[str]],
+    limitations: list[str],
+) -> dict[str, Any]:
+    identity = request["writer_identity"]
+    same_model = bool(
+        identity
+        and any(_same_writer_identity(route, identity) for route in selected)
+    )
+    return {
+        "router_api_version": "route/v2",
+        "request_id": request["request_id"],
+        "profile_id": request["profile_id"],
+        "route_slot": request["route_slot"],
+        "decision_status": status,
+        "enforcement_status": "not-executed",
+        "selected_routes": [dict(route) for route in selected],
+        "validation_mode": validation_mode,
+        "risk_level": request["risk_level"],
+        "escalation_used": escalation_used,
+        "escalation_evidence": {key: list(value) for key, value in evidence.items()},
+        "same_model_as_writer": same_model,
+        "validator_source": (
+            "router-selected"
+            if request["route_slot"] == "validator.assurance"
+            else "not-applicable"
+        ),
+        "config_digest": digest,
+        "limitations": [LIMITATION, *limitations],
+    }
+
+
+def _resolve_assurance_single(
+    request: dict[str, Any],
+    digest: str,
+    catalog: dict[str, Any],
+    routes: list[dict[str, str]],
+    accepted: list[str],
+) -> dict[str, Any]:
+    evidence_by_route: dict[str, list[str]] = {}
+    for index, route in enumerate(routes):
+        key = _logical_route_key(route)
+        state = _availability_v2(request["availability"], route)
+        if state == "available":
+            return _decision_v2(
+                request,
+                digest,
+                status="selected",
+                selected=[_expand_route(route, catalog)],
+                validation_mode="single",
+                escalation_used=bool(evidence_by_route),
+                evidence=evidence_by_route,
+                limitations=[],
+            )
+        if state == "unknown":
+            return _decision_v2(
+                request,
+                digest,
+                status="unknown",
+                selected=[],
+                validation_mode="single",
+                escalation_used=bool(evidence_by_route),
+                evidence=evidence_by_route,
+                limitations=[
+                    f"availability is unknown for {key}; no route may be selected without exact availability"
+                ],
+            )
+
+        route_evidence, accepted_evidence = _route_failure_evidence_v2(
+            request, route, accepted
+        )
+        evidence_by_route[key] = route_evidence
+        if not accepted_evidence:
+            return _decision_v2(
+                request,
+                digest,
+                status="blocked",
+                selected=[],
+                validation_mode="single",
+                escalation_used=bool(evidence_by_route) and index > 0,
+                evidence=evidence_by_route,
+                limitations=[
+                    f"unavailable route {key} has missing or unaccepted route-bound failure evidence"
+                ],
+            )
+        if index == len(routes) - 1:
+            return _decision_v2(
+                request,
+                digest,
+                status="blocked",
+                selected=[],
+                validation_mode="single",
+                escalation_used=bool(evidence_by_route),
+                evidence=evidence_by_route,
+                limitations=[
+                    "Owner boundary: assurance route chain is exhausted; Owner action is required."
+                ],
+            )
+
+    raise AssertionError("assurance route chain must not be empty")
+
+
+def _resolve_assurance_dual(
+    request: dict[str, Any],
+    digest: str,
+    catalog: dict[str, Any],
+    routes: list[dict[str, str]],
+    accepted: list[str],
+) -> dict[str, Any]:
+    evidence_by_route: dict[str, list[str]] = {}
+    unknown_seen = False
+    unavailable_seen = False
+    invalid_unavailable = False
+    for route in routes:
+        key = _logical_route_key(route)
+        state = _availability_v2(request["availability"], route)
+        if state == "unknown":
+            unknown_seen = True
+        elif state == "unavailable":
+            unavailable_seen = True
+            route_evidence, accepted_evidence = _route_failure_evidence_v2(
+                request, route, accepted
+            )
+            evidence_by_route[key] = route_evidence
+            if not accepted_evidence:
+                invalid_unavailable = True
+
+    if invalid_unavailable:
+        return _decision_v2(
+            request,
+            digest,
+            status="blocked",
+            selected=[],
+            validation_mode="dual",
+            escalation_used=False,
+            evidence=evidence_by_route,
+            limitations=[
+                OWNER_R3_LIMITATION,
+                "one or more unavailable required routes has missing or unaccepted route-bound failure evidence",
+            ],
+        )
+    if unknown_seen:
+        return _decision_v2(
+            request,
+            digest,
+            status="unknown",
+            selected=[],
+            validation_mode="dual",
+            escalation_used=False,
+            evidence=evidence_by_route,
+            limitations=[OWNER_R3_LIMITATION, "one or more required routes has unknown availability"],
+        )
+    if unavailable_seen:
+        return _decision_v2(
+            request,
+            digest,
+            status="blocked",
+            selected=[],
+            validation_mode="dual",
+            escalation_used=False,
+            evidence=evidence_by_route,
+            limitations=[
+                OWNER_R3_LIMITATION,
+                "one or more required routes is unavailable even with accepted failure evidence",
+            ],
+        )
+    return _decision_v2(
+        request,
+        digest,
+        status="selected",
+        selected=[_expand_route(route, catalog) for route in routes],
+        validation_mode="dual",
+        escalation_used=False,
+        evidence={},
+        limitations=[],
+    )
+
+
+def _resolve_v2_common_slot(
+    request: dict[str, Any],
+    digest: str,
+    catalog: dict[str, Any],
+    slot: dict[str, Any],
+) -> dict[str, Any]:
+    primary = slot["primary"]
+    primary_key = _logical_route_key(primary)
+    state = _availability_v2(request["availability"], primary)
+    if state == "available":
+        return _decision_v2(
+            request,
+            digest,
+            status="selected",
+            selected=[_expand_route(primary, catalog)],
+            validation_mode="not-applicable",
+            escalation_used=False,
+            evidence={},
+            limitations=[],
+        )
+    if state == "unknown":
+        return _decision_v2(
+            request,
+            digest,
+            status="unknown",
+            selected=[],
+            validation_mode="not-applicable",
+            escalation_used=False,
+            evidence={},
+            limitations=[f"availability is unknown for {primary_key}"],
+        )
+
+    accepted = slot.get("accepted_primary_unavailable_evidence", [])
+    primary_evidence, accepted_evidence = _route_failure_evidence_v2(
+        request, primary, accepted
+    )
+    evidence = {primary_key: primary_evidence}
+    fallback = slot.get("fallback")
+    if not accepted_evidence:
+        return _decision_v2(
+            request,
+            digest,
+            status="blocked",
+            selected=[],
+            validation_mode="not-applicable",
+            escalation_used=False,
+            evidence=evidence,
+            limitations=[
+                f"unavailable route {primary_key} has missing or unaccepted route-bound failure evidence"
+            ],
+        )
+    if fallback is None:
+        return _decision_v2(
+            request,
+            digest,
+            status="blocked",
+            selected=[],
+            validation_mode="not-applicable",
+            escalation_used=False,
+            evidence=evidence,
+            limitations=["no fallback is defined for this slot"],
+        )
+    fallback_key = _logical_route_key(fallback)
+    fallback_state = _availability_v2(request["availability"], fallback)
+    if fallback_state == "available":
+        return _decision_v2(
+            request,
+            digest,
+            status="selected",
+            selected=[_expand_route(fallback, catalog)],
+            validation_mode="not-applicable",
+            escalation_used=True,
+            evidence=evidence,
+            limitations=[],
+        )
+    if fallback_state == "unknown":
+        return _decision_v2(
+            request,
+            digest,
+            status="unknown",
+            selected=[],
+            validation_mode="not-applicable",
+            escalation_used=True,
+            evidence=evidence,
+            limitations=[f"availability is unknown for fallback route {fallback_key}"],
+        )
+    return _decision_v2(
+        request,
+        digest,
+        status="blocked",
+        selected=[],
+        validation_mode="not-applicable",
+        escalation_used=True,
+        evidence=evidence,
+        limitations=[f"fallback route {fallback_key} is unavailable"],
+    )
+
+
+def _resolve_route_v2(
+    request: Any,
+    *,
+    cwd: Any = None,
+    config_path: Any = None,
+    injected_config: Any = None,
+) -> dict[str, Any]:
+    request = validate_route_request_v2(request)
+    base = Path(cwd) if cwd is not None else Path.cwd()
+    config, digest, _ = load_config(
+        explicit_path=config_path,
+        injected_config=injected_config,
+        cwd=base,
+        profile_id=request["profile_id"],
+        router_api_version="route/v2",
+    )
+    if config["active_profile"] != request["profile_id"]:
+        _fail("request profile_id does not match active_profile")
+    catalog = load_catalog()
+    profile = load_profile(
+        request["profile_id"],
+        project_root=base,
+        project_profile_dirs=config["project_profile_dirs"],
+        catalog=catalog,
+    )
+    if profile.get("schema_version") != 2:
+        _fail("profile schema version does not match route/v2")
+
+    if request["route_slot"] == "validator.assurance":
+        assurance = profile["slots"]["validator.assurance"]
+        routes = assurance["routes_by_risk"][request["risk_level"]]
+        accepted = assurance["accepted_route_failure_evidence"]
+        if request["risk_level"] == "R3":
+            return _resolve_assurance_dual(request, digest, catalog, routes, accepted)
+        return _resolve_assurance_single(request, digest, catalog, routes, accepted)
+    return _resolve_v2_common_slot(
+        request,
+        digest,
+        catalog,
+        profile["slots"][request["route_slot"]],
+    )
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="resolve route/v1 without executing a host")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -481,7 +1084,7 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def _profiles(project_root: Path, config: dict[str, Any] | None) -> list[str]:
-    found = {PROFILE_ID}
+    found = set(PROFILE_IDS)
     dirs = config["project_profile_dirs"] if config else []
     for raw_dir in dirs:
         directory = project_root / _safe_relative(raw_dir)
@@ -509,7 +1112,16 @@ def _run(args: argparse.Namespace) -> dict[str, Any]:
     if args.command == "list-profiles":
         return {"profiles": _profiles(project_root, config)}
     if args.command == "validate-profile":
-        return load_profile(args.profile, project_root=project_root, project_profile_dirs=config["project_profile_dirs"] if config else [])
+        profile = load_profile(
+            args.profile,
+            project_root=project_root,
+            project_profile_dirs=config["project_profile_dirs"] if config else [],
+        )
+        if config is not None:
+            expected_api = "route/v2" if profile["schema_version"] == 2 else "route/v1"
+            if config["router_api_version"] != expected_api:
+                _fail("profile and config versions do not match")
+        return profile
     _fail(f"unknown command: {args.command}")
 
 

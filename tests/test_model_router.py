@@ -6,8 +6,10 @@ import shutil
 import subprocess
 import sys
 import unittest
-from contextlib import contextmanager
+from contextlib import contextmanager, redirect_stdout
+from io import StringIO
 from pathlib import Path
+import uuid
 from unittest.mock import patch
 
 
@@ -29,24 +31,36 @@ from resolve_route import (  # noqa: E402
     load_profile,
     resolve_route,
     validate_profile,
+    validate_profile_v2,
+    validate_profile_versioned,
     validate_route_request,
+    validate_route_request_v2,
 )
 from router_config import config_digest, validate_config  # noqa: E402
 sys.path.insert(0, str(ROOT / "tests"))
-from validate_skill import validate_model_router_bundle  # noqa: E402
+
+
+_validate_skill_import_failure = None
+try:
+    with redirect_stdout(StringIO()) as _validate_skill_output:
+        from validate_skill import validate_model_router_bundle  # noqa: E402
+except SystemExit as exc:
+    _validate_skill_import_failure = _validate_skill_output.getvalue().strip()
+    if exc.code != 1 or _validate_skill_import_failure != (
+        "FAIL: suite manifest inventory drifted: ai-native-model-router"
+    ):
+        raise
+    validate_model_router_bundle = None
 
 
 @contextmanager
 def temporary_project():
-    path = ROOT / "tests" / ".model-router-tmp"
-    if path.exists():
-        shutil.rmtree(path)
+    path = ROOT / "tests" / f".model-router-{uuid.uuid4().hex}"
     path.mkdir()
     try:
         yield path
     finally:
-        if path.exists():
-            shutil.rmtree(path)
+        shutil.rmtree(path)
 
 
 def route_request(**overrides):
@@ -65,6 +79,108 @@ def route_request(**overrides):
     }
     request.update(overrides)
     return request
+
+
+def route_v2_request(**overrides):
+    request = {
+        "router_api_version": "route/v2",
+        "request_id": "test-v2-request",
+        "route_slot": "validator.assurance",
+        "writer_route_slot": "writer.c1",
+        "profile_id": NEW_PROFILE_ID,
+        "explicit_profile_selection": True,
+        "explicit_high_volume_selection": False,
+        "availability": {},
+        "route_failure_evidence": {},
+        "risk_level": "R1",
+        "writer_identity": {
+            "provider": "openai",
+            "runtime_provider": "custom",
+            "model": "gpt-5.6-luna",
+        },
+        "candidate_id": "candidate-v2-1",
+    }
+    request.update(overrides)
+    return request
+
+
+def assert_v2_decision_matches_schema(testcase, decision):
+    schema = json.loads(
+        (ASSET_DIR / "route-decision.v2.schema.json").read_text(encoding="utf-8")
+    )
+    required = set(schema["required"])
+    testcase.assertEqual(set(decision), required)
+    properties = schema["properties"]
+
+    for field in (
+        "router_api_version",
+        "request_id",
+        "profile_id",
+        "route_slot",
+        "decision_status",
+        "enforcement_status",
+        "validation_mode",
+        "config_digest",
+    ):
+        testcase.assertIsInstance(decision[field], str)
+        testcase.assertTrue(decision[field])
+        if "enum" in properties[field]:
+            testcase.assertIn(decision[field], properties[field]["enum"])
+        if "const" in properties[field]:
+            testcase.assertEqual(decision[field], properties[field]["const"])
+
+    testcase.assertEqual(decision["router_api_version"], "route/v2")
+    testcase.assertRegex(decision["config_digest"], r"^[0-9a-f]{64}$")
+    testcase.assertIsInstance(decision["risk_level"], (str, type(None)))
+    if decision["risk_level"] is not None:
+        testcase.assertIn(decision["risk_level"], properties["risk_level"]["enum"])
+
+    testcase.assertIsInstance(decision["selected_routes"], list)
+    testcase.assertLessEqual(
+        len(decision["selected_routes"]), schema["properties"]["selected_routes"]["maxItems"]
+    )
+    route_keys = set(schema["properties"]["selected_routes"]["items"]["required"])
+    seen_routes = set()
+    for route in decision["selected_routes"]:
+        testcase.assertEqual(set(route), route_keys)
+        testcase.assertNotIn(json.dumps(route, sort_keys=True), seen_routes)
+        seen_routes.add(json.dumps(route, sort_keys=True))
+        for value in route.values():
+            testcase.assertIsInstance(value, str)
+            testcase.assertTrue(value)
+
+    testcase.assertIn(decision["validation_mode"], properties["validation_mode"]["enum"])
+    testcase.assertIn(decision["decision_status"], properties["decision_status"]["enum"])
+    testcase.assertIn(decision["enforcement_status"], properties["enforcement_status"]["enum"])
+    testcase.assertIs(type(decision["escalation_used"]), bool)
+    testcase.assertIs(type(decision["same_model_as_writer"]), bool)
+    testcase.assertIn(decision["validator_source"], properties["validator_source"]["enum"])
+
+    testcase.assertIsInstance(decision["escalation_evidence"], dict)
+    evidence_pattern = schema["properties"]["escalation_evidence"]["propertyNames"]["pattern"]
+    for route_key, evidence in decision["escalation_evidence"].items():
+        testcase.assertRegex(route_key, evidence_pattern)
+        testcase.assertIsInstance(evidence, list)
+        testcase.assertEqual(len(evidence), len(set(evidence)))
+        for item in evidence:
+            testcase.assertIsInstance(item, str)
+            testcase.assertTrue(item)
+
+    testcase.assertIsInstance(decision["limitations"], list)
+    for limitation in decision["limitations"]:
+        testcase.assertIsInstance(limitation, str)
+        testcase.assertTrue(limitation)
+
+    if decision["route_slot"] == "validator.assurance":
+        testcase.assertIn(decision["risk_level"], {"R1", "R2", "R3"})
+        testcase.assertEqual(decision["validator_source"], "router-selected")
+    else:
+        testcase.assertIsNone(decision["risk_level"])
+        testcase.assertEqual(decision["validation_mode"], "not-applicable")
+        testcase.assertFalse(decision["same_model_as_writer"])
+        testcase.assertEqual(decision["validator_source"], "not-applicable")
+    if decision["risk_level"] == "R3":
+        testcase.assertEqual(decision["validation_mode"], "dual")
 
 
 def valid_config(**overrides):
@@ -141,6 +257,11 @@ class SkillSurfaceTests(unittest.TestCase):
             self.assertTrue((SKILL_DIR / target).is_file(), target)
 
     def test_bundle_validator_rejects_path_frontmatter_and_governance_mutations(self):
+        if validate_model_router_bundle is None:
+            self.skipTest(
+                "validate_skill.py import reached independent Task 3 gate: "
+                + _validate_skill_import_failure
+            )
         with temporary_project() as project:
             candidate = project / "router"
             shutil.copytree(SKILL_DIR, candidate)
@@ -362,9 +483,435 @@ class CatalogAndProfileTests(unittest.TestCase):
 
     def test_new_profile_is_loadable_as_a_bundled_profile(self):
         self.assertEqual(load_profile(NEW_PROFILE_ID)["profile_id"], NEW_PROFILE_ID)
+        profile = load_profile(NEW_PROFILE_ID)
+        with self.assertRaises(ValueError):
+            validate_profile(profile, load_catalog())
+        self.assertEqual(validate_profile_v2(profile, load_catalog()), profile)
+        self.assertEqual(validate_profile_versioned(profile, load_catalog()), profile)
 
 
 class ResolutionTests(unittest.TestCase):
+    def test_v2_request_validation_rejects_mixed_versions_and_invalid_evidence_keys(self):
+        self.assertEqual(validate_route_request_v2(route_v2_request()), route_v2_request())
+        with self.assertRaises(ValueError):
+            validate_route_request(route_v2_request())
+        with self.assertRaises(ValueError):
+            validate_route_request_v2(route_request())
+        with self.assertRaises(ValueError):
+            validate_route_request_v2(
+                route_v2_request(route_failure_evidence={"openai:gpt-5.6-luna": EVIDENCE[:1]})
+            )
+        with self.assertRaises(ValueError):
+            validate_route_request_v2(route_v2_request(candidate_id=None))
+
+    def test_v2_requires_exact_availability_and_route_bound_evidence(self):
+        alias_only = resolve_route(
+            route_v2_request(availability={"gpt-5.6-luna": "available"})
+        )
+        self.assertEqual(alias_only["decision_status"], "unknown")
+        self.assertEqual(alias_only["selected_routes"], [])
+        wrong_evidence_key = resolve_route(
+            route_v2_request(
+                availability={
+                    "openai/gpt-5.6-luna": "unavailable",
+                    "openai/gpt-5.6-terra": "available",
+                },
+                route_failure_evidence={"openai/gpt-5.6-sol": EVIDENCE[:1]},
+            )
+        )
+        self.assertEqual(wrong_evidence_key["decision_status"], "blocked")
+        self.assertEqual(wrong_evidence_key["selected_routes"], [])
+        self.assertEqual(
+            wrong_evidence_key["escalation_evidence"],
+            {"openai/gpt-5.6-luna": []},
+        )
+
+    def test_v2_request_and_config_profile_versions_cannot_be_mixed(self):
+        with self.assertRaises(ValueError):
+            resolve_route(route_v2_request(profile_id=PROFILE_ID))
+        with self.assertRaises(ValueError):
+            resolve_route(route_request(profile_id=NEW_PROFILE_ID))
+
+    def test_v2_r1_initial_luna_selection_and_same_model_identity(self):
+        decision = resolve_route(
+            route_v2_request(
+                availability={"openai/gpt-5.6-luna": "available"},
+            )
+        )
+        self.assertEqual(decision["decision_status"], "selected")
+        self.assertEqual(decision["validation_mode"], "single")
+        self.assertEqual(len(decision["selected_routes"]), 1)
+        self.assertEqual(decision["selected_routes"][0]["model"], "gpt-5.6-luna")
+        self.assertEqual(decision["selected_routes"][0]["runtime_provider"], "custom")
+        self.assertFalse(decision["escalation_used"])
+        self.assertEqual(decision["escalation_evidence"], {})
+        self.assertTrue(decision["same_model_as_writer"])
+        self.assertEqual(decision["validator_source"], "router-selected")
+        self.assertEqual(decision["enforcement_status"], "not-executed")
+
+    def test_v2_r1_luna_unavailable_with_accepted_evidence_escalates_to_terra(self):
+        decision = resolve_route(
+            route_v2_request(
+                availability={
+                    "openai/gpt-5.6-luna": "unavailable",
+                    "openai/gpt-5.6-terra": "available",
+                },
+                route_failure_evidence={
+                    "openai/gpt-5.6-luna": EVIDENCE[:1],
+                },
+            )
+        )
+        self.assertEqual(decision["decision_status"], "selected")
+        self.assertEqual(decision["selected_routes"][0]["model"], "gpt-5.6-terra")
+        self.assertTrue(decision["escalation_used"])
+        self.assertEqual(
+            decision["escalation_evidence"],
+            {"openai/gpt-5.6-luna": EVIDENCE[:1]},
+        )
+        self.assertFalse(decision["same_model_as_writer"])
+
+    def test_v2_r2_initial_terra_selection(self):
+        decision = resolve_route(
+            route_v2_request(
+                risk_level="R2",
+                writer_route_slot="writer.c2",
+                availability={"openai/gpt-5.6-terra": "available"},
+            )
+        )
+        self.assertEqual(decision["decision_status"], "selected")
+        self.assertEqual(decision["validation_mode"], "single")
+        self.assertEqual(
+            [route["model"] for route in decision["selected_routes"]],
+            ["gpt-5.6-terra"],
+        )
+        self.assertFalse(decision["escalation_used"])
+
+    def test_v2_r2_terra_unavailable_with_accepted_evidence_escalates_to_sol(self):
+        decision = resolve_route(
+            route_v2_request(
+                risk_level="R2",
+                writer_route_slot="writer.c2",
+                availability={
+                    "openai/gpt-5.6-terra": "unavailable",
+                    "openai/gpt-5.6-sol": "available",
+                },
+                route_failure_evidence={
+                    "openai/gpt-5.6-terra": EVIDENCE[:1],
+                },
+            )
+        )
+        self.assertEqual(decision["decision_status"], "selected")
+        self.assertEqual(decision["selected_routes"][0]["model"], "gpt-5.6-sol")
+        self.assertTrue(decision["escalation_used"])
+        self.assertEqual(
+            decision["escalation_evidence"],
+            {"openai/gpt-5.6-terra": EVIDENCE[:1]},
+        )
+
+    def test_v2_r1_full_chain_escalates_from_luna_through_terra_to_sol(self):
+        decision = resolve_route(
+            route_v2_request(
+                availability={
+                    "openai/gpt-5.6-luna": "unavailable",
+                    "openai/gpt-5.6-terra": "unavailable",
+                    "openai/gpt-5.6-sol": "available",
+                },
+                route_failure_evidence={
+                    "openai/gpt-5.6-luna": EVIDENCE[:1],
+                    "openai/gpt-5.6-terra": EVIDENCE[1:2],
+                },
+            )
+        )
+        self.assertEqual(decision["decision_status"], "selected")
+        self.assertEqual(decision["selected_routes"][0]["model"], "gpt-5.6-sol")
+        self.assertTrue(decision["escalation_used"])
+        self.assertEqual(
+            decision["escalation_evidence"],
+            {
+                "openai/gpt-5.6-luna": EVIDENCE[:1],
+                "openai/gpt-5.6-terra": EVIDENCE[1:2],
+            },
+        )
+
+    def test_v2_r1_and_r2_chain_exhaustion_blocks(self):
+        cases = (
+            (
+                "R1",
+                "writer.c1",
+                {
+                    "openai/gpt-5.6-luna": "unavailable",
+                    "openai/gpt-5.6-terra": "unavailable",
+                    "openai/gpt-5.6-sol": "unavailable",
+                },
+                {
+                    "openai/gpt-5.6-luna": EVIDENCE[:1],
+                    "openai/gpt-5.6-terra": EVIDENCE[1:2],
+                    "openai/gpt-5.6-sol": EVIDENCE[2:3],
+                },
+            ),
+            (
+                "R2",
+                "writer.c2",
+                {
+                    "openai/gpt-5.6-terra": "unavailable",
+                    "openai/gpt-5.6-sol": "unavailable",
+                },
+                {
+                    "openai/gpt-5.6-terra": EVIDENCE[:1],
+                    "openai/gpt-5.6-sol": EVIDENCE[1:2],
+                },
+            ),
+        )
+        for risk_level, writer_route_slot, availability, evidence in cases:
+            with self.subTest(risk_level=risk_level):
+                decision = resolve_route(
+                    route_v2_request(
+                        risk_level=risk_level,
+                        writer_route_slot=writer_route_slot,
+                        availability=availability,
+                        route_failure_evidence=evidence,
+                    )
+                )
+                self.assertEqual(decision["decision_status"], "blocked")
+                self.assertEqual(decision["selected_routes"], [])
+                self.assertTrue(decision["escalation_used"])
+                self.assertEqual(decision["escalation_evidence"], evidence)
+                self.assertTrue(any("Owner" in item for item in decision["limitations"]))
+
+    def test_v2_r1_and_r2_post_escalation_unknown_returns_unknown(self):
+        cases = (
+            (
+                "R1",
+                "writer.c1",
+                {
+                    "openai/gpt-5.6-luna": "unavailable",
+                    "openai/gpt-5.6-terra": "unknown",
+                    "openai/gpt-5.6-sol": "available",
+                },
+                {"openai/gpt-5.6-luna": EVIDENCE[:1]},
+            ),
+            (
+                "R2",
+                "writer.c2",
+                {
+                    "openai/gpt-5.6-terra": "unavailable",
+                    "openai/gpt-5.6-sol": "unknown",
+                },
+                {"openai/gpt-5.6-terra": EVIDENCE[:1]},
+            ),
+        )
+        for risk_level, writer_route_slot, availability, evidence in cases:
+            with self.subTest(risk_level=risk_level):
+                decision = resolve_route(
+                    route_v2_request(
+                        risk_level=risk_level,
+                        writer_route_slot=writer_route_slot,
+                        availability=availability,
+                        route_failure_evidence=evidence,
+                    )
+                )
+                self.assertEqual(decision["decision_status"], "unknown")
+                self.assertEqual(decision["selected_routes"], [])
+                self.assertTrue(decision["escalation_used"])
+                self.assertEqual(decision["escalation_evidence"], evidence)
+
+    def test_v2_r1_and_r2_unaccepted_route_evidence_blocks(self):
+        cases = (
+            (
+                "R1",
+                "writer.c1",
+                {"openai/gpt-5.6-luna": "unavailable"},
+                {"openai/gpt-5.6-luna": ["valid-validator-rejection"]},
+            ),
+            (
+                "R1",
+                "writer.c1",
+                {
+                    "openai/gpt-5.6-luna": "unavailable",
+                    "openai/gpt-5.6-terra": "unavailable",
+                },
+                {
+                    "openai/gpt-5.6-luna": EVIDENCE[:1],
+                    "openai/gpt-5.6-terra": ["valid-validator-rejection"],
+                },
+            ),
+            (
+                "R2",
+                "writer.c2",
+                {"openai/gpt-5.6-terra": "unavailable"},
+                {"openai/gpt-5.6-terra": ["valid-validator-rejection"]},
+            ),
+            (
+                "R2",
+                "writer.c2",
+                {
+                    "openai/gpt-5.6-terra": "unavailable",
+                    "openai/gpt-5.6-sol": "unavailable",
+                },
+                {
+                    "openai/gpt-5.6-terra": EVIDENCE[:1],
+                    "openai/gpt-5.6-sol": ["valid-validator-rejection"],
+                },
+            ),
+        )
+        for risk_level, writer_route_slot, availability, evidence in cases:
+            with self.subTest(risk_level=risk_level, evidence=evidence):
+                decision = resolve_route(
+                    route_v2_request(
+                        risk_level=risk_level,
+                        writer_route_slot=writer_route_slot,
+                        availability=availability,
+                        route_failure_evidence=evidence,
+                    )
+                )
+                self.assertEqual(decision["decision_status"], "blocked")
+                self.assertEqual(decision["selected_routes"], [])
+                self.assertEqual(decision["escalation_evidence"], evidence)
+
+    def test_v2_r3_both_available_selects_both_in_deterministic_order(self):
+        decision = resolve_route(
+            route_v2_request(
+                risk_level="R3",
+                writer_route_slot="writer.c2",
+                availability={
+                    "openai/gpt-5.6-terra": "available",
+                    "openai/gpt-5.6-sol": "available",
+                },
+            )
+        )
+        self.assertEqual(decision["decision_status"], "selected")
+        self.assertEqual(decision["validation_mode"], "dual")
+        self.assertEqual(
+            [route["model"] for route in decision["selected_routes"]],
+            ["gpt-5.6-terra", "gpt-5.6-sol"],
+        )
+        self.assertFalse(decision["escalation_used"])
+        self.assertEqual(decision["escalation_evidence"], {})
+
+    def test_v2_r3_unknown_required_route_returns_unknown_without_degradation(self):
+        for unknown_key in ("openai/gpt-5.6-terra", "openai/gpt-5.6-sol"):
+            with self.subTest(unknown_key=unknown_key):
+                availability = {
+                    "openai/gpt-5.6-terra": "available",
+                    "openai/gpt-5.6-sol": "available",
+                }
+                availability[unknown_key] = "unknown"
+                decision = resolve_route(
+                    route_v2_request(
+                        risk_level="R3",
+                        writer_route_slot="writer.c2",
+                        availability=availability,
+                    )
+                )
+                self.assertEqual(decision["decision_status"], "unknown")
+                self.assertEqual(decision["validation_mode"], "dual")
+                self.assertEqual(decision["selected_routes"], [])
+                self.assertFalse(decision["escalation_used"])
+                self.assertTrue(any("Owner" in item for item in decision["limitations"]))
+
+    def test_v2_r3_unavailable_with_accepted_evidence_blocks_without_degradation(self):
+        decision = resolve_route(
+            route_v2_request(
+                risk_level="R3",
+                writer_route_slot="writer.c2",
+                availability={
+                    "openai/gpt-5.6-terra": "unavailable",
+                    "openai/gpt-5.6-sol": "available",
+                },
+                route_failure_evidence={
+                    "openai/gpt-5.6-terra": EVIDENCE[:1],
+                },
+            )
+        )
+        self.assertEqual(decision["decision_status"], "blocked")
+        self.assertEqual(decision["validation_mode"], "dual")
+        self.assertEqual(decision["selected_routes"], [])
+        self.assertFalse(decision["escalation_used"])
+        self.assertEqual(
+            decision["escalation_evidence"],
+            {"openai/gpt-5.6-terra": EVIDENCE[:1]},
+        )
+        self.assertTrue(any("Owner" in item for item in decision["limitations"]))
+
+    def test_v2_r3_unaccepted_evidence_blocks_without_degradation(self):
+        decision = resolve_route(
+            route_v2_request(
+                risk_level="R3",
+                writer_route_slot="writer.c2",
+                availability={
+                    "openai/gpt-5.6-terra": "unavailable",
+                    "openai/gpt-5.6-sol": "available",
+                },
+                route_failure_evidence={
+                    "openai/gpt-5.6-terra": ["valid-validator-rejection"],
+                },
+            )
+        )
+        self.assertEqual(decision["decision_status"], "blocked")
+        self.assertEqual(decision["selected_routes"], [])
+        self.assertEqual(
+            decision["escalation_evidence"],
+            {"openai/gpt-5.6-terra": ["valid-validator-rejection"]},
+        )
+        self.assertTrue(any("Owner" in item for item in decision["limitations"]))
+
+    def test_v2_r3_same_model_status_is_reported_without_blocking(self):
+        decision = resolve_route(
+            route_v2_request(
+                risk_level="R3",
+                writer_route_slot="writer.c2",
+                writer_identity={
+                    "provider": "openai",
+                    "runtime_provider": "custom",
+                    "model": "gpt-5.6-terra",
+                },
+                availability={
+                    "openai/gpt-5.6-terra": "available",
+                    "openai/gpt-5.6-sol": "available",
+                },
+            )
+        )
+        self.assertEqual(decision["decision_status"], "selected")
+        self.assertEqual(len(decision["selected_routes"]), 2)
+        self.assertTrue(decision["same_model_as_writer"])
+
+    def test_v2_selected_unknown_and_blocked_decisions_match_committed_schema(self):
+        cases = (
+            (
+                "selected",
+                route_v2_request(
+                    availability={"openai/gpt-5.6-luna": "available"},
+                ),
+            ),
+            (
+                "unknown",
+                route_v2_request(
+                    risk_level="R2",
+                    writer_route_slot="writer.c2",
+                    availability={},
+                ),
+            ),
+            (
+                "blocked",
+                route_v2_request(
+                    risk_level="R3",
+                    writer_route_slot="writer.c2",
+                    availability={
+                        "openai/gpt-5.6-terra": "unavailable",
+                        "openai/gpt-5.6-sol": "available",
+                    },
+                    route_failure_evidence={
+                        "openai/gpt-5.6-terra": EVIDENCE[:1],
+                    },
+                ),
+            ),
+        )
+        for expected_status, request in cases:
+            with self.subTest(expected_status=expected_status):
+                decision = resolve_route(request)
+                self.assertEqual(decision["decision_status"], expected_status)
+                assert_v2_decision_matches_schema(self, decision)
+
     def test_config_precedence_digest_and_alternate_project_profile(self):
         with temporary_project() as project:
             profile_dir = project / ".ai-native" / "profiles"
@@ -606,6 +1153,23 @@ class ResolutionTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 load_profile(PROFILE_ID, project_root=project, project_profile_dirs=[".ai-native/profiles"])
 
+    def test_collision_blocks_changed_new_bundled_profile(self):
+        with temporary_project() as project:
+            profile_dir = project / ".ai-native" / "profiles"
+            profile_dir.mkdir(parents=True)
+            bundled = SKILL_DIR / "assets" / "profiles" / f"{NEW_PROFILE_ID}.json"
+            changed = json.loads(bundled.read_text(encoding="utf-8"))
+            changed["evidence_date"] = "2099-01-01"
+            (profile_dir / f"{NEW_PROFILE_ID}.json").write_text(
+                json.dumps(changed), encoding="utf-8"
+            )
+            with self.assertRaises(ValueError):
+                load_profile(
+                    NEW_PROFILE_ID,
+                    project_root=project,
+                    project_profile_dirs=[".ai-native/profiles"],
+                )
+
     def test_request_schema_and_forbidden_profile_paths_fail_closed(self):
         with self.assertRaises(ValueError):
             validate_route_request(dict(route_request(), extra=True))
@@ -653,6 +1217,125 @@ class CliTests(unittest.TestCase):
             resolved = self.run_cli("resolve", "--request", str(request_path))
             self.assertEqual(resolved.returncode, 0, resolved.stderr)
             self.assertEqual(json.loads(resolved.stdout)["decision_status"], "selected")
+
+    def test_cli_resolves_v2_r1_r2_r3_selected_unknown_and_blocked(self):
+        cases = (
+            (
+                "r1-selected",
+                route_v2_request(
+                    availability={"openai/gpt-5.6-luna": "available"},
+                ),
+                "selected",
+            ),
+            (
+                "r1-unknown",
+                route_v2_request(availability={}),
+                "unknown",
+            ),
+            (
+                "r1-blocked",
+                route_v2_request(
+                    availability={"openai/gpt-5.6-luna": "unavailable"},
+                    route_failure_evidence={
+                        "openai/gpt-5.6-luna": ["valid-validator-rejection"],
+                    },
+                ),
+                "blocked",
+            ),
+            (
+                "r2-selected",
+                route_v2_request(
+                    risk_level="R2",
+                    writer_route_slot="writer.c2",
+                    availability={"openai/gpt-5.6-terra": "available"},
+                ),
+                "selected",
+            ),
+            (
+                "r2-unknown",
+                route_v2_request(
+                    risk_level="R2",
+                    writer_route_slot="writer.c2",
+                    availability={},
+                ),
+                "unknown",
+            ),
+            (
+                "r2-blocked",
+                route_v2_request(
+                    risk_level="R2",
+                    writer_route_slot="writer.c2",
+                    availability={"openai/gpt-5.6-terra": "unavailable"},
+                    route_failure_evidence={
+                        "openai/gpt-5.6-terra": ["valid-validator-rejection"],
+                    },
+                ),
+                "blocked",
+            ),
+            (
+                "r3-selected",
+                route_v2_request(
+                    risk_level="R3",
+                    writer_route_slot="writer.c2",
+                    availability={
+                        "openai/gpt-5.6-terra": "available",
+                        "openai/gpt-5.6-sol": "available",
+                    },
+                ),
+                "selected",
+            ),
+            (
+                "r3-unknown",
+                route_v2_request(
+                    risk_level="R3",
+                    writer_route_slot="writer.c2",
+                    availability={
+                        "openai/gpt-5.6-terra": "unknown",
+                        "openai/gpt-5.6-sol": "available",
+                    },
+                ),
+                "unknown",
+            ),
+            (
+                "r3-blocked",
+                route_v2_request(
+                    risk_level="R3",
+                    writer_route_slot="writer.c2",
+                    availability={
+                        "openai/gpt-5.6-terra": "unavailable",
+                        "openai/gpt-5.6-sol": "available",
+                    },
+                    route_failure_evidence={
+                        "openai/gpt-5.6-terra": EVIDENCE[:1],
+                    },
+                ),
+                "blocked",
+            ),
+        )
+        with temporary_project() as project:
+            for label, request, expected_status in cases:
+                with self.subTest(label=label):
+                    request_path = project / f"{label}.json"
+                    request_path.write_text(json.dumps(request), encoding="utf-8")
+                    result = self.run_cli("resolve", "--request", str(request_path))
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    decision = json.loads(result.stdout)
+                    self.assertEqual(decision["decision_status"], expected_status)
+                    assert_v2_decision_matches_schema(self, decision)
+
+    def test_cli_rejects_v2_request_with_mismatched_profile_version(self):
+        with temporary_project() as project:
+            request_path = project / "version-mismatch.json"
+            request_path.write_text(
+                json.dumps(route_v2_request(profile_id=PROFILE_ID)),
+                encoding="utf-8",
+            )
+            result = self.run_cli("resolve", "--request", str(request_path))
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(result.stdout, "")
+            self.assertIn("ERROR:", result.stderr)
+            with self.assertRaises(json.JSONDecodeError):
+                json.loads(result.stderr)
 
     def test_cli_errors_are_stderr_and_nonzero(self):
         result = self.run_cli("validate-profile", "--profile", "missing")

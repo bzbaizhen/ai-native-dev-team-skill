@@ -2,11 +2,13 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
-import tempfile
 import unittest
+from contextlib import contextmanager
 from pathlib import Path
+import uuid
 
 
 ROOT = Path(__file__).parents[1]
@@ -21,6 +23,9 @@ from router_config import (  # noqa: E402
     resolve_config_path,
     rollback_config,
     validate_config,
+    validate_config_for_version,
+    validate_config_v2,
+    validate_config_versioned,
 )
 
 
@@ -60,8 +65,31 @@ def valid_config(**overrides):
     return payload
 
 
+def valid_config_v2(**overrides):
+    payload = {
+        "schema_version": 2,
+        "router_api_version": "route/v2",
+        "config_id": "test-config-v2",
+        "active_profile": "openai-gpt5.6-validator-assurance-2026-08-31",
+        "project_profile_dirs": [".ai-native/profiles"],
+        "updated_reason": "test fixture",
+    }
+    payload.update(overrides)
+    return payload
+
+
 def sha256_bytes(value):
     return hashlib.sha256(value).hexdigest()
+
+
+@contextmanager
+def temporary_contract_project():
+    path = ROOT / "tests" / f".router-contracts-{uuid.uuid4().hex}"
+    path.mkdir()
+    try:
+        yield path
+    finally:
+        shutil.rmtree(path)
 
 
 class SchemaContractTests(unittest.TestCase):
@@ -328,6 +356,28 @@ class AdrContractTests(unittest.TestCase):
 
 
 class ConfigValidationTests(unittest.TestCase):
+    def test_v2_config_validation_and_version_dispatch_are_explicit(self):
+        payload = valid_config_v2()
+        self.assertEqual(validate_config_v2(payload), payload)
+        with self.assertRaises(ValueError):
+            validate_config(payload)
+        self.assertEqual(validate_config_versioned(payload), payload)
+        self.assertEqual(validate_config_for_version(payload, "route/v2"), payload)
+        self.assertRegex(config_digest(payload), r"^[0-9a-f]{64}$")
+
+    def test_mixed_config_versions_fail_closed(self):
+        for payload in (
+            valid_config_v2(router_api_version="route/v1"),
+            valid_config(schema_version=2),
+            valid_config(router_api_version="route/v2"),
+        ):
+            with self.subTest(payload=payload), self.assertRaises(ValueError):
+                validate_config_versioned(payload)
+        with self.assertRaises(ValueError):
+            validate_config_for_version(valid_config(), "route/v2")
+        with self.assertRaises(ValueError):
+            validate_config_for_version(valid_config_v2(), "route/v1")
+
     def test_generic_validation_accepts_alternate_active_profile(self):
         payload = valid_config(active_profile="team-fast")
         self.assertEqual(validate_config(payload), payload)
@@ -436,7 +486,7 @@ class ConfigValidationTests(unittest.TestCase):
         self.assertEqual(config_digest(first), config_digest(second))
 
     def test_resolution_precedence_and_conventional_missing_path(self):
-        with tempfile.TemporaryDirectory(dir=ROOT) as temp:
+        with temporary_contract_project() as temp:
             cwd = Path(temp)
             injected = cwd / "injected.json"
             explicit = cwd / "explicit.json"
@@ -450,7 +500,7 @@ class ConfigValidationTests(unittest.TestCase):
             self.assertEqual(resolve_config_path(None, None, cwd), conventional)
 
     def test_explicit_and_injected_paths_must_be_path_values(self):
-        with tempfile.TemporaryDirectory(dir=ROOT) as temp:
+        with temporary_contract_project() as temp:
             cwd = Path(temp)
             for bad in ("", 3, object()):
                 with self.subTest(bad=repr(bad)), self.assertRaises(ValueError):
@@ -514,7 +564,7 @@ class LegacyMigrationTests(unittest.TestCase):
 
 class AtomicConfigTests(unittest.TestCase):
     def test_atomic_write_backup_stale_refusal_and_rollback(self):
-        with tempfile.TemporaryDirectory(dir=ROOT) as temp:
+        with temporary_contract_project() as temp:
             directory = Path(temp)
             path = directory / "model-router.json"
             original = json.dumps(valid_config(updated_reason="old"), indent=2).encode() + b"\n"
@@ -546,7 +596,7 @@ class AtomicConfigTests(unittest.TestCase):
             self.assertEqual(path.read_bytes(), original)
 
     def test_atomic_write_requires_existing_parent_and_leaves_no_temp_residue(self):
-        with tempfile.TemporaryDirectory(dir=ROOT) as temp:
+        with temporary_contract_project() as temp:
             directory = Path(temp)
             missing_parent = directory / "missing" / "config.json"
             with self.assertRaises(ValueError):
@@ -557,7 +607,7 @@ class AtomicConfigTests(unittest.TestCase):
             self.assertEqual(list(directory.glob(".*.tmp-*")), [])
 
     def test_rollback_fails_closed_on_current_hash_mismatch_and_foreign_backup(self):
-        with tempfile.TemporaryDirectory(dir=ROOT) as temp:
+        with temporary_contract_project() as temp:
             directory = Path(temp)
             path = directory / "config.json"
             atomic_write_config(path, valid_config())
@@ -572,7 +622,7 @@ class AtomicConfigTests(unittest.TestCase):
                 )
 
     def test_rollback_rejects_malformed_or_uppercase_backup_suffix_and_foreign_valid_config(self):
-        with tempfile.TemporaryDirectory(dir=ROOT) as temp:
+        with temporary_contract_project() as temp:
             directory = Path(temp)
             path = directory / "config.json"
             atomic_write_config(path, valid_config())
@@ -620,7 +670,7 @@ class CliTests(unittest.TestCase):
         )
 
     def test_validate_and_digest_cli_emit_json(self):
-        with tempfile.TemporaryDirectory(dir=ROOT) as temp:
+        with temporary_contract_project() as temp:
             config = Path(temp) / "config.json"
             config.write_text(json.dumps(valid_config()), encoding="utf-8")
             validated = self.run_cli("validate", "--config", str(config))
@@ -631,7 +681,7 @@ class CliTests(unittest.TestCase):
             self.assertEqual(json.loads(digested.stdout)["config_digest"], config_digest(valid_config()))
 
     def test_migrate_write_and_rollback_cli_paths(self):
-        with tempfile.TemporaryDirectory(dir=ROOT) as temp:
+        with temporary_contract_project() as temp:
             directory = Path(temp)
             legacy = directory / "legacy.json"
             migrated = directory / "migrated.json"
