@@ -23,7 +23,13 @@ SCHEMA_VERSION = 1
 ROUTER_API_VERSION = "route/v1"
 SCHEMA_VERSION_V2 = 2
 ROUTER_API_VERSION_V2 = "route/v2"
-VERIFIED_PROFILE_ID = "openai-glm5.3-deepseek-fallback-2026-08-28"
+VERIFIED_PROFILE_ID = "glm+deepseek"
+RETIRED_PROFILE_IDS = frozenset(
+    {
+        "openai-glm5.3-deepseek-fallback-2026-08-28",
+        "openai-gpt5.6-validator-assurance-2026-08-31",
+    }
+)
 CONVENTIONAL_CONFIG = Path(".ai-native") / "model-router.json"
 CONFIG_KEYS = (
     "schema_version",
@@ -68,6 +74,13 @@ def _fail(message: str) -> None:
     raise ValueError(message)
 
 
+def reject_retired_profile_id(profile_id: Any, field: str = "profile_id") -> None:
+    """Reject IDs removed by the Router v0.3.0 breaking rename."""
+
+    if isinstance(profile_id, str) and profile_id in RETIRED_PROFILE_IDS:
+        _fail(f"{field} is retired and unsupported")
+
+
 def _scan_forbidden_keys(value: Any, location: str = "$") -> None:
     if isinstance(value, dict):
         for key in sorted(value, key=lambda item: str(item).casefold()):
@@ -107,6 +120,8 @@ def _is_safe_relative_path(value: Any) -> bool:
 def validate_config(payload: Any) -> dict[str, Any]:
     """Validate and return a shallowly independent normalized v1 config."""
 
+    if isinstance(payload, dict):
+        reject_retired_profile_id(payload.get("active_profile"), "active_profile")
     _scan_forbidden_keys(payload)
     if not isinstance(payload, dict):
         _fail("config must be an object")
@@ -143,6 +158,8 @@ def validate_config(payload: Any) -> dict[str, Any]:
 def validate_config_v2(payload: Any) -> dict[str, Any]:
     """Validate and return a shallowly independent route/v2 config."""
 
+    if isinstance(payload, dict):
+        reject_retired_profile_id(payload.get("active_profile"), "active_profile")
     _scan_forbidden_keys(payload)
     if not isinstance(payload, dict):
         _fail("config must be an object")
@@ -179,6 +196,8 @@ def validate_config_v2(payload: Any) -> dict[str, Any]:
 def validate_config_versioned(payload: Any) -> dict[str, Any]:
     """Dispatch config validation by the explicit schema/API version pair."""
 
+    if isinstance(payload, dict):
+        reject_retired_profile_id(payload.get("active_profile"), "active_profile")
     if not isinstance(payload, dict):
         return validate_config(payload)
     schema_version = payload.get("schema_version")
@@ -259,6 +278,7 @@ def migrate_legacy_profile(profile: Any) -> dict[str, Any]:
     if "default_active" not in profile or "activation" not in profile:
         _fail("legacy profile activation is ambiguous")
     profile_id = _require_string(profile["profile_id"], "profile_id")
+    reject_retired_profile_id(profile_id)
     if profile_id != VERIFIED_PROFILE_ID:
         _fail("legacy profile_id is not the current verified profile")
     if type(profile["default_active"]) is not bool or profile["default_active"]:

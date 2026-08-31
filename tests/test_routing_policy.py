@@ -8,7 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SKILL_DIR = ROOT / "skills" / "ai-native-dev-team"
 SCENARIOS_PATH = ROOT / "tests" / "routing-scenarios.json"
 COST_POLICY_CASES_PATH = ROOT / "tests" / "cost-routing-policy-cases.json"
-PROFILE_PATH = ROOT / "skills" / "ai-native-model-router" / "assets" / "profiles" / "openai-glm5.3-deepseek-fallback-2026-08-28.json"
+PROFILE_PATH = ROOT / "skills" / "ai-native-model-router" / "assets" / "profiles" / "glm+deepseek.json"
 PROFILE_EVIDENCE_PATH = ROOT / "skills" / "ai-native-model-router" / "references" / "provider-evidence.md"
 LEGACY_PROFILE_PATH = SKILL_DIR / "references" / "model-routing-openai-deepseek.md"
 GIT_ISOLATION_REFERENCE = SKILL_DIR / "references" / "git-isolation-bootstrap.md"
@@ -264,7 +264,7 @@ def load_profile_contract() -> dict:
 
 def validate_profile_contract(profile: dict) -> None:
     assert set(profile) == EXPECTED_PROFILE_KEYS
-    assert profile["profile_id"] == "openai-glm5.3-deepseek-fallback-2026-08-28"
+    assert profile["profile_id"] == "glm+deepseek"
     assert profile["default_active"] is False
     assert profile["activation"] == "explicit-owner-selection"
     assert profile["evidence_date"] == "2026-08-28"

@@ -48,9 +48,9 @@ V2_ROUTE_SLOTS = [
     "validator.assurance",
     "writer.high-volume-deterministic",
 ]
-OLD_PROFILE_PATH = ASSET_DIR / "profiles" / "openai-glm5.3-deepseek-fallback-2026-08-28.json"
-OLD_PROFILE_GIT_BLOB = "3da4191c501cc8ce403c8a5a39aabe6a6d59e2ca"
-OLD_PROFILE_SHA256 = "cc6beae0df7434baca3d782eaecc8696c31b6abdc28c63157d599af1cd95ccaa"
+V1_PROFILE_PATH = ASSET_DIR / "profiles" / "glm+deepseek.json"
+V1_PROFILE_GIT_BLOB = "e75e6e1c70872178d688608fe8fa54e1953426c7"
+V1_PROFILE_SHA256 = "aef1517b10de39ea487f8c3eed63d5cf0e5c268dda42c6bb13808ee7570dd17b"
 
 
 def valid_config(**overrides):
@@ -58,7 +58,7 @@ def valid_config(**overrides):
         "schema_version": 1,
         "router_api_version": "route/v1",
         "config_id": "test-config",
-        "active_profile": "openai-glm5.3-deepseek-fallback-2026-08-28",
+        "active_profile": "glm+deepseek",
         "project_profile_dirs": [".ai-native/profiles"],
         "updated_reason": "test fixture",
     }
@@ -71,7 +71,7 @@ def valid_config_v2(**overrides):
         "schema_version": 2,
         "router_api_version": "route/v2",
         "config_id": "test-config-v2",
-        "active_profile": "openai-gpt5.6-validator-assurance-2026-08-31",
+        "active_profile": "gpt5.6",
         "project_profile_dirs": [".ai-native/profiles"],
         "updated_reason": "test fixture",
     }
@@ -471,23 +471,16 @@ class SchemaContractTests(unittest.TestCase):
         self.assertEqual(schema["properties"]["router_api_version"]["const"], "route/v2")
 
     def test_preserved_profile_matches_frozen_git_blob_and_sha256(self):
-        profile_bytes = OLD_PROFILE_PATH.read_bytes()
-        self.assertEqual(hashlib.sha256(profile_bytes).hexdigest(), OLD_PROFILE_SHA256)
+        profile_bytes = V1_PROFILE_PATH.read_bytes()
+        self.assertEqual(hashlib.sha256(profile_bytes).hexdigest(), V1_PROFILE_SHA256)
         self.assertEqual(
             subprocess.check_output(
-                ["git", "cat-file", "blob", OLD_PROFILE_GIT_BLOB],
-                cwd=ROOT,
-            ),
-            profile_bytes,
-        )
-        self.assertEqual(
-            subprocess.check_output(
-                ["git", "hash-object", "--", str(OLD_PROFILE_PATH)],
+                ["git", "hash-object", "--", str(V1_PROFILE_PATH)],
                 cwd=ROOT,
                 text=True,
                 encoding="utf-8",
             ).strip(),
-            OLD_PROFILE_GIT_BLOB,
+            V1_PROFILE_GIT_BLOB,
         )
 
     def test_route_request_contract_has_exact_required_surface(self):
@@ -593,7 +586,7 @@ class SchemaContractTests(unittest.TestCase):
             r"(^|[/\\])(?:\.|\.\.)(?=$|[/\\])",
         )
         example = self.load("model-router-config.example.json")
-        self.assertEqual(example["active_profile"], "openai-glm5.3-deepseek-fallback-2026-08-28")
+        self.assertEqual(example["active_profile"], "glm+deepseek")
         self.assertEqual(example["project_profile_dirs"], [".ai-native/profiles"])
         self.assertNotRegex(json.dumps(example).casefold(), r"credential|secret|token|endpoint|command|script")
 
@@ -740,7 +733,7 @@ class ConfigValidationTests(unittest.TestCase):
         second = {
             "updated_reason": "test fixture",
             "project_profile_dirs": [".ai-native/profiles"],
-            "active_profile": "openai-glm5.3-deepseek-fallback-2026-08-28",
+            "active_profile": "glm+deepseek",
             "config_id": "test-config",
             "router_api_version": "route/v1",
             "schema_version": 1,
@@ -774,7 +767,7 @@ class ConfigValidationTests(unittest.TestCase):
 class LegacyMigrationTests(unittest.TestCase):
     def legacy(self, **overrides):
         payload = {
-            "profile_id": "openai-glm5.3-deepseek-fallback-2026-08-28",
+            "profile_id": "glm+deepseek",
             "default_active": False,
             "activation": "explicit-owner-selection",
             "evidence_date": "2026-08-28",
@@ -793,8 +786,8 @@ class LegacyMigrationTests(unittest.TestCase):
             {
                 "schema_version": 1,
                 "router_api_version": "route/v1",
-                "config_id": "migrated-openai-glm5.3-deepseek-fallback-2026-08-28",
-                "active_profile": "openai-glm5.3-deepseek-fallback-2026-08-28",
+                "config_id": "migrated-glm+deepseek",
+                "active_profile": "glm+deepseek",
                 "project_profile_dirs": [],
                 "updated_reason": "Migrated from legacy embedded profile; explicit profile selection remains required.",
             },
@@ -816,8 +809,8 @@ class LegacyMigrationTests(unittest.TestCase):
     def test_migration_rejects_unverified_profile_id_and_boundary_whitespace(self):
         for profile_id in (
             "openai-zai-deepseek-2026-08-28",
-            " openai-glm5.3-deepseek-fallback-2026-08-28",
-            "openai-glm5.3-deepseek-fallback-2026-08-28 ",
+            " glm+deepseek",
+            "glm+deepseek ",
             "   ",
         ):
             with self.subTest(profile_id=repr(profile_id)), self.assertRaises(ValueError):

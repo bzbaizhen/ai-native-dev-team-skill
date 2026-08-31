@@ -69,8 +69,8 @@ MODEL_ROUTER_REQUIRED_PATHS = {
     "assets/model-router-config.example.json",
     "assets/model-router-config.v1.schema.json",
     "assets/model-router-config.v2.schema.json",
-    "assets/profiles/openai-glm5.3-deepseek-fallback-2026-08-28.json",
-    "assets/profiles/openai-gpt5.6-validator-assurance-2026-08-31.json",
+    "assets/profiles/glm+deepseek.json",
+    "assets/profiles/gpt5.6.json",
     "assets/provider-catalog.json",
     "assets/route-decision.v1.schema.json",
     "assets/route-decision.v2.schema.json",
@@ -82,8 +82,8 @@ MODEL_ROUTER_REQUIRED_PATHS = {
     "scripts/resolve_route.py",
     "scripts/router_config.py",
 }
-MODEL_ROUTER_PROFILE_ID = "openai-glm5.3-deepseek-fallback-2026-08-28"
-MODEL_ROUTER_V2_PROFILE_ID = "openai-gpt5.6-validator-assurance-2026-08-31"
+MODEL_ROUTER_PROFILE_ID = "glm+deepseek"
+MODEL_ROUTER_V2_PROFILE_ID = "gpt5.6"
 MODEL_ROUTER_CONFIG_ID = "project-router-2026-08-28"
 MODEL_ROUTER_SCHEMA_IDS = {
     "assets/model-router-config.v1.schema.json": "model-router-config.v1.schema.json",
@@ -199,7 +199,7 @@ def validate_model_router_bundle(skill_dir: Path) -> None:
     assert frontmatter_match, "Router frontmatter is malformed"
     expected_frontmatter = """name: ai-native-model-router
 description: Deterministic model routing with evidence-bound fallbacks.
-version: 0.2.0
+version: 0.3.0
 author: bzbaizhen, Hermes Agent
 license: MIT
 platforms:
@@ -454,6 +454,18 @@ for path in (SKILL / "references").iterdir():
 tracked_files = subprocess.check_output(
     ["git", "ls-files", "-z"], cwd=ROOT, text=False
 ).decode("utf-8").split("\0")
+worktree_files = subprocess.check_output(
+    ["git", "ls-files", "--others", "--exclude-standard", "-z"],
+    cwd=ROOT,
+    text=False,
+).decode("utf-8").split("\0")
+tracked_files = sorted(
+    {
+        relative
+        for relative in (*tracked_files, *worktree_files)
+        if relative and (ROOT / relative).is_file()
+    }
+)
 manifest_path = ROOT / "suite-manifest.json"
 try:
     suite_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -469,7 +481,7 @@ router_components = [
 if len(router_components) != 1:
     fail("suite manifest must contain exactly one ai-native-model-router component")
 router_component = router_components[0]
-if router_component.get("version") != "0.2.0":
+if router_component.get("version") != "0.3.0":
     fail("ai-native-model-router component version drifted")
 if router_component.get("files") != sorted(MODEL_ROUTER_REQUIRED_PATHS):
     fail("ai-native-model-router manifest inventory is not the complete sorted v2 inventory")
@@ -912,7 +924,7 @@ for namespace_contract_term in (
     if namespace_contract_term not in team_metrics_source:
         fail(f"team_metrics.py is missing namespace safety behavior: {namespace_contract_term}")
 
-profile_path = MODEL_ROUTER / "assets" / "profiles" / "openai-glm5.3-deepseek-fallback-2026-08-28.json"
+profile_path = MODEL_ROUTER / "assets" / "profiles" / "glm+deepseek.json"
 try:
     profile_contract = json.loads(profile_path.read_text(encoding="utf-8"))
 except json.JSONDecodeError as exc:

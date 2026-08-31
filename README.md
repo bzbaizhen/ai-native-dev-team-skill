@@ -9,14 +9,14 @@ For developers and technical leads using Codex, Hermes Agent, or another compati
 One GitHub repository contains exactly two independently installable canonical Skills:
 
 - `skills/ai-native-dev-team/` v3.0.0 — the required governance-entry Skill.
-- `skills/ai-native-model-router/` v0.2.0 — the optional routing-extension Skill.
+- `skills/ai-native-model-router/` v0.3.0 — the optional routing-extension Skill.
 
 ## What is in the Suite
 
 | Skill | Version | Role | Owns |
 |---|---:|---|---|
 | `ai-native-dev-team` | 3.0.0 | governance-entry | C/R classification, Core/Controlled, topology, permissions, DQR, Git isolation, candidate identity, integration, and recovery. |
-| `ai-native-model-router` | 0.2.0 | routing-extension | Deterministic provider/model resolution through `route/v1` and `route/v2` with `.ai-native/model-router.json`. It does not execute a host. |
+| `ai-native-model-router` | 0.3.0 | routing-extension | Deterministic provider/model resolution through `route/v1` and `route/v2` with `.ai-native/model-router.json`. It does not execute a host. |
 
 The Team is complete on its own. Install the Router only when a project needs a local provider/model decision at the Host boundary.
 
@@ -62,14 +62,14 @@ Use $ai-native-dev-team with $ai-native-model-router. Inspect the task, emit the
 
 ## Configure the Router
 
-Create `.ai-native/model-router.json` with one of the matching versioned shapes below. The `active_profile` is explicit. Both the profile and the Router API/configuration version are explicit. A profile file's presence does not activate anything. No secrets belong in this file. The existing v1 profile `openai-glm5.3-deepseek-fallback-2026-08-28` remains a reusable explicit option.
+Create `.ai-native/model-router.json` with one of the matching versioned shapes below. The `active_profile` is explicit. Both the profile and the Router API/configuration version are explicit. A profile file's presence does not activate anything. No secrets belong in this file. Router v0.3.0 is a breaking Profile-ID rename: use `glm+deepseek` for the bundled v1 profile and `gpt5.6` for the bundled v2 profile. The previous IDs and profile filenames are removed, not aliases or supported discovery names; update existing project configurations before use.
 
 ```json
 {
   "schema_version": 1,
   "router_api_version": "route/v1",
   "config_id": "project-router-2026-08-28",
-  "active_profile": "openai-glm5.3-deepseek-fallback-2026-08-28",
+  "active_profile": "glm+deepseek",
   "project_profile_dirs": [".ai-native/profiles"],
   "updated_reason": "Explicit project profile selection for route/v1."
 }
@@ -82,7 +82,7 @@ For the additive v2 assurance contract, select the matching v2 profile and confi
   "schema_version": 2,
   "router_api_version": "route/v2",
   "config_id": "project-router-v2-2026-08-31",
-  "active_profile": "openai-gpt5.6-validator-assurance-2026-08-31",
+  "active_profile": "gpt5.6",
   "project_profile_dirs": [".ai-native/profiles"],
   "updated_reason": "Explicit project profile selection for route/v2."
 }

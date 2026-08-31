@@ -105,8 +105,8 @@ class Phase3RenameContractTests(unittest.TestCase):
         self.assertEqual(
             router_profiles,
             [
-                "openai-glm5.3-deepseek-fallback-2026-08-28.json",
-                "openai-gpt5.6-validator-assurance-2026-08-31.json",
+                "glm+deepseek.json",
+                "gpt5.6.json",
             ],
         )
         self.assertFalse(

@@ -2,7 +2,7 @@
   "schema_version": 1,
   "router_api_version": "route/v1",
   "config_id": "project-router-2026-08-28",
-  "active_profile": "openai-glm5.3-deepseek-fallback-2026-08-28",
+  "active_profile": "glm+deepseek",
   "project_profile_dirs": [
     ".ai-native/profiles"
   ],

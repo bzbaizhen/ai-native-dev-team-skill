@@ -17,8 +17,8 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[1]
 SKILL_DIR = ROOT / "skills" / "ai-native-model-router"
 ASSET_DIR = SKILL_DIR / "assets"
-PROFILE_ID = "openai-glm5.3-deepseek-fallback-2026-08-28"
-NEW_PROFILE_ID = "openai-gpt5.6-validator-assurance-2026-08-31"
+PROFILE_ID = "glm+deepseek"
+NEW_PROFILE_ID = "gpt5.6"
 EVIDENCE = [
     "model-not-found",
     "authenticated-provider-outage",
@@ -208,7 +208,7 @@ class SkillSurfaceTests(unittest.TestCase):
         self.assertLessEqual(len(description), 60)
         self.assertTrue(description.endswith("."))
         for required in (
-            "version: 0.2.0",
+            "version: 0.3.0",
             "author: bzbaizhen, Hermes Agent",
             "license: MIT",
             "platforms:",
@@ -274,7 +274,7 @@ class SkillSurfaceTests(unittest.TestCase):
 
             skill_path = candidate / "SKILL.md"
             original = skill_path.read_text(encoding="utf-8")
-            mutated = original.replace("version: 0.2.0", "version: 0.2.1")
+            mutated = original.replace("version: 0.3.0", "version: 0.3.1")
             self.assertNotEqual(mutated, original)
             skill_path.write_text(mutated, encoding="utf-8")
             with self.assertRaises(AssertionError):

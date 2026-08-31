@@ -17,6 +17,7 @@ from typing import Any
 from router_config import (
     CONVENTIONAL_CONFIG,
     config_digest,
+    reject_retired_profile_id,
     resolve_config_path,
     validate_config_for_version,
     validate_config_versioned,
@@ -27,8 +28,8 @@ ROOT = Path(__file__).resolve().parents[1]
 ASSET_DIR = ROOT / "assets"
 PROFILE_DIR = ASSET_DIR / "profiles"
 CATALOG_PATH = ASSET_DIR / "provider-catalog.json"
-PROFILE_ID = "openai-glm5.3-deepseek-fallback-2026-08-28"
-NEW_PROFILE_ID = "openai-gpt5.6-validator-assurance-2026-08-31"
+V1_PROFILE_ID = "glm+deepseek"
+V2_PROFILE_ID = "gpt5.6"
 ROUTE_SLOTS = (
     "control-plane",
     "writer.c0-batch",
@@ -53,7 +54,7 @@ ROUTE_SLOTS_V2 = (
     "validator.assurance",
     "writer.high-volume-deterministic",
 )
-PROFILE_IDS = (PROFILE_ID, NEW_PROFILE_ID)
+PROFILE_IDS = (V1_PROFILE_ID, V2_PROFILE_ID)
 EVIDENCE = (
     "model-not-found",
     "authenticated-provider-outage",
@@ -181,6 +182,8 @@ def _validate_route(route: Any, catalog: dict[str, Any], field: str) -> dict[str
 
 
 def validate_profile(profile: Any, catalog: dict[str, Any] | None = None) -> dict[str, Any]:
+    if isinstance(profile, dict):
+        reject_retired_profile_id(profile.get("profile_id"))
     catalog = validate_catalog(catalog if catalog is not None else load_catalog())
     _scan_forbidden(profile)
     required = {"schema_version", "profile_id", "default_active", "activation", "evidence_date", "slots", "forbidden_defaults"}
@@ -239,6 +242,8 @@ def validate_profile(profile: Any, catalog: dict[str, Any] | None = None) -> dic
 def validate_profile_v2(profile: Any, catalog: dict[str, Any] | None = None) -> dict[str, Any]:
     """Validate the additive route/v2 assurance profile contract."""
 
+    if isinstance(profile, dict):
+        reject_retired_profile_id(profile.get("profile_id"))
     catalog = validate_catalog(catalog if catalog is not None else load_catalog())
     _scan_forbidden(profile)
     required = {"schema_version", "profile_id", "default_active", "activation", "evidence_date", "slots", "forbidden_defaults"}
@@ -331,6 +336,8 @@ def validate_profile_v2(profile: Any, catalog: dict[str, Any] | None = None) -> 
 def validate_profile_versioned(profile: Any, catalog: dict[str, Any] | None = None) -> dict[str, Any]:
     """Dispatch profile validation by its explicit schema version."""
 
+    if isinstance(profile, dict):
+        reject_retired_profile_id(profile.get("profile_id"))
     if not isinstance(profile, dict):
         _fail("profile must be an object")
     if profile.get("schema_version") == 1:
@@ -357,6 +364,7 @@ def _inside(child: Path, parent: Path) -> bool:
 
 
 def _profile_candidates(profile_id: str, project_root: Path, dirs: list[str]) -> list[Path]:
+    reject_retired_profile_id(profile_id)
     candidates: list[Path] = []
     for raw_dir in dirs:
         directory = project_root / _safe_relative(raw_dir)
@@ -381,12 +389,13 @@ def _profile_candidates(profile_id: str, project_root: Path, dirs: list[str]) ->
 
 
 def load_profile(
-    profile_id: str = PROFILE_ID,
+    profile_id: str = V1_PROFILE_ID,
     *,
     project_root: Any = None,
     project_profile_dirs: list[str] | None = None,
     catalog: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    reject_retired_profile_id(profile_id)
     _string(profile_id, "profile_id")
     catalog = validate_catalog(catalog if catalog is not None else load_catalog())
     bundled_path = PROFILE_DIR / f"{profile_id}.json"
@@ -402,7 +411,7 @@ def load_profile(
         normalized = validate_profile_versioned(_load_json(bundled_path), catalog)
         if normalized["profile_id"] != profile_id:
             _fail("profile_id does not match bundled profile path")
-        expected_schema_version = 2 if profile_id == NEW_PROFILE_ID else 1
+        expected_schema_version = 2 if profile_id == V2_PROFILE_ID else 1
         if normalized["schema_version"] != expected_schema_version:
             _fail("bundled profile schema version drifted")
         return normalized
@@ -437,6 +446,8 @@ def _default_config_v2(profile_id: str) -> dict[str, Any]:
 
 
 def load_config(*, explicit_path: Any = None, injected_config: Any = None, cwd: Any = None, profile_id: str | None = None, router_api_version: str | None = None) -> tuple[dict[str, Any], str, Path | None]:
+    if profile_id is not None:
+        reject_retired_profile_id(profile_id)
     base = Path(cwd) if cwd is not None else Path.cwd()
     injected_path = injected_config if isinstance(injected_config, (str, Path)) and Path(injected_config).exists() else None
     selected = resolve_config_path(explicit_path, injected_path, base)
@@ -456,7 +467,7 @@ def load_config(*, explicit_path: Any = None, injected_config: Any = None, cwd: 
             payload = _default_config_v2(profile_id)
         elif router_api_version == "route/v1":
             payload = _default_config(profile_id)
-        elif router_api_version is None and profile_id == NEW_PROFILE_ID:
+        elif router_api_version is None and profile_id == V2_PROFILE_ID:
             payload = _default_config_v2(profile_id)
         elif router_api_version is None:
             payload = _default_config(profile_id)
@@ -489,6 +500,7 @@ def validate_route_request(request: Any) -> dict[str, Any]:
     if request["route_slot"] != "validator.independent" and writer_route_slot is not None:
         _fail("writer_route_slot is only allowed for validator.independent")
     _string(request["profile_id"], "profile_id")
+    reject_retired_profile_id(request["profile_id"])
     if type(request["explicit_profile_selection"]) is not bool or not request["explicit_profile_selection"]:
         _fail("profile selection must be explicit")
     if type(request["explicit_high_volume_selection"]) is not bool:
@@ -543,6 +555,7 @@ def validate_route_request_v2(request: Any) -> dict[str, Any]:
     if not assurance_request and writer_route_slot is not None:
         _fail("writer_route_slot is only allowed for validator.assurance")
     _string(request["profile_id"], "profile_id")
+    reject_retired_profile_id(request["profile_id"])
     if type(request["explicit_profile_selection"]) is not bool or not request["explicit_profile_selection"]:
         _fail("profile selection must be explicit")
     if type(request["explicit_high_volume_selection"]) is not bool:
@@ -1098,8 +1111,11 @@ def _profiles(project_root: Path, config: dict[str, Any] | None) -> list[str]:
                 item = _load_json(path)
             except ValueError:
                 continue
-            if isinstance(item, dict) and isinstance(item.get("profile_id"), str):
-                found.add(item["profile_id"])
+            if isinstance(item, dict):
+                profile_id = item.get("profile_id")
+                reject_retired_profile_id(profile_id)
+                if isinstance(profile_id, str):
+                    found.add(profile_id)
     return sorted(found)
 
 

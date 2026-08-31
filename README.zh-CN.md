@@ -9,14 +9,14 @@
 一个 GitHub 仓库正好包含两个可独立安装的规范 Skill：
 
 - `skills/ai-native-dev-team/` v3.0.0：必需的治理入口（governance-entry）。
-- `skills/ai-native-model-router/` v0.2.0：可选的路由扩展（routing-extension）。
+- `skills/ai-native-model-router/` v0.3.0：可选的路由扩展（routing-extension）。
 
 ## 套件包含什么
 
 | Skill | 版本 | 角色 | 负责内容 |
 |---|---:|---|---|
 | `ai-native-dev-team` | 3.0.0 | governance-entry | C/R 分类、Core/Controlled、拓扑、权限、DQR、Git 隔离、候选版本身份、集成和恢复。 |
-| `ai-native-model-router` | 0.2.0 | routing-extension | 通过 `route/v1`、`route/v2` 和 `.ai-native/model-router.json` 确定具体供应商和模型（provider/model）。它不执行宿主。 |
+| `ai-native-model-router` | 0.3.0 | routing-extension | 通过 `route/v1`、`route/v2` 和 `.ai-native/model-router.json` 确定具体供应商和模型（provider/model）。它不执行宿主。 |
 
 Team 本身可以独立工作。只有项目需要在宿主边界确定具体供应商和模型时，才安装 Router。
 
@@ -62,14 +62,14 @@ Team 先给出语义路由槽位（`route slot`），即使没有 Router 也能�
 
 ## 配置 Router
 
-在项目中创建 `.ai-native/model-router.json`，内容使用下面匹配版本的完整结构。其中 `active_profile` 必须显式选择。必须分别显式选择 profile 和 Router API/配置版本；仅有 profile 文件不会启用任何路由。配置中不放密钥或其他敏感信息。现有 v1 profile `openai-glm5.3-deepseek-fallback-2026-08-28` 仍可作为可复用的显式选项。
+在项目中创建 `.ai-native/model-router.json`，内容使用下面匹配版本的完整结构。其中 `active_profile` 必须显式选择。必须分别显式选择 profile 和 Router API/配置版本；仅有 profile 文件不会启用任何路由。配置中不放密钥或其他敏感信息。Router v0.3.0 是一次破坏性的 Profile-ID 重命名：bundled v1 profile 使用 `glm+deepseek`，bundled v2 profile 使用 `gpt5.6`。之前的 ID 和 profile 文件名已移除，不是别名，也不支持旧名称发现；已有项目配置必须先更新。
 
 ```json
 {
   "schema_version": 1,
   "router_api_version": "route/v1",
   "config_id": "project-router-2026-08-28",
-  "active_profile": "openai-glm5.3-deepseek-fallback-2026-08-28",
+  "active_profile": "glm+deepseek",
   "project_profile_dirs": [".ai-native/profiles"],
   "updated_reason": "Explicit project profile selection for route/v1."
 }
@@ -82,7 +82,7 @@ Team 先给出语义路由槽位（`route slot`），即使没有 Router 也能�
   "schema_version": 2,
   "router_api_version": "route/v2",
   "config_id": "project-router-v2-2026-08-31",
-  "active_profile": "openai-gpt5.6-validator-assurance-2026-08-31",
+  "active_profile": "gpt5.6",
   "project_profile_dirs": [".ai-native/profiles"],
   "updated_reason": "Explicit project profile selection for route/v2."
 }

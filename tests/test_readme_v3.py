@@ -8,8 +8,8 @@ README_PATHS = (ROOT / "README.md", ROOT / "README.zh-CN.md")
 RELEASE_URL = "https://github.com/bzbaizhen/ai-native-dev-team-skill/releases/tag/v3.0.0"
 LEGACY_NAME = "bootstrap" + "-ai-native-dev-team"
 ROUTER_PROFILE_IDS = (
-    "openai-glm5.3-deepseek-fallback-2026-08-28",
-    "openai-gpt5.6-validator-assurance-2026-08-31",
+    "glm+deepseek",
+    "gpt5.6",
 )
 
 
@@ -60,7 +60,7 @@ class ReadmeV3ContractTests(unittest.TestCase):
         english, chinese = self.texts
         for text in self.texts:
             self.assertIn("v3.0.0", text)
-            self.assertIn("`skills/ai-native-model-router/` v0.2.0", text)
+            self.assertIn("`skills/ai-native-model-router/` v0.3.0", text)
             self.assertNotIn("v0.1.0", text)
             self.assertIn(RELEASE_URL, text)
             self.assertIn("ai-native-dev-team", text)
@@ -116,7 +116,7 @@ class ReadmeV3ContractTests(unittest.TestCase):
             '"schema_version": 1',
             '"router_api_version": "route/v1"',
             '"config_id": "project-router-2026-08-28"',
-            '"active_profile": "openai-glm5.3-deepseek-fallback-2026-08-28"',
+            '"active_profile": "glm+deepseek"',
             '"project_profile_dirs": [".ai-native/profiles"]',
             '"updated_reason": "Explicit project profile selection for route/v1."',
         )
@@ -124,7 +124,7 @@ class ReadmeV3ContractTests(unittest.TestCase):
             '"schema_version": 2',
             '"router_api_version": "route/v2"',
             '"config_id": "project-router-v2-2026-08-31"',
-            '"active_profile": "openai-gpt5.6-validator-assurance-2026-08-31"',
+            '"active_profile": "gpt5.6"',
             '"project_profile_dirs": [".ai-native/profiles"]',
             '"updated_reason": "Explicit project profile selection for route/v2."',
         )
@@ -143,8 +143,8 @@ class ReadmeV3ContractTests(unittest.TestCase):
         self.assertIn("必须分别显式选择 profile 和 Router API/配置版本", self.texts[1])
         self.assertIn("A profile file's presence does not activate anything", self.texts[0])
         self.assertIn("仅有 profile 文件不会启用任何路由", self.texts[1])
-        self.assertIn("remains a reusable explicit option", self.texts[0])
-        self.assertIn("仍可作为可复用的显式选项", self.texts[1])
+        self.assertIn("breaking Profile-ID rename", self.texts[0])
+        self.assertIn("破坏性的 Profile-ID 重命名", self.texts[1])
 
     def test_install_tables_and_commands_are_bilingual_contracts(self) -> None:
         english, chinese = self.texts
