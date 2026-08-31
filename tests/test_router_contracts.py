@@ -1,3 +1,4 @@
+import ast
 import hashlib
 import json
 import os
@@ -111,12 +112,30 @@ def _v2_assurance_shape(decision_status, risk_level, validation_mode, selected_c
     }
 
 
+def _v2_common_shape(decision_status, selected_count, route_slot="writer.c1"):
+    shape = _v2_assurance_shape(decision_status, "R1", "single", selected_count)
+    shape.update(
+        route_slot=route_slot,
+        risk_level=None,
+        validation_mode="not-applicable",
+        validator_source="not-applicable",
+    )
+    return shape
+
+
+def _schema_condition_applies(condition, value):
+    if "const" in condition and value != condition["const"]:
+        return False
+    if "enum" in condition and value not in condition["enum"]:
+        return False
+    if "not" in condition and _schema_condition_applies(condition["not"], value):
+        return False
+    return True
+
+
 def _schema_rule_applies(rule, decision):
     for field, condition in rule["if"]["properties"].items():
-        value = decision[field]
-        if "const" in condition and value != condition["const"]:
-            return False
-        if "enum" in condition and value not in condition["enum"]:
+        if not _schema_condition_applies(condition, decision[field]):
             return False
     return True
 
@@ -144,6 +163,22 @@ def _matches_v2_assurance_relationship(schema, decision):
             value = decision[field]
             if "const" in constraint and value != constraint["const"]:
                 return False
+            if "minItems" in constraint and len(value) < constraint["minItems"]:
+                return False
+            if "maxItems" in constraint and len(value) > constraint["maxItems"]:
+                return False
+    return True
+
+
+def _matches_v2_relationship(schema, decision):
+    if not _matches_v2_assurance_relationship(schema, decision):
+        return False
+    for rule in schema.get("allOf", []):
+        then = rule.get("then", {})
+        if "allOf" in then or not _schema_rule_applies(rule, decision):
+            continue
+        for field, constraint in then.get("properties", {}).items():
+            value = decision[field]
             if "minItems" in constraint and len(value) < constraint["minItems"]:
                 return False
             if "maxItems" in constraint and len(value) > constraint["maxItems"]:
@@ -330,6 +365,64 @@ class SchemaContractTests(unittest.TestCase):
                         ),
                     )
                 )
+
+    def test_route_decision_v2_common_slot_state_and_cardinality_contract_is_exact(self):
+        schema = self.load("route-decision.v2.schema.json")
+        expected_rules = (
+            (
+                {"properties": {"decision_status": {"const": "selected"}}},
+                {"properties": {"selected_routes": {"minItems": 1}}},
+            ),
+            (
+                {"properties": {"decision_status": {"enum": ["blocked", "unknown"]}}},
+                {"properties": {"selected_routes": {"minItems": 0, "maxItems": 0}}},
+            ),
+            (
+                {
+                    "properties": {
+                        "route_slot": {"not": {"const": "validator.assurance"}},
+                        "decision_status": {"const": "selected"},
+                    }
+                },
+                {"properties": {"selected_routes": {"maxItems": 1}}},
+            ),
+        )
+        relationships = [
+            (rule["if"], rule["then"])
+            for rule in schema["allOf"]
+            if "properties" in rule.get("then", {})
+            and "selected_routes" in rule["then"]["properties"]
+        ]
+        for expected in expected_rules:
+            with self.subTest(rule=expected):
+                self.assertIn(expected, relationships)
+
+    def test_route_decision_v2_common_slots_accept_only_one_selected_route(self):
+        schema = self.load("route-decision.v2.schema.json")
+        common_slots = [slot for slot in V2_ROUTE_SLOTS if slot != "validator.assurance"]
+        for slot in common_slots:
+            with self.subTest(slot=slot, case="selected-one"):
+                self.assertTrue(_matches_v2_relationship(schema, _v2_common_shape("selected", 1, slot)))
+            for selected_count in (0, 2):
+                with self.subTest(slot=slot, case=f"selected-{selected_count}"):
+                    self.assertFalse(
+                        _matches_v2_relationship(
+                            schema,
+                            _v2_common_shape("selected", selected_count, slot),
+                        )
+                    )
+            with self.subTest(slot=slot, case="blocked-zero"):
+                self.assertTrue(_matches_v2_relationship(schema, _v2_common_shape("blocked", 0, slot)))
+            with self.subTest(slot=slot, case="unknown-zero"):
+                self.assertTrue(_matches_v2_relationship(schema, _v2_common_shape("unknown", 0, slot)))
+            for decision_status in ("blocked", "unknown"):
+                with self.subTest(slot=slot, case=f"{decision_status}-one"):
+                    self.assertFalse(
+                        _matches_v2_relationship(
+                            schema,
+                            _v2_common_shape(decision_status, 1, slot),
+                        )
+                    )
 
     def test_route_decision_v2_assurance_rejects_malformed_selected_blocked_and_unknown_shapes(self):
         schema = self.load("route-decision.v2.schema.json")
@@ -881,6 +974,25 @@ class CliTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(result.stdout, "")
         self.assertTrue(result.stderr.strip())
+
+    def test_help_and_module_docstring_describe_versioned_nonexecuting_configuration_contracts(self):
+        source = self.module_path.read_text(encoding="utf-8")
+        module_docstring = ast.get_docstring(ast.parse(source))
+        self.assertIsNotNone(module_docstring)
+        for version in ("route/v1", "route/v2"):
+            with self.subTest(surface="module", version=version):
+                self.assertIn(version, module_docstring)
+        self.assertRegex(module_docstring.casefold(), r"does\s+not\s+(?s:.*?)host")
+        self.assertIn("provider", module_docstring.casefold())
+
+        result = self.run_cli("--help")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for version in ("route/v1", "route/v2"):
+            with self.subTest(surface="help", version=version):
+                self.assertIn(version, result.stdout)
+        self.assertRegex(result.stdout.casefold(), r"without executing")
+        self.assertIn("host", result.stdout.casefold())
+        self.assertIn("provider", result.stdout.casefold())
 
 
 if __name__ == "__main__":

@@ -1,3 +1,4 @@
+import ast
 import copy
 import hashlib
 import json
@@ -1240,6 +1241,26 @@ class CliTests(unittest.TestCase):
             encoding="utf-8",
             capture_output=True,
         )
+
+    def test_help_and_module_docstring_describe_versioned_nonexecuting_resolution_contracts(self):
+        module_path = SKILL_DIR / "scripts" / "resolve_route.py"
+        source = module_path.read_text(encoding="utf-8")
+        module_docstring = ast.get_docstring(ast.parse(source))
+        self.assertIsNotNone(module_docstring)
+        for version in ("route/v1", "route/v2"):
+            with self.subTest(surface="module", version=version):
+                self.assertIn(version, module_docstring)
+        self.assertRegex(module_docstring.casefold(), r"does\s+not\s+(?s:.*?)host")
+        self.assertIn("provider", module_docstring.casefold())
+
+        result = self.run_cli("--help")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for version in ("route/v1", "route/v2"):
+            with self.subTest(surface="help", version=version):
+                self.assertIn(version, result.stdout)
+        self.assertRegex(result.stdout.casefold(), r"without executing")
+        self.assertIn("host", result.stdout.casefold())
+        self.assertIn("provider", result.stdout.casefold())
 
     def test_list_validate_and_resolve_commands_emit_json(self):
         listed = self.run_cli("list-profiles")

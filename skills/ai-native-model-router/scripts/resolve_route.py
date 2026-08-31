@@ -1,7 +1,8 @@
-"""Deterministic, local route/v1 resolution.
+"""Deterministic, local route/v1 and route/v2 resolution.
 
-This module reads immutable package data and a validated project selection.  It
-does not invoke a host, provider, process, network, or credential store.
+This module supports versioned route/v1 and route/v2 contracts.  It reads
+immutable package data and a validated project selection.  It does not invoke a
+host, provider, process, network, or credential store.
 """
 
 from __future__ import annotations
@@ -1064,7 +1065,9 @@ def _resolve_route_v2(
 
 
 def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="resolve route/v1 without executing a host")
+    parser = argparse.ArgumentParser(
+        description="resolve versioned route/v1 and route/v2 contracts without executing a host or provider"
+    )
     commands = parser.add_subparsers(dest="command", required=True)
     for name in ("list-profiles",):
         command = commands.add_parser(name)

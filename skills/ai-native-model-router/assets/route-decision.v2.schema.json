@@ -185,6 +185,33 @@
           }
         ]
       }
+    },
+    {
+      "if": {
+        "properties": { "decision_status": { "const": "selected" } }
+      },
+      "then": {
+        "properties": { "selected_routes": { "minItems": 1 } }
+      }
+    },
+    {
+      "if": {
+        "properties": { "decision_status": { "enum": ["blocked", "unknown"] } }
+      },
+      "then": {
+        "properties": { "selected_routes": { "minItems": 0, "maxItems": 0 } }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "route_slot": { "not": { "const": "validator.assurance" } },
+          "decision_status": { "const": "selected" }
+        }
+      },
+      "then": {
+        "properties": { "selected_routes": { "maxItems": 1 } }
+      }
     }
   ]
 }

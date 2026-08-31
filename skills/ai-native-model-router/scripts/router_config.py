@@ -1,6 +1,7 @@
-"""Safe, project-local route/v1 configuration helpers.
+"""Safe, project-local route/v1 and route/v2 configuration helpers.
 
-This module deliberately contains no host, credential, endpoint, transport, or
+This module supports versioned route/v1 and route/v2 configuration.  It does
+not invoke a host, provider, credential store, endpoint, transport, or
 global-configuration logic.  It validates and moves the small project config
 document only; a Host Adapter remains responsible for execution.
 """
@@ -439,7 +440,9 @@ def _payload_argument(value: str) -> Any:
 
 
 def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="validate and atomically manage route/v1 config")
+    parser = argparse.ArgumentParser(
+        description="validate and atomically manage versioned route/v1 and route/v2 configuration without executing a host or provider"
+    )
     commands = parser.add_subparsers(dest="command", required=True)
     for name in ("validate", "digest"):
         command = commands.add_parser(name)
