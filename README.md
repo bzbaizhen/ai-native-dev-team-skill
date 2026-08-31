@@ -9,14 +9,14 @@ For developers and technical leads using Codex, Hermes Agent, or another compati
 One GitHub repository contains exactly two independently installable canonical Skills:
 
 - `skills/ai-native-dev-team/` v3.0.0 — the required governance-entry Skill.
-- `skills/ai-native-model-router/` v0.1.0 — the optional routing-extension Skill.
+- `skills/ai-native-model-router/` v0.2.0 — the optional routing-extension Skill.
 
 ## What is in the Suite
 
 | Skill | Version | Role | Owns |
 |---|---:|---|---|
 | `ai-native-dev-team` | 3.0.0 | governance-entry | C/R classification, Core/Controlled, topology, permissions, DQR, Git isolation, candidate identity, integration, and recovery. |
-| `ai-native-model-router` | 0.1.0 | routing-extension | Deterministic provider/model resolution through `route/v1` and `.ai-native/model-router.json`. It does not execute a host. |
+| `ai-native-model-router` | 0.2.0 | routing-extension | Deterministic provider/model resolution through `route/v1` and `route/v2` with `.ai-native/model-router.json`. It does not execute a host. |
 
 The Team is complete on its own. Install the Router only when a project needs a local provider/model decision at the Host boundary.
 
@@ -25,11 +25,11 @@ The Team is complete on its own. Install the Router only when a project needs a 
 ```text
 task
   -> Team semantic route slot
-  -> optional Router RouteDecision via route/v1
+  -> optional Router RouteDecision via route/v1 or route/v2
   -> Host Adapter
 ```
 
-The Team emits the semantic slot. Team works without the Router. If the Router is absent, provider/model mapping stays unknown or host-inherited; it is never inferred. The Router returns a decision for the Host Adapter and makes no claim that a provider was called or a route was enforced.
+The Team emits the semantic slot. Team works without the Router. If the Router is absent, provider/model mapping stays unknown or host-inherited; it is never inferred. The Router supports the compatible `route/v1` contract and additive `route/v2` assurance contract, returns a decision for the Host Adapter, and makes no claim that a provider was called or a route was enforced.
 
 Throughout this README, Team, Router, Writer, Validator, RouteDecision, route slot, and Host Adapter are fixed names.
 
@@ -57,12 +57,12 @@ Use $ai-native-dev-team. Inspect this task and repository, separate confirmed fa
 When the project also has the Router installed:
 
 ```text
-Use $ai-native-dev-team with $ai-native-model-router. Inspect the task, emit the semantic route slot, resolve it through route/v1 only after explicit profile and availability inputs are present, and keep Host execution separate. Do not modify files yet.
+Use $ai-native-dev-team with $ai-native-model-router. Inspect the task, emit the semantic route slot, resolve it through route/v1 or route/v2 only after explicit profile, API/config version, and availability inputs are present, and keep Host execution separate. Do not modify files yet.
 ```
 
 ## Configure the Router
 
-Create `.ai-native/model-router.json` with the exact v1 shape below. `active_profile` is explicit: merely having the file or profile does not activate routing. No secrets belong in this file.
+Create `.ai-native/model-router.json` with one of the matching versioned shapes below. The `active_profile` is explicit. Both the profile and the Router API/configuration version are explicit. A profile file's presence does not activate anything. No secrets belong in this file. The existing v1 profile `openai-glm5.3-deepseek-fallback-2026-08-28` remains a reusable explicit option.
 
 ```json
 {
@@ -75,7 +75,20 @@ Create `.ai-native/model-router.json` with the exact v1 shape below. `active_pro
 }
 ```
 
-See the [configuration schema](skills/ai-native-model-router/assets/model-router-config.v1.schema.json) and [example](skills/ai-native-model-router/assets/model-router-config.example.json). Configuration-only switching is limited to an existing Host Adapter contract. New authentication, transport, or host injection requires Adapter code; the Router does not add any of those capabilities.
+For the additive v2 assurance contract, select the matching v2 profile and configuration version explicitly:
+
+```json
+{
+  "schema_version": 2,
+  "router_api_version": "route/v2",
+  "config_id": "project-router-v2-2026-08-31",
+  "active_profile": "openai-gpt5.6-validator-assurance-2026-08-31",
+  "project_profile_dirs": [".ai-native/profiles"],
+  "updated_reason": "Explicit project profile selection for route/v2."
+}
+```
+
+The assurance matrix is: R1: Luna Max -> Terra Max -> Sol High; R2: Terra Max -> Sol High; R3 requires strict Terra Max + Sol High and never degrades to one Validator. The API/config version and profile must match; merely having a profile file does not activate anything. See the [v1 configuration schema](skills/ai-native-model-router/assets/model-router-config.v1.schema.json), [v2 configuration schema](skills/ai-native-model-router/assets/model-router-config.v2.schema.json), and [v1 example](skills/ai-native-model-router/assets/model-router-config.example.json). Configuration-only switching is limited to an existing Host Adapter contract. New authentication, transport, or host injection requires Adapter code; the Router does not add any of those capabilities.
 
 ## Workflow
 
@@ -100,7 +113,7 @@ Acceptance, integration, installation, and release are different states. A green
 ## Safety boundaries
 
 - Permissions are layered: the Team controls task scope and authority; `Writer` receives only its path lease; `Validator` is independent; Owner approval remains required where risk calls for it.
-- The default validation profile uses GLM-5.3 as the primary `Validator`, GLM-5.3 Flash as the explicitly selected high-volume `Writer`, and an evidence-gated DeepSeek fallback only with accepted primary-unavailable evidence. Availability remains an input; it is not inferred.
+- The preserved v1 profile uses GLM-5.3 as the primary `Validator`, GLM-5.3 Flash as the explicitly selected high-volume `Writer`, and an evidence-gated DeepSeek fallback only with accepted primary-unavailable evidence. The v2 assurance profile uses the GPT-5.6 matrix above. Both require explicit matching profile/API selection; neither profile is a default or auto-activated. Availability remains an input; it is not inferred.
 - Router output is advisory and not executed: every `RouteDecision` has `enforcement_status: not-executed`. The Host Adapter owns invocation, credentials, transport, and execution.
 - Fallback evidence must be explicit and accepted by the active profile. An unspecified error, subjective quality judgment, or missing availability is not enough.
 - For unattended non-interactive Coding CLI exec, Writer, or Validator invocations on Windows, use `pty=false`, `background=true`, and `notify_on_complete=true` by default. `pty=true` is reserved for an interactive TUI, login, or a command that genuinely requires terminal input; never apply it unconditionally to unattended exec. Final output text, a final-answer marker, or a tokens-used line is not process-exit evidence: accept only after registry status `exited` captures the exit code. Use one short bounded grace check, inspect fresh process status, terminate only the exact tracked process if necessary, never start a duplicate Writer, and never repeatedly wait/reconnect.

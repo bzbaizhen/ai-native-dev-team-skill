@@ -122,6 +122,69 @@
       "then": {
         "properties": { "validation_mode": { "enum": ["dual"] } }
       }
+    },
+    {
+      "if": {
+        "properties": { "route_slot": { "const": "validator.assurance" } }
+      },
+      "then": {
+        "allOf": [
+          {
+            "if": {
+              "properties": { "risk_level": { "enum": ["R1", "R2"] } }
+            },
+            "then": {
+              "properties": { "validation_mode": { "const": "single" } }
+            }
+          },
+          {
+            "if": {
+              "properties": { "risk_level": { "const": "R3" } }
+            },
+            "then": {
+              "properties": { "validation_mode": { "const": "dual" } }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "decision_status": { "const": "selected" },
+                "risk_level": { "enum": ["R1", "R2"] }
+              }
+            },
+            "then": {
+              "properties": {
+                "selected_routes": { "minItems": 1, "maxItems": 1 }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "decision_status": { "const": "selected" },
+                "risk_level": { "const": "R3" }
+              }
+            },
+            "then": {
+              "properties": {
+                "selected_routes": { "minItems": 2, "maxItems": 2 }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "decision_status": { "enum": ["blocked", "unknown"] }
+              }
+            },
+            "then": {
+              "properties": {
+                "selected_routes": { "minItems": 0, "maxItems": 0 }
+              }
+            }
+          }
+        ]
+      }
     }
   ]
 }

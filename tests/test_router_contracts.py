@@ -82,6 +82,75 @@ def sha256_bytes(value):
     return hashlib.sha256(value).hexdigest()
 
 
+def _v2_assurance_shape(decision_status, risk_level, validation_mode, selected_count):
+    return {
+        "router_api_version": "route/v2",
+        "request_id": "test-decision",
+        "profile_id": "alternate-profile",
+        "route_slot": "validator.assurance",
+        "decision_status": decision_status,
+        "enforcement_status": "not-executed",
+        "escalation_used": False,
+        "escalation_evidence": {},
+        "same_model_as_writer": False,
+        "validator_source": "router-selected",
+        "config_digest": "0" * 64,
+        "limitations": [],
+        "risk_level": risk_level,
+        "validation_mode": validation_mode,
+        "selected_routes": [
+            {
+                "provider": "provider",
+                "runtime_provider": "runtime",
+                "model": f"model-{index}",
+                "reasoning": "high",
+                "reasoning_delivery": "explicit",
+            }
+            for index in range(selected_count)
+        ],
+    }
+
+
+def _schema_rule_applies(rule, decision):
+    for field, condition in rule["if"]["properties"].items():
+        value = decision[field]
+        if "const" in condition and value != condition["const"]:
+            return False
+        if "enum" in condition and value not in condition["enum"]:
+            return False
+    return True
+
+
+def _matches_v2_assurance_relationship(schema, decision):
+    assurance_if = {"properties": {"route_slot": {"const": "validator.assurance"}}}
+    branch = next(
+        (
+            candidate
+            for candidate in schema.get("allOf", [])
+            if candidate.get("if") == assurance_if
+            and "allOf" in candidate.get("then", {})
+        ),
+        None,
+    )
+    if decision["route_slot"] != "validator.assurance":
+        return True
+    if branch is None:
+        return False
+
+    for rule in branch["then"]["allOf"]:
+        if not _schema_rule_applies(rule, decision):
+            continue
+        for field, constraint in rule["then"]["properties"].items():
+            value = decision[field]
+            if "const" in constraint and value != constraint["const"]:
+                return False
+            if "minItems" in constraint and len(value) < constraint["minItems"]:
+                return False
+            if "maxItems" in constraint and len(value) > constraint["maxItems"]:
+                return False
+    return True
+
+
 @contextmanager
 def temporary_contract_project():
     path = ROOT / "tests" / f".router-contracts-{uuid.uuid4().hex}"
@@ -192,6 +261,106 @@ class SchemaContractTests(unittest.TestCase):
         self.assertTrue(escalation["additionalProperties"]["uniqueItems"])
         self.assertEqual(escalation["additionalProperties"]["items"]["type"], "string")
         self.assertEqual(schema["properties"]["config_digest"]["pattern"], r"^[0-9a-f]{64}$")
+
+    def test_route_decision_v2_assurance_state_and_cardinality_contract_is_exact(self):
+        schema = self.load("route-decision.v2.schema.json")
+        assurance_if = {"properties": {"route_slot": {"const": "validator.assurance"}}}
+        branches = [
+            candidate
+            for candidate in schema["allOf"]
+            if candidate.get("if") == assurance_if
+            and "allOf" in candidate.get("then", {})
+        ]
+        self.assertEqual(len(branches), 1)
+        branch = branches[0]
+        self.assertEqual(set(branch), {"if", "then"})
+        self.assertEqual(set(branch["then"]), {"allOf"})
+
+        expected_rules = [
+            (
+                {"properties": {"risk_level": {"enum": ["R1", "R2"]}}},
+                {"properties": {"validation_mode": {"const": "single"}}},
+            ),
+            (
+                {"properties": {"risk_level": {"const": "R3"}}},
+                {"properties": {"validation_mode": {"const": "dual"}}},
+            ),
+            (
+                {
+                    "properties": {
+                        "decision_status": {"const": "selected"},
+                        "risk_level": {"enum": ["R1", "R2"]},
+                    }
+                },
+                {"properties": {"selected_routes": {"minItems": 1, "maxItems": 1}}},
+            ),
+            (
+                {
+                    "properties": {
+                        "decision_status": {"const": "selected"},
+                        "risk_level": {"const": "R3"},
+                    }
+                },
+                {"properties": {"selected_routes": {"minItems": 2, "maxItems": 2}}},
+            ),
+            (
+                {"properties": {"decision_status": {"enum": ["blocked", "unknown"]}}},
+                {"properties": {"selected_routes": {"minItems": 0, "maxItems": 0}}},
+            ),
+        ]
+        self.assertEqual(
+            [(rule["if"], rule["then"]) for rule in branch["then"]["allOf"]],
+            expected_rules,
+        )
+
+    def test_route_decision_v2_assurance_accepts_valid_r1_r2_r3_shapes(self):
+        schema = self.load("route-decision.v2.schema.json")
+        cases = (
+            ("R1", "single", 1),
+            ("R2", "single", 1),
+            ("R3", "dual", 2),
+        )
+        for risk_level, validation_mode, selected_count in cases:
+            with self.subTest(risk_level=risk_level):
+                self.assertTrue(
+                    _matches_v2_assurance_relationship(
+                        schema,
+                        _v2_assurance_shape(
+                            "selected", risk_level, validation_mode, selected_count
+                        ),
+                    )
+                )
+
+    def test_route_decision_v2_assurance_rejects_malformed_selected_blocked_and_unknown_shapes(self):
+        schema = self.load("route-decision.v2.schema.json")
+        malformed = (
+            ("selected", "R1", "single", 0),
+            ("selected", "R1", "dual", 1),
+            ("selected", "R2", "single", 2),
+            ("selected", "R3", "dual", 1),
+            ("selected", "R3", "single", 2),
+            ("blocked", "R1", "single", 1),
+            ("blocked", "R2", "single", 1),
+            ("blocked", "R3", "dual", 1),
+            ("unknown", "R1", "single", 1),
+            ("unknown", "R2", "single", 1),
+            ("unknown", "R3", "dual", 1),
+        )
+        for decision_status, risk_level, validation_mode, selected_count in malformed:
+            with self.subTest(
+                decision_status=decision_status,
+                risk_level=risk_level,
+                validation_mode=validation_mode,
+                selected_count=selected_count,
+            ):
+                self.assertFalse(
+                    _matches_v2_assurance_relationship(
+                        schema,
+                        _v2_assurance_shape(
+                            decision_status, risk_level, validation_mode, selected_count
+                        ),
+                    )
+                )
 
     def test_config_v2_contract_is_strict_and_versioned(self):
         schema = self.load("model-router-config.v2.schema.json")
