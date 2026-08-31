@@ -1,0 +1,127 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "route-decision.v2.schema.json",
+  "title": "route/v2 RouteDecision",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "router_api_version",
+    "request_id",
+    "profile_id",
+    "route_slot",
+    "decision_status",
+    "enforcement_status",
+    "selected_routes",
+    "validation_mode",
+    "risk_level",
+    "escalation_used",
+    "escalation_evidence",
+    "same_model_as_writer",
+    "validator_source",
+    "config_digest",
+    "limitations"
+  ],
+  "properties": {
+    "router_api_version": { "const": "route/v2" },
+    "request_id": { "type": "string", "minLength": 1 },
+    "profile_id": { "type": "string", "minLength": 1 },
+    "route_slot": {
+      "type": "string",
+      "enum": [
+        "control-plane",
+        "writer.c0-batch",
+        "writer.c1",
+        "writer.c2",
+        "writer.c3",
+        "validator.assurance",
+        "writer.high-volume-deterministic"
+      ]
+    },
+    "decision_status": {
+      "type": "string",
+      "enum": ["selected", "blocked", "unknown"]
+    },
+    "enforcement_status": {
+      "type": "string",
+      "enum": ["not-executed"]
+    },
+    "selected_routes": {
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 2,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["provider", "runtime_provider", "model", "reasoning", "reasoning_delivery"],
+        "properties": {
+          "provider": { "type": "string", "minLength": 1 },
+          "runtime_provider": { "type": "string", "minLength": 1 },
+          "model": { "type": "string", "minLength": 1 },
+          "reasoning": { "type": "string", "minLength": 1 },
+          "reasoning_delivery": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "validation_mode": {
+      "type": "string",
+      "enum": ["not-applicable", "single", "dual"]
+    },
+    "risk_level": {
+      "type": ["string", "null"],
+      "enum": ["R1", "R2", "R3", null]
+    },
+    "escalation_used": { "type": "boolean" },
+    "escalation_evidence": {
+      "type": "object",
+      "propertyNames": { "type": "string", "pattern": "^[^/\\s]+/[^/\\s]+$" },
+      "additionalProperties": {
+        "type": "array",
+        "items": { "type": "string", "minLength": 1 },
+        "uniqueItems": true
+      }
+    },
+    "same_model_as_writer": { "type": "boolean" },
+    "validator_source": {
+      "type": "string",
+      "enum": ["router-selected", "not-applicable"]
+    },
+    "config_digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "limitations": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "route_slot": { "const": "validator.assurance" } }
+      },
+      "then": {
+        "properties": {
+          "risk_level": { "type": "string", "enum": ["R1", "R2", "R3"] },
+          "validator_source": { "const": "router-selected" }
+        }
+      },
+      "else": {
+        "properties": {
+          "risk_level": { "const": null },
+          "validation_mode": { "const": "not-applicable" },
+          "same_model_as_writer": { "const": false },
+          "validator_source": { "const": "not-applicable" }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "risk_level": { "const": "R3" } }
+      },
+      "then": {
+        "properties": { "validation_mode": { "enum": ["dual"] } }
+      }
+    }
+  ]
+}

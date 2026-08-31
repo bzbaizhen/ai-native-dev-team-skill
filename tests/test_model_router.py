@@ -15,6 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SKILL_DIR = ROOT / "skills" / "ai-native-model-router"
 ASSET_DIR = SKILL_DIR / "assets"
 PROFILE_ID = "openai-glm5.3-deepseek-fallback-2026-08-28"
+NEW_PROFILE_ID = "openai-gpt5.6-validator-assurance-2026-08-31"
 EVIDENCE = [
     "model-not-found",
     "authenticated-provider-outage",
@@ -282,6 +283,85 @@ class CatalogAndProfileTests(unittest.TestCase):
             mutation(candidate)
             with self.assertRaises(ValueError):
                 validate_profile(candidate, load_catalog())
+
+    def test_new_profile_asset_preserves_non_validator_slots_and_exact_assurance_routes(self):
+        old_profile = json.loads(
+            (ASSET_DIR / "profiles" / f"{PROFILE_ID}.json").read_text(encoding="utf-8")
+        )
+        new_profile = json.loads(
+            (ASSET_DIR / "profiles" / f"{NEW_PROFILE_ID}.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(new_profile["schema_version"], 2)
+        self.assertEqual(new_profile["profile_id"], NEW_PROFILE_ID)
+        self.assertFalse(new_profile["default_active"])
+        self.assertEqual(new_profile["activation"], "explicit-owner-selection")
+        self.assertEqual(new_profile["evidence_date"], "2026-08-31")
+        self.assertEqual(
+            set(new_profile["slots"]),
+            {
+                "control-plane",
+                "writer.c0-batch",
+                "writer.c1",
+                "writer.c2",
+                "writer.c3",
+                "validator.assurance",
+                "writer.high-volume-deterministic",
+            },
+        )
+        for slot in (
+            "control-plane",
+            "writer.c0-batch",
+            "writer.c1",
+            "writer.c2",
+            "writer.c3",
+            "writer.high-volume-deterministic",
+        ):
+            with self.subTest(slot=slot):
+                self.assertEqual(new_profile["slots"][slot], old_profile["slots"][slot])
+        self.assertEqual(new_profile["forbidden_defaults"], old_profile["forbidden_defaults"])
+
+        assurance = new_profile["slots"]["validator.assurance"]
+        self.assertEqual(
+            set(assurance),
+            {
+                "allow_same_model_as_writer",
+                "accepted_route_failure_evidence",
+                "routes_by_risk",
+                "exhaustion_action",
+            },
+        )
+        self.assertTrue(assurance["allow_same_model_as_writer"])
+        self.assertEqual(assurance["accepted_route_failure_evidence"], EVIDENCE)
+        self.assertEqual(assurance["exhaustion_action"], "blocked-owner")
+
+        def route_identity(route):
+            return (route["provider"], route["model"], route["reasoning"], route["reasoning_delivery"])
+
+        expected_routes = {
+            "R1": [
+                ("openai", "gpt-5.6-luna", "max", "explicit"),
+                ("openai", "gpt-5.6-terra", "max", "explicit"),
+                ("openai", "gpt-5.6-sol", "high", "explicit"),
+            ],
+            "R2": [
+                ("openai", "gpt-5.6-terra", "max", "explicit"),
+                ("openai", "gpt-5.6-sol", "high", "explicit"),
+            ],
+            "R3": [
+                ("openai", "gpt-5.6-terra", "max", "explicit"),
+                ("openai", "gpt-5.6-sol", "high", "explicit"),
+            ],
+        }
+        self.assertEqual(set(assurance["routes_by_risk"]), set(expected_routes))
+        for risk, routes in expected_routes.items():
+            with self.subTest(risk=risk):
+                actual = [route_identity(route) for route in assurance["routes_by_risk"][risk]]
+                self.assertEqual(actual, routes)
+                self.assertTrue(all(route["provider"] == "openai" for route in assurance["routes_by_risk"][risk]))
+                self.assertNotRegex(json.dumps(assurance["routes_by_risk"][risk]).casefold(), r"glm|deepseek")
+
+    def test_new_profile_is_loadable_as_a_bundled_profile(self):
+        self.assertEqual(load_profile(NEW_PROFILE_ID)["profile_id"], NEW_PROFILE_ID)
 
 
 class ResolutionTests(unittest.TestCase):
@@ -560,9 +640,13 @@ class CliTests(unittest.TestCase):
         listed = self.run_cli("list-profiles")
         self.assertEqual(listed.returncode, 0, listed.stderr)
         self.assertIn(PROFILE_ID, json.loads(listed.stdout)["profiles"])
+        self.assertIn(NEW_PROFILE_ID, json.loads(listed.stdout)["profiles"])
         validated = self.run_cli("validate-profile", "--profile", PROFILE_ID)
         self.assertEqual(validated.returncode, 0, validated.stderr)
         self.assertEqual(json.loads(validated.stdout)["profile_id"], PROFILE_ID)
+        validated_new = self.run_cli("validate-profile", "--profile", NEW_PROFILE_ID)
+        self.assertEqual(validated_new.returncode, 0, validated_new.stderr)
+        self.assertEqual(json.loads(validated_new.stdout)["profile_id"], NEW_PROFILE_ID)
         with temporary_project() as project:
             request_path = project / "request.json"
             request_path.write_text(json.dumps(route_request()), encoding="utf-8")

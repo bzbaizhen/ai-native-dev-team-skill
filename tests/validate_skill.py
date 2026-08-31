@@ -68,10 +68,14 @@ MODEL_ROUTER_REQUIRED_PATHS = {
     "agents/openai.yaml",
     "assets/model-router-config.example.json",
     "assets/model-router-config.v1.schema.json",
+    "assets/model-router-config.v2.schema.json",
     "assets/profiles/openai-glm5.3-deepseek-fallback-2026-08-28.json",
+    "assets/profiles/openai-gpt5.6-validator-assurance-2026-08-31.json",
     "assets/provider-catalog.json",
     "assets/route-decision.v1.schema.json",
+    "assets/route-decision.v2.schema.json",
     "assets/route-request.v1.schema.json",
+    "assets/route-request.v2.schema.json",
     "references/configuration.md",
     "references/interface.md",
     "references/provider-evidence.md",
@@ -170,6 +174,10 @@ metadata:
         "SKILL.md",
         "agents/openai.yaml",
         "assets/model-router-config.example.json",
+        "assets/model-router-config.v2.schema.json",
+        "assets/profiles/openai-gpt5.6-validator-assurance-2026-08-31.json",
+        "assets/route-decision.v2.schema.json",
+        "assets/route-request.v2.schema.json",
     }
     assert links == expected_links
     for target in links:

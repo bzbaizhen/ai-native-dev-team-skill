@@ -1,0 +1,109 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "route-request.v2.schema.json",
+  "title": "route/v2 RouteRequest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "router_api_version",
+    "request_id",
+    "route_slot",
+    "writer_route_slot",
+    "profile_id",
+    "explicit_profile_selection",
+    "explicit_high_volume_selection",
+    "availability",
+    "route_failure_evidence",
+    "risk_level",
+    "writer_identity",
+    "candidate_id"
+  ],
+  "properties": {
+    "router_api_version": { "const": "route/v2" },
+    "request_id": { "type": "string", "minLength": 1 },
+    "route_slot": {
+      "type": "string",
+      "enum": [
+        "control-plane",
+        "writer.c0-batch",
+        "writer.c1",
+        "writer.c2",
+        "writer.c3",
+        "validator.assurance",
+        "writer.high-volume-deterministic"
+      ]
+    },
+    "writer_route_slot": {
+      "type": ["string", "null"],
+      "enum": ["writer.c0-batch", "writer.c1", "writer.c2", "writer.c3", null]
+    },
+    "profile_id": { "type": "string", "minLength": 1 },
+    "explicit_profile_selection": { "type": "boolean" },
+    "explicit_high_volume_selection": { "type": "boolean" },
+    "availability": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "enum": ["available", "unavailable", "unknown"]
+      }
+    },
+    "route_failure_evidence": {
+      "type": "object",
+      "propertyNames": { "type": "string", "pattern": "^[^/\\s]+/[^/\\s]+$" },
+      "additionalProperties": {
+        "type": "array",
+        "items": { "type": "string", "minLength": 1 },
+        "uniqueItems": true
+      }
+    },
+    "risk_level": {
+      "type": ["string", "null"],
+      "enum": ["R1", "R2", "R3", null]
+    },
+    "writer_identity": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["provider", "runtime_provider", "model"],
+      "properties": {
+        "provider": { "type": "string", "minLength": 1 },
+        "runtime_provider": { "type": "string", "minLength": 1 },
+        "model": { "type": "string", "minLength": 1 }
+      }
+    },
+    "candidate_id": { "type": ["string", "null"], "minLength": 1 }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "route_slot": { "const": "validator.assurance" } }
+      },
+      "then": {
+        "properties": {
+          "risk_level": { "type": "string", "enum": ["R1", "R2", "R3"] },
+          "writer_route_slot": {
+            "type": "string",
+            "enum": ["writer.c0-batch", "writer.c1", "writer.c2", "writer.c3"]
+          },
+          "writer_identity": { "type": "object" },
+          "candidate_id": { "type": "string", "minLength": 1 }
+        }
+      },
+      "else": {
+        "properties": {
+          "risk_level": { "const": null },
+          "writer_route_slot": { "const": null },
+          "writer_identity": { "const": null },
+          "candidate_id": { "const": null }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "route_slot": { "const": "writer.high-volume-deterministic" } }
+      },
+      "then": {
+        "properties": { "explicit_high_volume_selection": { "const": true } }
+      }
+    }
+  ]
+}

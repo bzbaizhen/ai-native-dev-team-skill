@@ -33,6 +33,18 @@ ROUTE_SLOTS = [
     "validator.independent",
     "writer.high-volume-deterministic",
 ]
+V2_ROUTE_SLOTS = [
+    "control-plane",
+    "writer.c0-batch",
+    "writer.c1",
+    "writer.c2",
+    "writer.c3",
+    "validator.assurance",
+    "writer.high-volume-deterministic",
+]
+OLD_PROFILE_PATH = ASSET_DIR / "profiles" / "openai-glm5.3-deepseek-fallback-2026-08-28.json"
+OLD_PROFILE_GIT_BLOB = "3da4191c501cc8ce403c8a5a39aabe6a6d59e2ca"
+OLD_PROFILE_SHA256 = "cc6beae0df7434baca3d782eaecc8696c31b6abdc28c63157d599af1cd95ccaa"
 
 
 def valid_config(**overrides):
@@ -57,17 +69,136 @@ class SchemaContractTests(unittest.TestCase):
         with (ASSET_DIR / name).open(encoding="utf-8") as handle:
             return json.load(handle)
 
-    def test_all_phase_one_schemas_are_machine_readable(self):
+    def test_all_versioned_schemas_are_machine_readable(self):
         for name in (
             "route-request.v1.schema.json",
             "route-decision.v1.schema.json",
             "model-router-config.v1.schema.json",
+            "route-request.v2.schema.json",
+            "route-decision.v2.schema.json",
+            "model-router-config.v2.schema.json",
         ):
             with self.subTest(name=name):
                 schema = self.load(name)
                 self.assertEqual(schema["$schema"], "https://json-schema.org/draft/2020-12/schema")
                 self.assertEqual(schema["type"], "object")
                 self.assertFalse(schema["additionalProperties"])
+
+    def test_route_request_v2_contract_has_assurance_surface(self):
+        schema = self.load("route-request.v2.schema.json")
+        expected = {
+            "router_api_version",
+            "request_id",
+            "route_slot",
+            "writer_route_slot",
+            "profile_id",
+            "explicit_profile_selection",
+            "explicit_high_volume_selection",
+            "availability",
+            "route_failure_evidence",
+            "risk_level",
+            "writer_identity",
+            "candidate_id",
+        }
+        self.assertEqual(set(schema["required"]), expected)
+        self.assertEqual(set(schema["properties"]), expected)
+        self.assertEqual(schema["properties"]["router_api_version"]["const"], "route/v2")
+        self.assertEqual(schema["properties"]["route_slot"]["enum"], V2_ROUTE_SLOTS)
+        self.assertNotIn("validator.independent", schema["properties"]["route_slot"]["enum"])
+        self.assertEqual(
+            schema["properties"]["writer_route_slot"],
+            {
+                "type": ["string", "null"],
+                "enum": ["writer.c0-batch", "writer.c1", "writer.c2", "writer.c3", None],
+            },
+        )
+        self.assertEqual(schema["properties"]["risk_level"]["enum"], ["R1", "R2", "R3", None])
+        evidence = schema["properties"]["route_failure_evidence"]
+        self.assertNotIn("primary_failure_evidence", schema["properties"])
+        self.assertTrue(evidence["additionalProperties"]["uniqueItems"])
+        self.assertEqual(evidence["additionalProperties"]["items"]["type"], "string")
+        self.assertEqual(schema["properties"]["candidate_id"]["type"], ["string", "null"])
+
+    def test_route_decision_v2_contract_has_assurance_surface(self):
+        schema = self.load("route-decision.v2.schema.json")
+        expected = {
+            "router_api_version",
+            "request_id",
+            "profile_id",
+            "route_slot",
+            "decision_status",
+            "enforcement_status",
+            "selected_routes",
+            "validation_mode",
+            "risk_level",
+            "escalation_used",
+            "escalation_evidence",
+            "same_model_as_writer",
+            "validator_source",
+            "config_digest",
+            "limitations",
+        }
+        self.assertEqual(set(schema["required"]), expected)
+        self.assertEqual(set(schema["properties"]), expected)
+        self.assertEqual(schema["properties"]["router_api_version"]["const"], "route/v2")
+        self.assertEqual(schema["properties"]["route_slot"]["enum"], V2_ROUTE_SLOTS)
+        self.assertEqual(schema["properties"]["decision_status"]["enum"], ["selected", "blocked", "unknown"])
+        self.assertEqual(schema["properties"]["enforcement_status"]["enum"], ["not-executed"])
+        self.assertEqual(
+            schema["properties"]["validation_mode"]["enum"],
+            ["not-applicable", "single", "dual"],
+        )
+        self.assertEqual(schema["properties"]["risk_level"]["enum"], ["R1", "R2", "R3", None])
+        self.assertEqual(schema["properties"]["validator_source"]["enum"], ["router-selected", "not-applicable"])
+        selected_routes = schema["properties"]["selected_routes"]
+        self.assertEqual(selected_routes["type"], "array")
+        self.assertEqual(selected_routes["minItems"], 0)
+        self.assertEqual(selected_routes["maxItems"], 2)
+        self.assertEqual(selected_routes["items"]["type"], "object")
+        self.assertFalse(selected_routes["items"]["additionalProperties"])
+        self.assertEqual(
+            set(selected_routes["items"]["required"]),
+            {"provider", "runtime_provider", "model", "reasoning", "reasoning_delivery"},
+        )
+        escalation = schema["properties"]["escalation_evidence"]
+        self.assertTrue(escalation["additionalProperties"]["uniqueItems"])
+        self.assertEqual(escalation["additionalProperties"]["items"]["type"], "string")
+        self.assertEqual(schema["properties"]["config_digest"]["pattern"], r"^[0-9a-f]{64}$")
+
+    def test_config_v2_contract_is_strict_and_versioned(self):
+        schema = self.load("model-router-config.v2.schema.json")
+        expected = {
+            "schema_version",
+            "router_api_version",
+            "config_id",
+            "active_profile",
+            "project_profile_dirs",
+            "updated_reason",
+        }
+        self.assertEqual(set(schema["required"]), expected)
+        self.assertEqual(set(schema["properties"]), expected)
+        self.assertEqual(schema["properties"]["schema_version"]["const"], 2)
+        self.assertEqual(schema["properties"]["router_api_version"]["const"], "route/v2")
+
+    def test_preserved_profile_matches_frozen_git_blob_and_sha256(self):
+        profile_bytes = OLD_PROFILE_PATH.read_bytes()
+        self.assertEqual(hashlib.sha256(profile_bytes).hexdigest(), OLD_PROFILE_SHA256)
+        self.assertEqual(
+            subprocess.check_output(
+                ["git", "cat-file", "blob", OLD_PROFILE_GIT_BLOB],
+                cwd=ROOT,
+            ),
+            profile_bytes,
+        )
+        self.assertEqual(
+            subprocess.check_output(
+                ["git", "hash-object", "--", str(OLD_PROFILE_PATH)],
+                cwd=ROOT,
+                text=True,
+                encoding="utf-8",
+            ).strip(),
+            OLD_PROFILE_GIT_BLOB,
+        )
 
     def test_route_request_contract_has_exact_required_surface(self):
         schema = self.load("route-request.v1.schema.json")
