@@ -1,14 +1,18 @@
 # Project configuration
 
-The mutable project document is `.ai-native/model-router.json`. Its exact v1
-fields are defined by the bundled config schema. The active profile is selected
-explicitly; file presence alone never activates a profile.
+The mutable project document is `.ai-native/model-router.json`. Its exact v1 and
+v2 fields are defined by their bundled config schemas. The profile and
+`router_api_version` must use the same version; mixed versions fail closed. Every
+request explicitly selects a profile; file presence alone never activates a
+profile. The bundled `gpt5.6` Profile uses route/v2 and is inactive by default;
+it requires `explicit-owner-selection`. The route/v1 contract remains available
+for safe project-local Profiles, but there is no bundled route/v1 Profile.
 
 ## Selection precedence
 
 For the resolver, use explicit `--config` first, an injected configuration
 second, and the conventional project path third. A missing conventional file
-may use the bundled profile only when the request itself explicitly selects that
+may use a bundled profile only when the request itself explicitly selects that
 profile. The helper does not read global application settings.
 
 The resolver validates the full config and computes a canonical SHA-256 digest.
@@ -24,5 +28,10 @@ rejected. The bundled profile is immutable: a project copy with the same ID is
 accepted only when its bytes and digest are identical; a changed collision is
 blocked.
 
-Project profiles use the same strict schema, catalog identities, dated fallback
-evidence, and explicit-selection rules as the bundled profile.
+Project profiles use the matching strict versioned schema, catalog identities,
+dated route-bound fallback evidence, and explicit-selection rules as the bundled
+profile. A profile file being present or listed never activates it.
+
+Provider execution, authentication, and transport remain outside this package.
+Configuration contains no secret, endpoint, credential, transport command, or
+price values.

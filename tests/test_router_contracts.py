@@ -1,12 +1,15 @@
+import ast
 import hashlib
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
-import tempfile
 import unittest
+from contextlib import contextmanager
 from pathlib import Path
+import uuid
 
 
 ROOT = Path(__file__).parents[1]
@@ -21,6 +24,9 @@ from router_config import (  # noqa: E402
     resolve_config_path,
     rollback_config,
     validate_config,
+    validate_config_for_version,
+    validate_config_v2,
+    validate_config_versioned,
 )
 
 
@@ -33,6 +39,16 @@ ROUTE_SLOTS = [
     "validator.independent",
     "writer.high-volume-deterministic",
 ]
+V2_ROUTE_SLOTS = [
+    "control-plane",
+    "writer.c0-batch",
+    "writer.c1",
+    "writer.c2",
+    "writer.c3",
+    "validator.assurance",
+    "writer.high-volume-deterministic",
+]
+CURRENT_BUNDLED_PROFILE_ID = "gpt5.6"
 
 
 def valid_config(**overrides):
@@ -40,7 +56,20 @@ def valid_config(**overrides):
         "schema_version": 1,
         "router_api_version": "route/v1",
         "config_id": "test-config",
-        "active_profile": "openai-glm5.3-deepseek-fallback-2026-08-28",
+        "active_profile": "custom-v1",
+        "project_profile_dirs": [".ai-native/profiles"],
+        "updated_reason": "test fixture",
+    }
+    payload.update(overrides)
+    return payload
+
+
+def valid_config_v2(**overrides):
+    payload = {
+        "schema_version": 2,
+        "router_api_version": "route/v2",
+        "config_id": "test-config-v2",
+        "active_profile": "gpt5.6",
         "project_profile_dirs": [".ai-native/profiles"],
         "updated_reason": "test fixture",
     }
@@ -52,22 +81,402 @@ def sha256_bytes(value):
     return hashlib.sha256(value).hexdigest()
 
 
+def _v2_assurance_shape(decision_status, risk_level, validation_mode, selected_count):
+    return {
+        "router_api_version": "route/v2",
+        "request_id": "test-decision",
+        "profile_id": "alternate-profile",
+        "route_slot": "validator.assurance",
+        "decision_status": decision_status,
+        "enforcement_status": "not-executed",
+        "escalation_used": False,
+        "escalation_evidence": {},
+        "same_model_as_writer": False,
+        "validator_source": "router-selected",
+        "config_digest": "0" * 64,
+        "limitations": [],
+        "risk_level": risk_level,
+        "validation_mode": validation_mode,
+        "selected_routes": [
+            {
+                "provider": "provider",
+                "runtime_provider": "runtime",
+                "model": f"model-{index}",
+                "reasoning": "high",
+                "reasoning_delivery": "explicit",
+            }
+            for index in range(selected_count)
+        ],
+    }
+
+
+def _v2_common_shape(decision_status, selected_count, route_slot="writer.c1"):
+    shape = _v2_assurance_shape(decision_status, "R1", "single", selected_count)
+    shape.update(
+        route_slot=route_slot,
+        risk_level=None,
+        validation_mode="not-applicable",
+        validator_source="not-applicable",
+    )
+    return shape
+
+
+def _schema_condition_applies(condition, value):
+    if "const" in condition and value != condition["const"]:
+        return False
+    if "enum" in condition and value not in condition["enum"]:
+        return False
+    if "not" in condition and _schema_condition_applies(condition["not"], value):
+        return False
+    return True
+
+
+def _schema_rule_applies(rule, decision):
+    for field, condition in rule["if"]["properties"].items():
+        if not _schema_condition_applies(condition, decision[field]):
+            return False
+    return True
+
+
+def _matches_v2_assurance_relationship(schema, decision):
+    assurance_if = {"properties": {"route_slot": {"const": "validator.assurance"}}}
+    branch = next(
+        (
+            candidate
+            for candidate in schema.get("allOf", [])
+            if candidate.get("if") == assurance_if
+            and "allOf" in candidate.get("then", {})
+        ),
+        None,
+    )
+    if decision["route_slot"] != "validator.assurance":
+        return True
+    if branch is None:
+        return False
+
+    for rule in branch["then"]["allOf"]:
+        if not _schema_rule_applies(rule, decision):
+            continue
+        for field, constraint in rule["then"]["properties"].items():
+            value = decision[field]
+            if "const" in constraint and value != constraint["const"]:
+                return False
+            if "minItems" in constraint and len(value) < constraint["minItems"]:
+                return False
+            if "maxItems" in constraint and len(value) > constraint["maxItems"]:
+                return False
+    return True
+
+
+def _matches_v2_relationship(schema, decision):
+    if not _matches_v2_assurance_relationship(schema, decision):
+        return False
+    for rule in schema.get("allOf", []):
+        then = rule.get("then", {})
+        if "allOf" in then or not _schema_rule_applies(rule, decision):
+            continue
+        for field, constraint in then.get("properties", {}).items():
+            value = decision[field]
+            if "minItems" in constraint and len(value) < constraint["minItems"]:
+                return False
+            if "maxItems" in constraint and len(value) > constraint["maxItems"]:
+                return False
+    return True
+
+
+@contextmanager
+def temporary_contract_project():
+    path = ROOT / "tests" / f".router-contracts-{uuid.uuid4().hex}"
+    path.mkdir()
+    try:
+        yield path
+    finally:
+        shutil.rmtree(path)
+
+
 class SchemaContractTests(unittest.TestCase):
     def load(self, name):
         with (ASSET_DIR / name).open(encoding="utf-8") as handle:
             return json.load(handle)
 
-    def test_all_phase_one_schemas_are_machine_readable(self):
+    def test_all_versioned_schemas_are_machine_readable(self):
         for name in (
             "route-request.v1.schema.json",
             "route-decision.v1.schema.json",
             "model-router-config.v1.schema.json",
+            "route-request.v2.schema.json",
+            "route-decision.v2.schema.json",
+            "model-router-config.v2.schema.json",
         ):
             with self.subTest(name=name):
                 schema = self.load(name)
                 self.assertEqual(schema["$schema"], "https://json-schema.org/draft/2020-12/schema")
                 self.assertEqual(schema["type"], "object")
                 self.assertFalse(schema["additionalProperties"])
+
+    def test_route_request_v2_contract_has_assurance_surface(self):
+        schema = self.load("route-request.v2.schema.json")
+        expected = {
+            "router_api_version",
+            "request_id",
+            "route_slot",
+            "writer_route_slot",
+            "profile_id",
+            "explicit_profile_selection",
+            "explicit_high_volume_selection",
+            "availability",
+            "route_failure_evidence",
+            "risk_level",
+            "writer_identity",
+            "candidate_id",
+        }
+        self.assertEqual(set(schema["required"]), expected)
+        self.assertEqual(set(schema["properties"]), expected)
+        self.assertEqual(schema["properties"]["router_api_version"]["const"], "route/v2")
+        self.assertEqual(schema["properties"]["route_slot"]["enum"], V2_ROUTE_SLOTS)
+        self.assertNotIn("validator.independent", schema["properties"]["route_slot"]["enum"])
+        self.assertEqual(
+            schema["properties"]["writer_route_slot"],
+            {
+                "type": ["string", "null"],
+                "enum": ["writer.c0-batch", "writer.c1", "writer.c2", "writer.c3", None],
+            },
+        )
+        self.assertEqual(schema["properties"]["risk_level"]["enum"], ["R1", "R2", "R3", None])
+        evidence = schema["properties"]["route_failure_evidence"]
+        self.assertNotIn("primary_failure_evidence", schema["properties"])
+        self.assertTrue(evidence["additionalProperties"]["uniqueItems"])
+        self.assertEqual(evidence["additionalProperties"]["items"]["type"], "string")
+        self.assertEqual(schema["properties"]["candidate_id"]["type"], ["string", "null"])
+
+    def test_route_decision_v2_contract_has_assurance_surface(self):
+        schema = self.load("route-decision.v2.schema.json")
+        expected = {
+            "router_api_version",
+            "request_id",
+            "profile_id",
+            "route_slot",
+            "decision_status",
+            "enforcement_status",
+            "selected_routes",
+            "validation_mode",
+            "risk_level",
+            "escalation_used",
+            "escalation_evidence",
+            "same_model_as_writer",
+            "validator_source",
+            "config_digest",
+            "limitations",
+        }
+        self.assertEqual(set(schema["required"]), expected)
+        self.assertEqual(set(schema["properties"]), expected)
+        self.assertEqual(schema["properties"]["router_api_version"]["const"], "route/v2")
+        self.assertEqual(schema["properties"]["route_slot"]["enum"], V2_ROUTE_SLOTS)
+        self.assertEqual(schema["properties"]["decision_status"]["enum"], ["selected", "blocked", "unknown"])
+        self.assertEqual(schema["properties"]["enforcement_status"]["enum"], ["not-executed"])
+        self.assertEqual(
+            schema["properties"]["validation_mode"]["enum"],
+            ["not-applicable", "single", "dual"],
+        )
+        self.assertEqual(schema["properties"]["risk_level"]["enum"], ["R1", "R2", "R3", None])
+        self.assertEqual(schema["properties"]["validator_source"]["enum"], ["router-selected", "not-applicable"])
+        selected_routes = schema["properties"]["selected_routes"]
+        self.assertEqual(selected_routes["type"], "array")
+        self.assertEqual(selected_routes["minItems"], 0)
+        self.assertEqual(selected_routes["maxItems"], 2)
+        self.assertEqual(selected_routes["items"]["type"], "object")
+        self.assertFalse(selected_routes["items"]["additionalProperties"])
+        self.assertEqual(
+            set(selected_routes["items"]["required"]),
+            {"provider", "runtime_provider", "model", "reasoning", "reasoning_delivery"},
+        )
+        escalation = schema["properties"]["escalation_evidence"]
+        self.assertTrue(escalation["additionalProperties"]["uniqueItems"])
+        self.assertEqual(escalation["additionalProperties"]["items"]["type"], "string")
+        self.assertEqual(schema["properties"]["config_digest"]["pattern"], r"^[0-9a-f]{64}$")
+
+    def test_route_decision_v2_assurance_state_and_cardinality_contract_is_exact(self):
+        schema = self.load("route-decision.v2.schema.json")
+        assurance_if = {"properties": {"route_slot": {"const": "validator.assurance"}}}
+        branches = [
+            candidate
+            for candidate in schema["allOf"]
+            if candidate.get("if") == assurance_if
+            and "allOf" in candidate.get("then", {})
+        ]
+        self.assertEqual(len(branches), 1)
+        branch = branches[0]
+        self.assertEqual(set(branch), {"if", "then"})
+        self.assertEqual(set(branch["then"]), {"allOf"})
+
+        expected_rules = [
+            (
+                {"properties": {"risk_level": {"enum": ["R1", "R2"]}}},
+                {"properties": {"validation_mode": {"const": "single"}}},
+            ),
+            (
+                {"properties": {"risk_level": {"const": "R3"}}},
+                {"properties": {"validation_mode": {"const": "dual"}}},
+            ),
+            (
+                {
+                    "properties": {
+                        "decision_status": {"const": "selected"},
+                        "risk_level": {"enum": ["R1", "R2"]},
+                    }
+                },
+                {"properties": {"selected_routes": {"minItems": 1, "maxItems": 1}}},
+            ),
+            (
+                {
+                    "properties": {
+                        "decision_status": {"const": "selected"},
+                        "risk_level": {"const": "R3"},
+                    }
+                },
+                {"properties": {"selected_routes": {"minItems": 2, "maxItems": 2}}},
+            ),
+            (
+                {"properties": {"decision_status": {"enum": ["blocked", "unknown"]}}},
+                {"properties": {"selected_routes": {"minItems": 0, "maxItems": 0}}},
+            ),
+        ]
+        self.assertEqual(
+            [(rule["if"], rule["then"]) for rule in branch["then"]["allOf"]],
+            expected_rules,
+        )
+
+    def test_route_decision_v2_assurance_accepts_valid_r1_r2_r3_shapes(self):
+        schema = self.load("route-decision.v2.schema.json")
+        cases = (
+            ("R1", "single", 1),
+            ("R2", "single", 1),
+            ("R3", "dual", 2),
+        )
+        for risk_level, validation_mode, selected_count in cases:
+            with self.subTest(risk_level=risk_level):
+                self.assertTrue(
+                    _matches_v2_assurance_relationship(
+                        schema,
+                        _v2_assurance_shape(
+                            "selected", risk_level, validation_mode, selected_count
+                        ),
+                    )
+                )
+
+    def test_route_decision_v2_common_slot_state_and_cardinality_contract_is_exact(self):
+        schema = self.load("route-decision.v2.schema.json")
+        expected_rules = (
+            (
+                {"properties": {"decision_status": {"const": "selected"}}},
+                {"properties": {"selected_routes": {"minItems": 1}}},
+            ),
+            (
+                {"properties": {"decision_status": {"enum": ["blocked", "unknown"]}}},
+                {"properties": {"selected_routes": {"minItems": 0, "maxItems": 0}}},
+            ),
+            (
+                {
+                    "properties": {
+                        "route_slot": {"not": {"const": "validator.assurance"}},
+                        "decision_status": {"const": "selected"},
+                    }
+                },
+                {"properties": {"selected_routes": {"maxItems": 1}}},
+            ),
+        )
+        relationships = [
+            (rule["if"], rule["then"])
+            for rule in schema["allOf"]
+            if "properties" in rule.get("then", {})
+            and "selected_routes" in rule["then"]["properties"]
+        ]
+        for expected in expected_rules:
+            with self.subTest(rule=expected):
+                self.assertIn(expected, relationships)
+
+    def test_route_decision_v2_common_slots_accept_only_one_selected_route(self):
+        schema = self.load("route-decision.v2.schema.json")
+        common_slots = [slot for slot in V2_ROUTE_SLOTS if slot != "validator.assurance"]
+        for slot in common_slots:
+            with self.subTest(slot=slot, case="selected-one"):
+                self.assertTrue(_matches_v2_relationship(schema, _v2_common_shape("selected", 1, slot)))
+            for selected_count in (0, 2):
+                with self.subTest(slot=slot, case=f"selected-{selected_count}"):
+                    self.assertFalse(
+                        _matches_v2_relationship(
+                            schema,
+                            _v2_common_shape("selected", selected_count, slot),
+                        )
+                    )
+            with self.subTest(slot=slot, case="blocked-zero"):
+                self.assertTrue(_matches_v2_relationship(schema, _v2_common_shape("blocked", 0, slot)))
+            with self.subTest(slot=slot, case="unknown-zero"):
+                self.assertTrue(_matches_v2_relationship(schema, _v2_common_shape("unknown", 0, slot)))
+            for decision_status in ("blocked", "unknown"):
+                with self.subTest(slot=slot, case=f"{decision_status}-one"):
+                    self.assertFalse(
+                        _matches_v2_relationship(
+                            schema,
+                            _v2_common_shape(decision_status, 1, slot),
+                        )
+                    )
+
+    def test_route_decision_v2_assurance_rejects_malformed_selected_blocked_and_unknown_shapes(self):
+        schema = self.load("route-decision.v2.schema.json")
+        malformed = (
+            ("selected", "R1", "single", 0),
+            ("selected", "R1", "dual", 1),
+            ("selected", "R2", "single", 2),
+            ("selected", "R3", "dual", 1),
+            ("selected", "R3", "single", 2),
+            ("blocked", "R1", "single", 1),
+            ("blocked", "R2", "single", 1),
+            ("blocked", "R3", "dual", 1),
+            ("unknown", "R1", "single", 1),
+            ("unknown", "R2", "single", 1),
+            ("unknown", "R3", "dual", 1),
+        )
+        for decision_status, risk_level, validation_mode, selected_count in malformed:
+            with self.subTest(
+                decision_status=decision_status,
+                risk_level=risk_level,
+                validation_mode=validation_mode,
+                selected_count=selected_count,
+            ):
+                self.assertFalse(
+                    _matches_v2_assurance_relationship(
+                        schema,
+                        _v2_assurance_shape(
+                            decision_status, risk_level, validation_mode, selected_count
+                        ),
+                    )
+                )
+
+    def test_config_v2_contract_is_strict_and_versioned(self):
+        schema = self.load("model-router-config.v2.schema.json")
+        expected = {
+            "schema_version",
+            "router_api_version",
+            "config_id",
+            "active_profile",
+            "project_profile_dirs",
+            "updated_reason",
+        }
+        self.assertEqual(set(schema["required"]), expected)
+        self.assertEqual(set(schema["properties"]), expected)
+        self.assertEqual(schema["properties"]["schema_version"]["const"], 2)
+        self.assertEqual(schema["properties"]["router_api_version"]["const"], "route/v2")
+
+    def test_only_gpt56_is_bundled_and_uses_route_v2(self):
+        profile_dir = ASSET_DIR / "profiles"
+        self.assertEqual(
+            sorted(path.name for path in profile_dir.glob("*.json")),
+            ["gpt5.6.json"],
+        )
+        profile = json.loads((profile_dir / "gpt5.6.json").read_text(encoding="utf-8"))
+        self.assertEqual(profile["profile_id"], CURRENT_BUNDLED_PROFILE_ID)
+        self.assertEqual(profile["schema_version"], 2)
 
     def test_route_request_contract_has_exact_required_surface(self):
         schema = self.load("route-request.v1.schema.json")
@@ -172,7 +581,9 @@ class SchemaContractTests(unittest.TestCase):
             r"(^|[/\\])(?:\.|\.\.)(?=$|[/\\])",
         )
         example = self.load("model-router-config.example.json")
-        self.assertEqual(example["active_profile"], "openai-glm5.3-deepseek-fallback-2026-08-28")
+        self.assertEqual(example["schema_version"], 2)
+        self.assertEqual(example["router_api_version"], "route/v2")
+        self.assertEqual(example["active_profile"], CURRENT_BUNDLED_PROFILE_ID)
         self.assertEqual(example["project_profile_dirs"], [".ai-native/profiles"])
         self.assertNotRegex(json.dumps(example).casefold(), r"credential|secret|token|endpoint|command|script")
 
@@ -197,6 +608,28 @@ class AdrContractTests(unittest.TestCase):
 
 
 class ConfigValidationTests(unittest.TestCase):
+    def test_v2_config_validation_and_version_dispatch_are_explicit(self):
+        payload = valid_config_v2()
+        self.assertEqual(validate_config_v2(payload), payload)
+        with self.assertRaises(ValueError):
+            validate_config(payload)
+        self.assertEqual(validate_config_versioned(payload), payload)
+        self.assertEqual(validate_config_for_version(payload, "route/v2"), payload)
+        self.assertRegex(config_digest(payload), r"^[0-9a-f]{64}$")
+
+    def test_mixed_config_versions_fail_closed(self):
+        for payload in (
+            valid_config_v2(router_api_version="route/v1"),
+            valid_config(schema_version=2),
+            valid_config(router_api_version="route/v2"),
+        ):
+            with self.subTest(payload=payload), self.assertRaises(ValueError):
+                validate_config_versioned(payload)
+        with self.assertRaises(ValueError):
+            validate_config_for_version(valid_config(), "route/v2")
+        with self.assertRaises(ValueError):
+            validate_config_for_version(valid_config_v2(), "route/v1")
+
     def test_generic_validation_accepts_alternate_active_profile(self):
         payload = valid_config(active_profile="team-fast")
         self.assertEqual(validate_config(payload), payload)
@@ -297,7 +730,7 @@ class ConfigValidationTests(unittest.TestCase):
         second = {
             "updated_reason": "test fixture",
             "project_profile_dirs": [".ai-native/profiles"],
-            "active_profile": "openai-glm5.3-deepseek-fallback-2026-08-28",
+            "active_profile": "custom-v1",
             "config_id": "test-config",
             "router_api_version": "route/v1",
             "schema_version": 1,
@@ -305,7 +738,7 @@ class ConfigValidationTests(unittest.TestCase):
         self.assertEqual(config_digest(first), config_digest(second))
 
     def test_resolution_precedence_and_conventional_missing_path(self):
-        with tempfile.TemporaryDirectory(dir=ROOT) as temp:
+        with temporary_contract_project() as temp:
             cwd = Path(temp)
             injected = cwd / "injected.json"
             explicit = cwd / "explicit.json"
@@ -319,7 +752,7 @@ class ConfigValidationTests(unittest.TestCase):
             self.assertEqual(resolve_config_path(None, None, cwd), conventional)
 
     def test_explicit_and_injected_paths_must_be_path_values(self):
-        with tempfile.TemporaryDirectory(dir=ROOT) as temp:
+        with temporary_contract_project() as temp:
             cwd = Path(temp)
             for bad in ("", 3, object()):
                 with self.subTest(bad=repr(bad)), self.assertRaises(ValueError):
@@ -331,7 +764,7 @@ class ConfigValidationTests(unittest.TestCase):
 class LegacyMigrationTests(unittest.TestCase):
     def legacy(self, **overrides):
         payload = {
-            "profile_id": "openai-glm5.3-deepseek-fallback-2026-08-28",
+            "profile_id": CURRENT_BUNDLED_PROFILE_ID,
             "default_active": False,
             "activation": "explicit-owner-selection",
             "evidence_date": "2026-08-28",
@@ -343,20 +776,20 @@ class LegacyMigrationTests(unittest.TestCase):
         payload.update(overrides)
         return payload
 
-    def test_migration_selects_profile_only_and_validates_v1(self):
+    def test_migration_selects_the_current_profile_only_and_validates_v2(self):
         migrated = migrate_legacy_profile(self.legacy())
         self.assertEqual(
             migrated,
             {
-                "schema_version": 1,
-                "router_api_version": "route/v1",
-                "config_id": "migrated-openai-glm5.3-deepseek-fallback-2026-08-28",
-                "active_profile": "openai-glm5.3-deepseek-fallback-2026-08-28",
+                "schema_version": 2,
+                "router_api_version": "route/v2",
+                "config_id": "migrated-gpt5.6",
+                "active_profile": CURRENT_BUNDLED_PROFILE_ID,
                 "project_profile_dirs": [],
                 "updated_reason": "Migrated from legacy embedded profile; explicit profile selection remains required.",
             },
         )
-        self.assertEqual(validate_config(migrated), migrated)
+        self.assertEqual(validate_config_v2(migrated), migrated)
 
     def test_migration_rejects_active_by_default_or_ambiguous_legacy_profile(self):
         for bad in (
@@ -373,8 +806,8 @@ class LegacyMigrationTests(unittest.TestCase):
     def test_migration_rejects_unverified_profile_id_and_boundary_whitespace(self):
         for profile_id in (
             "openai-zai-deepseek-2026-08-28",
-            " openai-glm5.3-deepseek-fallback-2026-08-28",
-            "openai-glm5.3-deepseek-fallback-2026-08-28 ",
+            " glm+deepseek",
+            "glm+deepseek ",
             "   ",
         ):
             with self.subTest(profile_id=repr(profile_id)), self.assertRaises(ValueError):
@@ -383,7 +816,7 @@ class LegacyMigrationTests(unittest.TestCase):
 
 class AtomicConfigTests(unittest.TestCase):
     def test_atomic_write_backup_stale_refusal_and_rollback(self):
-        with tempfile.TemporaryDirectory(dir=ROOT) as temp:
+        with temporary_contract_project() as temp:
             directory = Path(temp)
             path = directory / "model-router.json"
             original = json.dumps(valid_config(updated_reason="old"), indent=2).encode() + b"\n"
@@ -415,7 +848,7 @@ class AtomicConfigTests(unittest.TestCase):
             self.assertEqual(path.read_bytes(), original)
 
     def test_atomic_write_requires_existing_parent_and_leaves_no_temp_residue(self):
-        with tempfile.TemporaryDirectory(dir=ROOT) as temp:
+        with temporary_contract_project() as temp:
             directory = Path(temp)
             missing_parent = directory / "missing" / "config.json"
             with self.assertRaises(ValueError):
@@ -426,7 +859,7 @@ class AtomicConfigTests(unittest.TestCase):
             self.assertEqual(list(directory.glob(".*.tmp-*")), [])
 
     def test_rollback_fails_closed_on_current_hash_mismatch_and_foreign_backup(self):
-        with tempfile.TemporaryDirectory(dir=ROOT) as temp:
+        with temporary_contract_project() as temp:
             directory = Path(temp)
             path = directory / "config.json"
             atomic_write_config(path, valid_config())
@@ -441,7 +874,7 @@ class AtomicConfigTests(unittest.TestCase):
                 )
 
     def test_rollback_rejects_malformed_or_uppercase_backup_suffix_and_foreign_valid_config(self):
-        with tempfile.TemporaryDirectory(dir=ROOT) as temp:
+        with temporary_contract_project() as temp:
             directory = Path(temp)
             path = directory / "config.json"
             atomic_write_config(path, valid_config())
@@ -489,7 +922,7 @@ class CliTests(unittest.TestCase):
         )
 
     def test_validate_and_digest_cli_emit_json(self):
-        with tempfile.TemporaryDirectory(dir=ROOT) as temp:
+        with temporary_contract_project() as temp:
             config = Path(temp) / "config.json"
             config.write_text(json.dumps(valid_config()), encoding="utf-8")
             validated = self.run_cli("validate", "--config", str(config))
@@ -500,7 +933,7 @@ class CliTests(unittest.TestCase):
             self.assertEqual(json.loads(digested.stdout)["config_digest"], config_digest(valid_config()))
 
     def test_migrate_write_and_rollback_cli_paths(self):
-        with tempfile.TemporaryDirectory(dir=ROOT) as temp:
+        with temporary_contract_project() as temp:
             directory = Path(temp)
             legacy = directory / "legacy.json"
             migrated = directory / "migrated.json"
@@ -531,6 +964,25 @@ class CliTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(result.stdout, "")
         self.assertTrue(result.stderr.strip())
+
+    def test_help_and_module_docstring_describe_versioned_nonexecuting_configuration_contracts(self):
+        source = self.module_path.read_text(encoding="utf-8")
+        module_docstring = ast.get_docstring(ast.parse(source))
+        self.assertIsNotNone(module_docstring)
+        for version in ("route/v1", "route/v2"):
+            with self.subTest(surface="module", version=version):
+                self.assertIn(version, module_docstring)
+        self.assertRegex(module_docstring.casefold(), r"does\s+not\s+(?s:.*?)host")
+        self.assertIn("provider", module_docstring.casefold())
+
+        result = self.run_cli("--help")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for version in ("route/v1", "route/v2"):
+            with self.subTest(surface="help", version=version):
+                self.assertIn(version, result.stdout)
+        self.assertRegex(result.stdout.casefold(), r"without executing")
+        self.assertIn("host", result.stdout.casefold())
+        self.assertIn("provider", result.stdout.casefold())
 
 
 if __name__ == "__main__":

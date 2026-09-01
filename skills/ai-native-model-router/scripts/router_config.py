@@ -1,6 +1,7 @@
-"""Safe, project-local route/v1 configuration helpers.
+"""Safe, project-local route/v1 and route/v2 configuration helpers.
 
-This module deliberately contains no host, credential, endpoint, transport, or
+This module supports versioned route/v1 and route/v2 configuration.  It does
+not invoke a host, provider, credential store, endpoint, transport, or
 global-configuration logic.  It validates and moves the small project config
 document only; a Host Adapter remains responsible for execution.
 """
@@ -20,7 +21,16 @@ from typing import Any
 
 SCHEMA_VERSION = 1
 ROUTER_API_VERSION = "route/v1"
-VERIFIED_PROFILE_ID = "openai-glm5.3-deepseek-fallback-2026-08-28"
+SCHEMA_VERSION_V2 = 2
+ROUTER_API_VERSION_V2 = "route/v2"
+CURRENT_BUNDLED_PROFILE_ID = "gpt5.6"
+RETIRED_PROFILE_IDS = frozenset(
+    {
+        "glm+deepseek",
+        "openai-glm5.3-deepseek-fallback-2026-08-28",
+        "openai-gpt5.6-validator-assurance-2026-08-31",
+    }
+)
 CONVENTIONAL_CONFIG = Path(".ai-native") / "model-router.json"
 CONFIG_KEYS = (
     "schema_version",
@@ -65,6 +75,13 @@ def _fail(message: str) -> None:
     raise ValueError(message)
 
 
+def reject_retired_profile_id(profile_id: Any, field: str = "profile_id") -> None:
+    """Reject profile IDs retired by a breaking bundled-profile change."""
+
+    if isinstance(profile_id, str) and profile_id in RETIRED_PROFILE_IDS:
+        _fail(f"{field} is retired and unsupported")
+
+
 def _scan_forbidden_keys(value: Any, location: str = "$") -> None:
     if isinstance(value, dict):
         for key in sorted(value, key=lambda item: str(item).casefold()):
@@ -104,6 +121,8 @@ def _is_safe_relative_path(value: Any) -> bool:
 def validate_config(payload: Any) -> dict[str, Any]:
     """Validate and return a shallowly independent normalized v1 config."""
 
+    if isinstance(payload, dict):
+        reject_retired_profile_id(payload.get("active_profile"), "active_profile")
     _scan_forbidden_keys(payload)
     if not isinstance(payload, dict):
         _fail("config must be an object")
@@ -137,9 +156,81 @@ def validate_config(payload: Any) -> dict[str, Any]:
     }
 
 
+def validate_config_v2(payload: Any) -> dict[str, Any]:
+    """Validate and return a shallowly independent route/v2 config."""
+
+    if isinstance(payload, dict):
+        reject_retired_profile_id(payload.get("active_profile"), "active_profile")
+    _scan_forbidden_keys(payload)
+    if not isinstance(payload, dict):
+        _fail("config must be an object")
+    if tuple(payload.keys()) != CONFIG_KEYS and set(payload.keys()) != set(CONFIG_KEYS):
+        _fail("config keys must be exactly: " + ", ".join(CONFIG_KEYS))
+    if type(payload["schema_version"]) is not int or payload["schema_version"] != SCHEMA_VERSION_V2:
+        _fail("schema_version must be exactly 2")
+    if payload["router_api_version"] != ROUTER_API_VERSION_V2:
+        _fail("router_api_version must be exactly route/v2")
+    if not isinstance(payload["router_api_version"], str):
+        _fail("router_api_version must be exactly route/v2")
+    config_id = _require_string(payload["config_id"], "config_id")
+    active_profile = _require_string(payload["active_profile"], "active_profile")
+    updated_reason = _require_string(payload["updated_reason"], "updated_reason")
+    del config_id, active_profile, updated_reason
+    directories = payload["project_profile_dirs"]
+    if not isinstance(directories, list):
+        _fail("project_profile_dirs must be an array")
+    normalized_dirs = []
+    for index, directory in enumerate(directories):
+        if not _is_safe_relative_path(directory):
+            _fail(f"project_profile_dirs[{index}] must be a safe relative path")
+        normalized_dirs.append(directory)
+    return {
+        "schema_version": SCHEMA_VERSION_V2,
+        "router_api_version": ROUTER_API_VERSION_V2,
+        "config_id": payload["config_id"],
+        "active_profile": payload["active_profile"],
+        "project_profile_dirs": normalized_dirs,
+        "updated_reason": payload["updated_reason"],
+    }
+
+
+def validate_config_versioned(payload: Any) -> dict[str, Any]:
+    """Dispatch config validation by the explicit schema/API version pair."""
+
+    if isinstance(payload, dict):
+        reject_retired_profile_id(payload.get("active_profile"), "active_profile")
+    if not isinstance(payload, dict):
+        return validate_config(payload)
+    schema_version = payload.get("schema_version")
+    router_api_version = payload.get("router_api_version")
+    if schema_version == SCHEMA_VERSION_V2 or router_api_version == ROUTER_API_VERSION_V2:
+        if schema_version != SCHEMA_VERSION_V2 or router_api_version != ROUTER_API_VERSION_V2:
+            _fail("config schema_version and router_api_version must match")
+        return validate_config_v2(payload)
+    if schema_version == SCHEMA_VERSION or router_api_version == ROUTER_API_VERSION:
+        if schema_version != SCHEMA_VERSION or router_api_version != ROUTER_API_VERSION:
+            _fail("config schema_version and router_api_version must match")
+        return validate_config(payload)
+    return validate_config(payload)
+
+
+def validate_config_for_version(payload: Any, router_api_version: str) -> dict[str, Any]:
+    """Validate config and require the caller's explicit router API version."""
+
+    if router_api_version == ROUTER_API_VERSION:
+        normalized = validate_config_versioned(payload)
+    elif router_api_version == ROUTER_API_VERSION_V2:
+        normalized = validate_config_versioned(payload)
+    else:
+        _fail("router_api_version is unsupported")
+    if normalized["router_api_version"] != router_api_version:
+        _fail("config router_api_version does not match request")
+    return normalized
+
+
 def _canonical_json(payload: dict[str, Any]) -> bytes:
     return json.dumps(
-        validate_config(payload),
+        validate_config_versioned(payload),
         ensure_ascii=True,
         sort_keys=True,
         separators=(",", ":"),
@@ -188,16 +279,17 @@ def migrate_legacy_profile(profile: Any) -> dict[str, Any]:
     if "default_active" not in profile or "activation" not in profile:
         _fail("legacy profile activation is ambiguous")
     profile_id = _require_string(profile["profile_id"], "profile_id")
-    if profile_id != VERIFIED_PROFILE_ID:
+    reject_retired_profile_id(profile_id)
+    if profile_id != CURRENT_BUNDLED_PROFILE_ID:
         _fail("legacy profile_id is not the current verified profile")
     if type(profile["default_active"]) is not bool or profile["default_active"]:
         _fail("legacy profile must not be active by default")
     if profile["activation"] != "explicit-owner-selection":
         _fail("legacy profile activation must be explicit-owner-selection")
-    return validate_config(
+    return validate_config_v2(
         {
-            "schema_version": 1,
-            "router_api_version": ROUTER_API_VERSION,
+            "schema_version": SCHEMA_VERSION_V2,
+            "router_api_version": ROUTER_API_VERSION_V2,
             "config_id": f"migrated-{profile_id}",
             "active_profile": profile_id,
             "project_profile_dirs": [],
@@ -245,7 +337,7 @@ def _replace_bytes(path: Path, data: bytes) -> None:
 
 
 def _config_bytes(payload: dict[str, Any]) -> bytes:
-    normalized = validate_config(payload)
+    normalized = validate_config_versioned(payload)
     return (json.dumps(normalized, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
 
 
@@ -256,7 +348,7 @@ def atomic_write_config(
 ) -> dict[str, Any]:
     """Validate, optionally back up, and atomically replace a project config."""
 
-    normalized = validate_config(payload)
+    normalized = validate_config_versioned(payload)
     target = _as_path(path, "config path")
     if not target.parent.exists() or not target.parent.is_dir():
         _fail("config parent directory must already exist")
@@ -284,7 +376,7 @@ def atomic_write_config(
 
     _replace_bytes(target, _config_bytes(normalized))
     readback = json.loads(target.read_text(encoding="utf-8"))
-    readback_normalized = validate_config(readback)
+    readback_normalized = validate_config_versioned(readback)
     if config_digest(readback_normalized) != config_digest(normalized):
         _fail("config readback digest mismatch")
     current_hash = _sha256_file(target)
@@ -338,7 +430,7 @@ def rollback_config(
         restored = json.loads(data.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         _fail(f"backup is not valid UTF-8 JSON: {exc}")
-    normalized = validate_config(restored)
+    normalized = validate_config_versioned(restored)
     _replace_bytes(target, data)
     if target.read_bytes() != data:
         _fail("rollback readback bytes mismatch")
@@ -369,7 +461,9 @@ def _payload_argument(value: str) -> Any:
 
 
 def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="validate and atomically manage route/v1 config")
+    parser = argparse.ArgumentParser(
+        description="validate and atomically manage versioned route/v1 and route/v2 configuration without executing a host or provider"
+    )
     commands = parser.add_subparsers(dest="command", required=True)
     for name in ("validate", "digest"):
         command = commands.add_parser(name)
@@ -391,7 +485,7 @@ def _parser() -> argparse.ArgumentParser:
 
 def _run(arguments: argparse.Namespace) -> dict[str, Any]:
     if arguments.command == "validate":
-        return validate_config(_load_json(arguments.config))
+        return validate_config_versioned(_load_json(arguments.config))
     if arguments.command == "digest":
         return {"config_digest": config_digest(_load_json(arguments.config))}
     if arguments.command == "migrate-legacy":

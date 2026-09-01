@@ -32,17 +32,20 @@
     },
     {
       "id": "ai-native-model-router",
-      "version": "0.1.0",
+      "version": "0.4.0",
       "role": "routing-extension",
       "files": [
         "SKILL.md",
         "agents/openai.yaml",
         "assets/model-router-config.example.json",
         "assets/model-router-config.v1.schema.json",
-        "assets/profiles/openai-glm5.3-deepseek-fallback-2026-08-28.json",
+        "assets/model-router-config.v2.schema.json",
+        "assets/profiles/gpt5.6.json",
         "assets/provider-catalog.json",
         "assets/route-decision.v1.schema.json",
+        "assets/route-decision.v2.schema.json",
         "assets/route-request.v1.schema.json",
+        "assets/route-request.v2.schema.json",
         "references/configuration.md",
         "references/interface.md",
         "references/provider-evidence.md",
@@ -77,6 +80,9 @@
       "ai-native-dev-team",
       "ai-native-model-router"
     ],
+    "route/v2": [
+      "ai-native-model-router"
+    ],
     "components": {
       "ai-native-dev-team": {
         "route/v1": true,
@@ -84,6 +90,7 @@
       },
       "ai-native-model-router": {
         "route/v1": true,
+        "route/v2": true,
         "optional": true
       }
     }

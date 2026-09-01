@@ -102,7 +102,12 @@ class Phase3RenameContractTests(unittest.TestCase):
             for path in (ROUTER / "assets" / "profiles").glob("*")
             if path.is_file()
         )
-        self.assertEqual(router_profiles, ["openai-glm5.3-deepseek-fallback-2026-08-28.json"])
+        self.assertEqual(
+            router_profiles,
+            [
+                "gpt5.6.json",
+            ],
+        )
         self.assertFalse(
             any("model-routing-" in path.name for path in (TEAM / "references").glob("*"))
         )

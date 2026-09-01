@@ -8,7 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SKILL_DIR = ROOT / "skills" / "ai-native-dev-team"
 SCENARIOS_PATH = ROOT / "tests" / "routing-scenarios.json"
 COST_POLICY_CASES_PATH = ROOT / "tests" / "cost-routing-policy-cases.json"
-PROFILE_PATH = ROOT / "skills" / "ai-native-model-router" / "assets" / "profiles" / "openai-glm5.3-deepseek-fallback-2026-08-28.json"
+PROFILE_PATH = ROOT / "skills" / "ai-native-model-router" / "assets" / "profiles" / "gpt5.6.json"
 PROFILE_EVIDENCE_PATH = ROOT / "skills" / "ai-native-model-router" / "references" / "provider-evidence.md"
 LEGACY_PROFILE_PATH = SKILL_DIR / "references" / "model-routing-openai-deepseek.md"
 GIT_ISOLATION_REFERENCE = SKILL_DIR / "references" / "git-isolation-bootstrap.md"
@@ -189,6 +189,33 @@ EXPECTED_PRIMARY_UNAVAILABLE_EVIDENCE = [
 ]
 
 
+def custom_v1_profile_source(profile_id="custom-v1") -> dict:
+    """Build the bounded project-only v1 fixture used by policy tests."""
+
+    source = json.loads(PROFILE_PATH.read_text(encoding="utf-8"))
+    source["schema_version"] = 1
+    source["profile_id"] = profile_id
+    source["evidence_date"] = "2026-08-28"
+    del source["slots"]["validator.assurance"]
+    source["slots"]["validator.independent"] = {
+        "primary": {
+            "provider": "zai",
+            "model": "glm-5.3",
+            "reasoning": "max",
+            "reasoning_delivery": "provider-default",
+        },
+        "fallback": {
+            "provider": "deepseek",
+            "model": "deepseek-v4-pro",
+            "reasoning": "max",
+            "reasoning_delivery": "explicit",
+        },
+        "accepted_primary_unavailable_evidence": EXPECTED_PRIMARY_UNAVAILABLE_EVIDENCE,
+        "independent_validator_source": "openai-complexity-map",
+    }
+    return source
+
+
 def controlled_trigger(case: dict) -> bool:
     return (
         case["complexity"] in {"C2", "C3"}
@@ -198,7 +225,7 @@ def controlled_trigger(case: dict) -> bool:
 
 
 def load_profile_contract() -> dict:
-    source = json.loads(PROFILE_PATH.read_text(encoding="utf-8"))
+    source = custom_v1_profile_source()
     slots = source["slots"]
     writer_names = {
         "writer.c0-batch": "C0_batch",
@@ -264,7 +291,7 @@ def load_profile_contract() -> dict:
 
 def validate_profile_contract(profile: dict) -> None:
     assert set(profile) == EXPECTED_PROFILE_KEYS
-    assert profile["profile_id"] == "openai-glm5.3-deepseek-fallback-2026-08-28"
+    assert profile["profile_id"] == "custom-v1"
     assert profile["default_active"] is False
     assert profile["activation"] == "explicit-owner-selection"
     assert profile["evidence_date"] == "2026-08-28"
@@ -857,7 +884,7 @@ class RoutingPolicyTests(unittest.TestCase):
         )
 
     def test_optional_profile_evidence_date_and_gate_fail_closed(self) -> None:
-        source = json.loads(PROFILE_PATH.read_text(encoding="utf-8"))
+        source = custom_v1_profile_source()
         validate_profile_evidence(source)
         for mutation in (
             lambda candidate: candidate.update(evidence_date="unknown"),

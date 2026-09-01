@@ -5,8 +5,14 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 README_PATHS = (ROOT / "README.md", ROOT / "README.zh-CN.md")
-RELEASE_URL = "https://github.com/bzbaizhen/ai-native-dev-team-skill/releases/tag/v3.0.0"
+SUITE_VERSION = "v3.1.0"
+TEAM_VERSION = "v3.0.0"
+ROUTER_VERSION = "v0.4.0"
+RELEASE_URL = "https://github.com/bzbaizhen/ai-native-dev-team-skill/releases/tag/v3.1.0"
 LEGACY_NAME = "bootstrap" + "-ai-native-dev-team"
+ROUTER_PROFILE_IDS = (
+    "gpt5.6",
+)
 
 
 def headings(text: str) -> list[tuple[int, str]]:
@@ -52,28 +58,39 @@ class ReadmeV3ContractTests(unittest.TestCase):
             ],
         )
 
-    def test_first_screen_and_release_identify_v3_two_skills_one_repository(self) -> None:
+    def test_first_screen_and_release_distinguish_suite_and_component_versions(self) -> None:
         english, chinese = self.texts
         for text in self.texts:
-            self.assertIn("v3.0.0", text)
+            self.assertIn(f"# AI Native Dev Team Suite {SUITE_VERSION}", text)
+            self.assertIn(f"`skills/ai-native-dev-team/` {TEAM_VERSION}", text)
+            self.assertIn(f"`skills/ai-native-model-router/` {ROUTER_VERSION}", text)
+            self.assertIn(f"| `ai-native-dev-team` | {TEAM_VERSION[1:]} |", text)
+            self.assertIn(f"| `ai-native-model-router` | {ROUTER_VERSION[1:]} |", text)
+            self.assertNotIn("v0.1.0", text)
             self.assertIn(RELEASE_URL, text)
+            self.assertEqual(text.count(RELEASE_URL), 2)
+            self.assertNotIn("releases/tag/v3.0.0", text)
             self.assertIn("ai-native-dev-team", text)
             self.assertIn("ai-native-model-router", text)
             self.assertNotIn("v2.1.0", text)
+        self.assertIn(f"Current release: [{SUITE_VERSION}]({RELEASE_URL})", english)
+        self.assertIn(f"The current release is [{SUITE_VERSION} on GitHub]({RELEASE_URL})", english)
+        self.assertIn(f"当前版本是 [{SUITE_VERSION}]({RELEASE_URL})", chinese)
+        self.assertIn(f"当前发布版本是 [GitHub 上的 {SUITE_VERSION}]({RELEASE_URL})", chinese)
         self.assertIn("One GitHub repository", english)
         self.assertIn("一个 GitHub 仓库", chinese)
 
     def test_required_sections_and_contract_facts_are_present(self) -> None:
         english = self.texts[0]
         chinese = self.texts[1]
-        for phrase in ("Team", "Router", "route/v1", ".ai-native/model-router.json", "Host Adapter",
+        for phrase in ("Team", "Router", "route/v1", "route/v2", ".ai-native/model-router.json", "Host Adapter",
                        "C0-C3", "R0-R3", "Core", "Controlled", "DQR", "Writer", "Validator",
-                       "candidate", "recovery", "permissions", "Git isolation", "plan", "apply",
+                       "candidate", "recovery", "permissions", "Git isolation", "not-executed", "plan", "apply",
                        "verify", "rollback", "complete Skill directory"):
             self.assertIn(phrase, english)
-        for phrase in ("Team", "Router", "route/v1", ".ai-native/model-router.json", "Host Adapter",
+        for phrase in ("Team", "Router", "route/v1", "route/v2", ".ai-native/model-router.json", "Host Adapter",
                        "C0-C3", "R0-R3", "Core", "Controlled", "DQR", "Writer", "Validator",
-                       "候选版本", "恢复", "权限", "Git 隔离", "plan", "apply", "verify",
+                       "候选版本", "恢复", "权限", "Git 隔离", "not-executed", "plan", "apply", "verify",
                        "rollback", "完整 Skill 目录"):
             self.assertIn(phrase, chinese)
         self.assertIn("Team works without the Router", english)
@@ -86,27 +103,52 @@ class ReadmeV3ContractTests(unittest.TestCase):
         self.assertIn("GLM-5.3 Flash", english)
         self.assertIn("evidence-gated", english)
         self.assertIn("not automated", english)
+        self.assertIn("R1: Luna Max -> Terra Max -> Sol High", english)
+        self.assertIn("R2: Terra Max -> Sol High", english)
+        self.assertIn("R3 requires strict Terra Max + Sol High", english)
+        self.assertIn("never degrades to one Validator", english)
+        self.assertIn("The bundled `gpt5.6` Profile uses the GPT-5.6 assurance matrix", english)
+        self.assertIn("The generic route/v1 contract remains available", english)
+        self.assertIn("the bundled Profile is not a default or auto-activated", english)
+        self.assertNotIn("The default validation profile", english)
         self.assertIn("Team 本身可以独立工作", chinese)
         self.assertIn("Team、Router、Writer、Validator、RouteDecision、route slot 和 Host Adapter 作为固定名称", chinese)
         self.assertIn("仅改配置", chinese)
         self.assertIn("新增认证", chinese)
+        self.assertIn("R1：Luna Max -> Terra Max -> Sol High", chinese)
+        self.assertIn("R2：Terra Max -> Sol High", chinese)
+        self.assertIn("R3：严格使用 Terra Max + Sol High", chinese)
+        self.assertIn("不会降级为一个 Validator", chinese)
+        self.assertIn("bundled `gpt5.6` Profile 使用上面的 GPT-5.6 assurance 矩阵", chinese)
+        self.assertIn("通用 route/v1 合同仍可用于安全的项目 Profile", chinese)
+        self.assertIn("bundled Profile 不是默认项，也不会自动启用", chinese)
+        self.assertNotIn("默认路由配置", chinese)
 
     def test_router_example_is_exact_and_no_secrets_are_advertised(self) -> None:
         expected = (
-            '"schema_version": 1',
-            '"router_api_version": "route/v1"',
-            '"config_id": "project-router-2026-08-28"',
-            '"active_profile": "openai-glm5.3-deepseek-fallback-2026-08-28"',
+            '"schema_version": 2',
+            '"router_api_version": "route/v2"',
+            '"config_id": "project-router-v2-2026-08-31"',
+            '"active_profile": "gpt5.6"',
             '"project_profile_dirs": [".ai-native/profiles"]',
-            '"updated_reason": "Explicit project profile selection for route/v1."',
+            '"updated_reason": "Explicit project profile selection for route/v2."',
         )
         for text in self.texts:
             for field in expected:
                 self.assertIn(field, text)
-        self.assertIn("No secrets belong in this file.", self.texts[0])
+            for profile_id in ROUTER_PROFILE_IDS:
+                self.assertIn(profile_id, text)
+        self.assertIn("No secrets", self.texts[0])
         self.assertIn("配置中不放密钥或其他敏感信息", self.texts[1])
         self.assertIn("active_profile` is explicit", self.texts[0])
         self.assertIn("active_profile` 必须显式选择", self.texts[1])
+        self.assertIn("Both the Profile and Router API/configuration version", self.texts[0])
+        self.assertIn("are explicit", self.texts[0])
+        self.assertIn("必须分别显式选择 Profile 和 Router API/配置版本", self.texts[1])
+        self.assertIn("A Profile file's presence does not activate anything", self.texts[0])
+        self.assertIn("仅有 Profile 文件不会启用任何路由", self.texts[1])
+        self.assertIn("removes the bundled route/v1 Profile", self.texts[0])
+        self.assertIn("移除了 bundled route/v1 Profile", self.texts[1])
 
     def test_install_tables_and_commands_are_bilingual_contracts(self) -> None:
         english, chinese = self.texts
