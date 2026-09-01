@@ -1,10 +1,10 @@
-# AI Native Dev Team Suite v3.0.0
+# AI Native Dev Team Suite v3.1.0
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
 这是一个由两个 Skill 组成的控制面：为 Coding Agent 划定可写范围，用有证据的验证支撑交付判断，并保留可回退、可恢复的路径。
 
-适合使用 Codex、Hermes Agent 或其他兼容 Skill 宿主的开发者与技术负责人。当前版本是 [v3.0.0](https://github.com/bzbaizhen/ai-native-dev-team-skill/releases/tag/v3.0.0)。
+适合使用 Codex、Hermes Agent 或其他兼容 Skill 宿主的开发者与技术负责人。当前版本是 [v3.1.0](https://github.com/bzbaizhen/ai-native-dev-team-skill/releases/tag/v3.1.0)。
 
 一个 GitHub 仓库正好包含两个可独立安装的规范 Skill：
 
@@ -137,6 +137,6 @@ git diff --check
 
 ## 发布与许可证
 
-当前发布版本是 [GitHub 上的 v3.0.0](https://github.com/bzbaizhen/ai-native-dev-team-skill/releases/tag/v3.0.0)。两个规范 Skill 都从本仓库发布；这不代表存在单独的组件仓库或发布版本。
+当前发布版本是 [GitHub 上的 v3.1.0](https://github.com/bzbaizhen/ai-native-dev-team-skill/releases/tag/v3.1.0)。两个规范 Skill 都从本仓库发布；这不代表存在单独的组件仓库或发布版本。
 
 许可证为 [MIT](LICENSE)。

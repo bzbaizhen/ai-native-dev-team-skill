@@ -1,10 +1,10 @@
-# AI Native Dev Team Suite v3.0.0
+# AI Native Dev Team Suite v3.1.0
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
 A two-Skill control plane for giving Coding Agents bounded ownership, evidence-based validation, and recoverable delivery decisions.
 
-For developers and technical leads using Codex, Hermes Agent, or another compatible Skill host. Current release: [v3.0.0](https://github.com/bzbaizhen/ai-native-dev-team-skill/releases/tag/v3.0.0).
+For developers and technical leads using Codex, Hermes Agent, or another compatible Skill host. Current release: [v3.1.0](https://github.com/bzbaizhen/ai-native-dev-team-skill/releases/tag/v3.1.0).
 
 One GitHub repository contains exactly two independently installable canonical Skills:
 
@@ -143,6 +143,6 @@ These checks validate source structure, routing policy, complete Skill packaging
 
 ## Release and license
 
-The current release is [v3.0.0 on GitHub](https://github.com/bzbaizhen/ai-native-dev-team-skill/releases/tag/v3.0.0). Both canonical Skills are released from this repository; no separate component repository or release is implied.
+The current release is [v3.1.0 on GitHub](https://github.com/bzbaizhen/ai-native-dev-team-skill/releases/tag/v3.1.0). Both canonical Skills are released from this repository; no separate component repository or release is implied.
 
 Licensed under [MIT](LICENSE).

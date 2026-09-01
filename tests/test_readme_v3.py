@@ -5,7 +5,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 README_PATHS = (ROOT / "README.md", ROOT / "README.zh-CN.md")
-RELEASE_URL = "https://github.com/bzbaizhen/ai-native-dev-team-skill/releases/tag/v3.0.0"
+SUITE_VERSION = "v3.1.0"
+TEAM_VERSION = "v3.0.0"
+ROUTER_VERSION = "v0.4.0"
+RELEASE_URL = "https://github.com/bzbaizhen/ai-native-dev-team-skill/releases/tag/v3.1.0"
 LEGACY_NAME = "bootstrap" + "-ai-native-dev-team"
 ROUTER_PROFILE_IDS = (
     "gpt5.6",
@@ -55,16 +58,25 @@ class ReadmeV3ContractTests(unittest.TestCase):
             ],
         )
 
-    def test_first_screen_and_release_identify_v3_two_skills_one_repository(self) -> None:
+    def test_first_screen_and_release_distinguish_suite_and_component_versions(self) -> None:
         english, chinese = self.texts
         for text in self.texts:
-            self.assertIn("v3.0.0", text)
-            self.assertIn("`skills/ai-native-model-router/` v0.4.0", text)
+            self.assertIn(f"# AI Native Dev Team Suite {SUITE_VERSION}", text)
+            self.assertIn(f"`skills/ai-native-dev-team/` {TEAM_VERSION}", text)
+            self.assertIn(f"`skills/ai-native-model-router/` {ROUTER_VERSION}", text)
+            self.assertIn(f"| `ai-native-dev-team` | {TEAM_VERSION[1:]} |", text)
+            self.assertIn(f"| `ai-native-model-router` | {ROUTER_VERSION[1:]} |", text)
             self.assertNotIn("v0.1.0", text)
             self.assertIn(RELEASE_URL, text)
+            self.assertEqual(text.count(RELEASE_URL), 2)
+            self.assertNotIn("releases/tag/v3.0.0", text)
             self.assertIn("ai-native-dev-team", text)
             self.assertIn("ai-native-model-router", text)
             self.assertNotIn("v2.1.0", text)
+        self.assertIn(f"Current release: [{SUITE_VERSION}]({RELEASE_URL})", english)
+        self.assertIn(f"The current release is [{SUITE_VERSION} on GitHub]({RELEASE_URL})", english)
+        self.assertIn(f"当前版本是 [{SUITE_VERSION}]({RELEASE_URL})", chinese)
+        self.assertIn(f"当前发布版本是 [GitHub 上的 {SUITE_VERSION}]({RELEASE_URL})", chinese)
         self.assertIn("One GitHub repository", english)
         self.assertIn("一个 GitHub 仓库", chinese)
 
