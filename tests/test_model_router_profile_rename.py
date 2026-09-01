@@ -1,4 +1,5 @@
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -141,6 +142,35 @@ def write_project_profile(project, profile, directory="profiles"):
     path = profile_dir / f"{profile['profile_id']}.json"
     path.write_text(json.dumps(profile), encoding="utf-8")
     return path
+
+
+def create_directory_link(link, target):
+    try:
+        link.symlink_to(target, target_is_directory=True)
+        return
+    except (OSError, NotImplementedError):
+        if sys.platform != "win32":
+            raise
+    result = subprocess.run(
+        ["cmd.exe", "/c", "mklink", "/J", str(link), str(target)],
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode != 0 or not link.is_dir():
+        raise OSError("directory symlink and junction are unsupported")
+
+
+def remove_directory_link(link):
+    if link.is_symlink():
+        link.unlink()
+    elif sys.platform == "win32" and os.path.lexists(link):
+        subprocess.run(
+            ["cmd.exe", "/c", "rmdir", str(link)],
+            capture_output=True,
+            check=True,
+        )
+    elif os.path.lexists(link):
+        link.unlink()
 
 
 class ModelRouterProfileRemovalTests(unittest.TestCase):
@@ -344,6 +374,50 @@ class ModelRouterProfileRemovalTests(unittest.TestCase):
             self.assertEqual(decision["profile_id"], profile["profile_id"])
             self.assertEqual(decision["router_api_version"], "route/v1")
             self.assertEqual(decision["selected_route"]["model"], "gpt-5.6-luna")
+
+    def test_list_profiles_rejects_external_profile_directory_link(self):
+        external = ROOT / "tests" / f".profile-removal-external-{uuid.uuid4().hex}"
+        external.mkdir()
+        try:
+            with temporary_project() as project:
+                profile = custom_v1_profile("external-custom-v1")
+                (external / f"{profile['profile_id']}.json").write_text(
+                    json.dumps(profile), encoding="utf-8"
+                )
+                link = project / "linked-profiles"
+                try:
+                    try:
+                        create_directory_link(link, external)
+                    except (OSError, NotImplementedError):
+                        self.skipTest("directory symlinks and junctions are unsupported")
+
+                    config_path = project / "config-v1.json"
+                    config_path.write_text(
+                        json.dumps(
+                            project_config(
+                                profile["profile_id"], "route/v1", ["linked-profiles"]
+                            )
+                        ),
+                        encoding="utf-8",
+                    )
+                    result = run_cli(
+                        "list-profiles",
+                        "--config",
+                        str(config_path),
+                        "--project-root",
+                        str(project),
+                    )
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertEqual(result.stdout, "")
+                    self.assertEqual(
+                        result.stderr.strip(),
+                        "ERROR: project profile directory resolves outside project root",
+                    )
+                    self.assertNotIn(profile["profile_id"], result.stdout)
+                finally:
+                    remove_directory_link(link)
+        finally:
+            shutil.rmtree(external)
 
     def test_mixed_v1_and_v2_profile_versions_fail_closed(self):
         with temporary_project() as project:

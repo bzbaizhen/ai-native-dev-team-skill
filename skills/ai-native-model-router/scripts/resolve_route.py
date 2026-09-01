@@ -1102,8 +1102,12 @@ def _profiles(project_root: Path, config: dict[str, Any] | None) -> list[str]:
     dirs = config["project_profile_dirs"] if config else []
     for raw_dir in dirs:
         directory = project_root / _safe_relative(raw_dir)
+        if directory.exists() and not _inside(directory, project_root):
+            _fail("project profile directory resolves outside project root")
         if not directory.exists():
             continue
+        if not directory.is_dir():
+            _fail("project profile directory is not a directory")
         for path in sorted(directory.glob("*.json"), key=lambda item: item.name.casefold()):
             try:
                 item = _load_json(path)
