@@ -65,6 +65,13 @@ reason and validation capacity is available.
 
 ## Windows unattended Coding CLI transport and completion
 
+The following transport defaults apply only when the active host/operator contract does
+not mandate a transport. A mandated PTY remains PTY; do not switch to pipe for convenience.
+On Hermes, reuse `coding-cli-process-lifecycle` for watchdog and exact-process recovery;
+on other hosts use the equivalent host lifecycle procedure. Do not introduce a second
+monitor. Preserve actual natural-exit versus forced-cleanup status; cleanup is not a
+successful normal exit and does not replace candidate verification.
+
 For unattended non-interactive Coding CLI exec, Writer, or Validator invocations on
 Windows that may perform bounded long work, use `pty=false`, `background=true`, and
 `notify_on_complete=true` by default. `pty=true` is reserved for an interactive TUI,

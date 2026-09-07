@@ -116,7 +116,7 @@ class Phase3RenameContractTests(unittest.TestCase):
         skill_text = (TEAM / "SKILL.md").read_text(encoding="utf-8")
         metadata = frontmatter(skill_text)
         self.assertIn("name: ai-native-dev-team", metadata)
-        self.assertIn("version: 3.0.0", metadata)
+        self.assertIn("version: 3.0.1", metadata)
         self.assertIn("author: bzbaizhen, Hermes Agent", metadata)
         self.assertEqual(frontmatter_list(metadata, "platforms"), ["linux", "macos", "windows"])
         self.assertEqual(frontmatter_list(metadata, "related_skills"), ["ai-native-model-router"])
