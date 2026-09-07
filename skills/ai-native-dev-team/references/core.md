@@ -15,7 +15,7 @@ dependency, data, security, concurrency, production, release, or public-action t
    test-writing, or debugging task to one task-scoped Writer on the configured lower-cost
    execution path. There is no generic handoff-cost exception for implementation.
 4. Give the Writer a task-local packet with exact inputs, allowed paths, checks, stop conditions, and rollback.
-5. Run relevant checks and let the main agent review and accept the result.
+5. Run relevant checks and let the main agent review and accept the result. Inspect trustworthy candidate-bound command/log/exit evidence instead of duplicating an unchanged successful run; missing evidence requires only the missing check. Do not introduce DQR or a separate audit for a non-material documentation edit.
 6. Do not create a standing team, charter, Worktree, lease, or evidence folder solely because delegation is available.
 
 | Work | Capability | Reasoning |

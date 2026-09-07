@@ -1,21 +1,21 @@
-# AI Native Dev Team Suite v3.1.0
+# AI Native Dev Team Suite v3.1.1
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
 A two-Skill control plane for giving Coding Agents bounded ownership, evidence-based validation, and recoverable delivery decisions.
 
-For developers and technical leads using Codex, Hermes Agent, or another compatible Skill host. Current release: [v3.1.0](https://github.com/bzbaizhen/ai-native-dev-team-skill/releases/tag/v3.1.0).
+For developers and technical leads using Codex, Hermes Agent, or another compatible Skill host. Current release: [v3.1.1](https://github.com/bzbaizhen/ai-native-dev-team-skill/releases/tag/v3.1.1).
 
 One GitHub repository contains exactly two independently installable canonical Skills:
 
-- `skills/ai-native-dev-team/` v3.0.0 — the required governance-entry Skill.
+- `skills/ai-native-dev-team/` v3.0.1 — the required governance-entry Skill.
 - `skills/ai-native-model-router/` v0.4.0 — the optional routing-extension Skill.
 
 ## What is in the Suite
 
 | Skill | Version | Role | Owns |
 |---|---:|---|---|
-| `ai-native-dev-team` | 3.0.0 | governance-entry | C/R classification, Core/Controlled, topology, permissions, DQR, Git isolation, candidate identity, integration, and recovery. |
+| `ai-native-dev-team` | 3.0.1 | governance-entry | C/R classification, Core/Controlled, topology, permissions, DQR, Git isolation, candidate identity, integration, and recovery. |
 | `ai-native-model-router` | 0.4.0 | routing-extension | Deterministic provider/model resolution through `route/v1` and `route/v2` with `.ai-native/model-router.json`. It does not execute a host. |
 
 The Team is complete on its own. Install the Router only when a project needs a local provider/model decision at the Host boundary.
@@ -143,6 +143,6 @@ These checks validate source structure, routing policy, complete Skill packaging
 
 ## Release and license
 
-The current release is [v3.1.0 on GitHub](https://github.com/bzbaizhen/ai-native-dev-team-skill/releases/tag/v3.1.0). Both canonical Skills are released from this repository; no separate component repository or release is implied.
+The current release is [v3.1.1 on GitHub](https://github.com/bzbaizhen/ai-native-dev-team-skill/releases/tag/v3.1.1). Both canonical Skills are released from this repository; no separate component repository or release is implied.
 
 Licensed under [MIT](LICENSE).

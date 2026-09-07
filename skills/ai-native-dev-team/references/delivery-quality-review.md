@@ -23,6 +23,40 @@ invalidates affected evidence.
 
 ## Independent validation and findings
 
+### Assign test authority once
+
+Name the canonical command and execution owner before the run. Reuse a Writer or Main
+test run only when Main reads its original stdout/stderr and inner runner exit code,
+confirms test discovery/counts and relevant assertions, and verifies the full candidate
+digest before and after execution. Include tracked and untracked candidate inputs;
+HEAD alone cannot identify a dirty candidate. Bind cwd, command/arguments, toolchain,
+lockfiles, generated inputs, permissions, and relevant external dependencies as well.
+Writer summaries, copied counts, a wrapper exit 0, or a missing log are not sufficient.
+
+If that evidence is complete and unchanged, do not rerun the same suite merely because
+Main or a Validator is a different actor. The Validator independently assesses semantics
+and authenticates reused evidence, labeling who executed it; reuse never turns Writer
+self-check into independent semantic validation. An explicitly required independent
+execution remains mandatory. Missing evidence calls for the missing check, not another
+Writer or a replay of all completed stages. A new full-candidate digest invalidates old
+acceptance: rerun affected checks and bind the new review to the replacement candidate.
+
+### Bounded failure investigation
+
+Preserve the first failure and freeze candidate bytes. For a suspected transient failure,
+inspect the original traceback and runtime evidence before changing code. By default,
+allow one exact targeted rerun; if it passes, run the unchanged canonical regression
+once. Both must pass to classify the failure as transient, with the initial failure
+retained. If either fails, stop this retry path and report a reproducible defect or an
+unresolved environment blocker; do not keep rerunning until green.
+
+Additional diagnostics require a concrete new hypothesis, a stated command/time budget,
+and an expected discriminating result, not another review for reassurance. Separate
+product defects from environmental blockers and invalid transport runs. Instrumented
+or alternate-runner success is diagnostic evidence, not a substitute for a failing
+required standard command. Changing that acceptance requirement needs an explicit
+contract decision; failed standard evidence is never overwritten.
+
 For material work, use an independent, read-only Validator from a clean or controlled
 state. The Validator does not silently fix product code. Map each finding to a contract
 requirement, candidate identity, evidence, severity, and required disposition.

@@ -5,10 +5,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 README_PATHS = (ROOT / "README.md", ROOT / "README.zh-CN.md")
-SUITE_VERSION = "v3.1.0"
-TEAM_VERSION = "v3.0.0"
+SUITE_VERSION = "v3.1.1"
+TEAM_VERSION = "v3.0.1"
 ROUTER_VERSION = "v0.4.0"
-RELEASE_URL = "https://github.com/bzbaizhen/ai-native-dev-team-skill/releases/tag/v3.1.0"
+RELEASE_URL = "https://github.com/bzbaizhen/ai-native-dev-team-skill/releases/tag/v3.1.1"
 LEGACY_NAME = "bootstrap" + "-ai-native-dev-team"
 ROUTER_PROFILE_IDS = (
     "gpt5.6",

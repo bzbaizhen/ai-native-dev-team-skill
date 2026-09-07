@@ -1,7 +1,7 @@
 ---
 name: ai-native-dev-team
 description: Route AI-native development with proportional controls.
-version: 3.0.0
+version: 3.0.1
 author: bzbaizhen, Hermes Agent
 license: MIT
 platforms: [linux, macos, windows]

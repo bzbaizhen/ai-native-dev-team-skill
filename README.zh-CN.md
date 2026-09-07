@@ -1,21 +1,21 @@
-# AI Native Dev Team Suite v3.1.0
+# AI Native Dev Team Suite v3.1.1
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
 这是一个由两个 Skill 组成的控制面：为 Coding Agent 划定可写范围，用有证据的验证支撑交付判断，并保留可回退、可恢复的路径。
 
-适合使用 Codex、Hermes Agent 或其他兼容 Skill 宿主的开发者与技术负责人。当前版本是 [v3.1.0](https://github.com/bzbaizhen/ai-native-dev-team-skill/releases/tag/v3.1.0)。
+适合使用 Codex、Hermes Agent 或其他兼容 Skill 宿主的开发者与技术负责人。当前版本是 [v3.1.1](https://github.com/bzbaizhen/ai-native-dev-team-skill/releases/tag/v3.1.1)。
 
 一个 GitHub 仓库正好包含两个可独立安装的规范 Skill：
 
-- `skills/ai-native-dev-team/` v3.0.0：必需的治理入口（governance-entry）。
+- `skills/ai-native-dev-team/` v3.0.1：必需的治理入口（governance-entry）。
 - `skills/ai-native-model-router/` v0.4.0：可选的路由扩展（routing-extension）。
 
 ## 套件包含什么
 
 | Skill | 版本 | 角色 | 负责内容 |
 |---|---:|---|---|
-| `ai-native-dev-team` | 3.0.0 | governance-entry | C/R 分类、Core/Controlled、拓扑、权限、DQR、Git 隔离、候选版本身份、集成和恢复。 |
+| `ai-native-dev-team` | 3.0.1 | governance-entry | C/R 分类、Core/Controlled、拓扑、权限、DQR、Git 隔离、候选版本身份、集成和恢复。 |
 | `ai-native-model-router` | 0.4.0 | routing-extension | 通过 `route/v1`、`route/v2` 和 `.ai-native/model-router.json` 确定具体供应商和模型（provider/model）。它不执行宿主。 |
 
 Team 本身可以独立工作。只有项目需要在宿主边界确定具体供应商和模型时，才安装 Router。
@@ -137,6 +137,6 @@ git diff --check
 
 ## 发布与许可证
 
-当前发布版本是 [GitHub 上的 v3.1.0](https://github.com/bzbaizhen/ai-native-dev-team-skill/releases/tag/v3.1.0)。两个规范 Skill 都从本仓库发布；这不代表存在单独的组件仓库或发布版本。
+当前发布版本是 [GitHub 上的 v3.1.1](https://github.com/bzbaizhen/ai-native-dev-team-skill/releases/tag/v3.1.1)。两个规范 Skill 都从本仓库发布；这不代表存在单独的组件仓库或发布版本。
 
 许可证为 [MIT](LICENSE)。
