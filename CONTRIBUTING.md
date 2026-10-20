@@ -9,9 +9,10 @@ Contributions are welcome when they make the development-team workflow safer, li
 - Preserve bounded continuous-execution authorization, explicit proposal-only conditions, and authority boundaries.
 - Separate implementation self-checks from independent validation.
 - Keep DQR as the material-Controlled acceptance protocol, not a third routing layer.
-- Preserve the fail-closed cost route: only strict C0 work stays with the main agent;
-  C0 batches and C1+ implementation use a task-scoped Writer on the configured lower-cost
-  execution path, with exceptional takeover requiring explicit user authorization.
+- Delegate bounded work when its goal, context, write ownership, and acceptance
+  are clear and it has concrete parallel, model-routing, or independent-review value.
+  Keep simple and tightly coupled work with the main agent; preserve required validation
+  when implementation ownership changes. Cost claims require observed mapping and prices.
 - Keep the canonical Skill, Core/Controlled policy, templates, agent metadata, and global
   trigger vendor-neutral. Vendor-specific mappings belong only in isolated, dated,
   explicitly selected optional profile references with fail-closed tests.

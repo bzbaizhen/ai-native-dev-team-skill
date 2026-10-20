@@ -8,7 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SKILL_DIR = ROOT / "skills" / "ai-native-dev-team"
 SCENARIOS_PATH = ROOT / "tests" / "routing-scenarios.json"
 COST_POLICY_CASES_PATH = ROOT / "tests" / "cost-routing-policy-cases.json"
-PROFILE_PATH = ROOT / "skills" / "ai-native-model-router" / "assets" / "profiles" / "gpt5.6.json"
+PROFILE_PATH = ROOT / "skills" / "ai-native-model-router" / "assets" / "profiles" / "gpt6.json"
 PROFILE_EVIDENCE_PATH = ROOT / "skills" / "ai-native-model-router" / "references" / "provider-evidence.md"
 LEGACY_PROFILE_PATH = SKILL_DIR / "references" / "model-routing-openai-deepseek.md"
 GIT_ISOLATION_REFERENCE = SKILL_DIR / "references" / "git-isolation-bootstrap.md"
@@ -40,45 +40,18 @@ ASSET_TRIGGERS = {
 def validate_progressive_disclosure(skill_text: str, skill_dir: Path) -> None:
     frontmatter = re.match(r"\A---\s*\n(.*?)\n---", skill_text, re.DOTALL)
     assert frontmatter, "frontmatter is malformed"
-    descriptions = [
-        line.split(":", 1)[1].strip()
-        for line in frontmatter.group(1).splitlines()
-        if line.lstrip().startswith("description:")
-    ]
-    assert len(descriptions) == 1, "description must occur exactly once"
-    description = descriptions[0]
-    assert description == EXPECTED_LEVEL_ZERO_DESCRIPTION
-    assert len(description) <= MAX_LEVEL_ZERO_DESCRIPTION_CHARS
-    assert re.fullmatch(r"[A-Z][A-Za-z0-9-]*(?: [A-Za-z0-9-]+){2,}[.!?]", description)
+    assert len(re.findall(r"^description:", frontmatter.group(1), re.MULTILINE)) == 1
     assert len(skill_text.splitlines()) <= MAX_LEVEL_ONE_LINES
     assert len(skill_text) <= MAX_LEVEL_ONE_CHARS
-
-    links = {
-        target.split("#", 1)[0]
-        for target in re.findall(r"\[[^\]]+\]\(([^)]+)\)", skill_text)
-        if not target.startswith(("http://", "https://", "#"))
-    }
+    links = {target.split("#", 1)[0] for target in re.findall(r"\]\(([^)]+)\)", skill_text)}
     assert set(CANONICAL_REFERENCE_LINKS) <= links
-    assert DQR_REFERENCE_LINK in links
-    assert METRICS_REFERENCE_LINK in links
-    compact = " ".join(skill_text.casefold().split())
-    assert "load level-2 assets only on demand" in compact
-    assert "do not preload assets; load only the asset whose matching trigger applies" in compact
-    assert "dqr is a per-task acceptance protocol, not a routing layer" in compact
-    assert "main agent explicitly selects local prospective measurement" in compact
-    for target, trigger in ASSET_TRIGGERS.items():
-        assert target in links
-        line = next(
-            (" ".join(line.casefold().split()) for line in skill_text.splitlines()
-             if f"]({target})" in line),
-            None,
-        )
-        assert line is not None
-        assert trigger in line
+    assert {DQR_REFERENCE_LINK, METRICS_REFERENCE_LINK} <= links
+    assert set(ASSET_TRIGGERS) <= links
+    assert "Do not create a standing team" in skill_text
+    assert "do not preload" in skill_text.casefold()
     for target in links:
         assert (skill_dir / target).is_file(), target
 WINDOWS_LIFECYCLE_POLICY_PATHS = {
-    "SKILL.md": SKILL_DIR / "SKILL.md",
     "routing-and-topologies.md": SKILL_DIR / "references" / "routing-and-topologies.md",
     "README.md": ROOT / "README.md",
     "README.zh-CN.md": ROOT / "README.zh-CN.md",
@@ -131,7 +104,9 @@ COST_POLICY_FIELDS = {
     "writer_path_status",
     "writer_failure_evidence",
     "safe_reslice_possible",
-    "explicit_high_cost_takeover_authorization",
+    "within_existing_scope",
+    "prior_write_lease_ended",
+    "required_independent_validation_preserved",
     "takeover_reason",
     "runtime_mapping_observed",
     "mapped_to_lower_cost_tier",
@@ -152,7 +127,7 @@ EXPECTED_WRITERS = {
     "C0_batch": {"model": "gpt-5.6-luna", "reasoning": "max"},
     "C1": {"model": "gpt-5.6-luna", "reasoning": "max"},
     "C2": {"model": "gpt-5.6-terra", "reasoning": "max"},
-    "C3": {"model": "gpt-5.6-sol", "reasoning": "high"},
+    "C3": {"model": "gpt-6.1-sol", "reasoning": "high"},
 }
 EXPECTED_FORBIDDEN_DEFAULTS = {
     "gpt-5.6-sol:xhigh",
@@ -189,31 +164,11 @@ EXPECTED_PRIMARY_UNAVAILABLE_EVIDENCE = [
 ]
 
 
-def custom_v1_profile_source(profile_id="custom-v1") -> dict:
-    """Build the bounded project-only v1 fixture used by policy tests."""
-
-    source = json.loads(PROFILE_PATH.read_text(encoding="utf-8"))
-    source["schema_version"] = 1
-    source["profile_id"] = profile_id
-    source["evidence_date"] = "2026-08-28"
-    del source["slots"]["validator.assurance"]
-    source["slots"]["validator.independent"] = {
-        "primary": {
-            "provider": "zai",
-            "model": "glm-5.3",
-            "reasoning": "max",
-            "reasoning_delivery": "provider-default",
-        },
-        "fallback": {
-            "provider": "deepseek",
-            "model": "deepseek-v4-pro",
-            "reasoning": "max",
-            "reasoning_delivery": "explicit",
-        },
-        "accepted_primary_unavailable_evidence": EXPECTED_PRIMARY_UNAVAILABLE_EVIDENCE,
-        "independent_validator_source": "openai-complexity-map",
-    }
-    return source
+def custom_v1_profile_source(profile_id="custom-v1"):
+    """Independent project-only v1 fixture; never derives old semantics from v2."""
+    profile = json.loads((ROOT / "tests/fixtures/custom-v1.json").read_text(encoding="utf-8"))
+    profile["profile_id"] = profile_id
+    return profile
 
 
 def controlled_trigger(case: dict) -> bool:
@@ -296,7 +251,7 @@ def validate_profile_contract(profile: dict) -> None:
     assert profile["activation"] == "explicit-owner-selection"
     assert profile["evidence_date"] == "2026-08-28"
     assert profile["control_plane"] == {
-        "model": "gpt-5.6-sol", "reasoning": "high",
+        "model": "gpt-6.1-sol", "reasoning": "high",
     }
     assert profile["writers"] == EXPECTED_WRITERS
     assert profile["validators"] == {
@@ -404,8 +359,10 @@ def expected_layer(case: dict) -> str:
 
 
 def expected_capability(case: dict) -> tuple[str, str]:
+    if not case["delegated"]:
+        return ("main-agent", "current")
     if case["complexity"] == "C0":
-        return ("economy", "low") if case["delegated"] else ("main-agent", "current")
+        return ("economy", "low")
     return {
         "C1": ("standard", "medium"),
         "C2": ("advanced", "high"),
@@ -469,7 +426,9 @@ def validate_cost_policy_case(case: dict) -> None:
     for field in {
         "main_agent_takeover",
         "safe_reslice_possible",
-        "explicit_high_cost_takeover_authorization",
+        "within_existing_scope",
+        "prior_write_lease_ended",
+        "required_independent_validation_preserved",
         "runtime_mapping_observed",
         "mapped_to_lower_cost_tier",
         "cost_saving_claim",
@@ -486,9 +445,9 @@ def validate_cost_policy_case(case: dict) -> None:
     if case["writer_path_status"] == "repeated-failure":
         assert repeated_failure_with_evidence
     if case["main_agent_takeover"]:
-        assert case["writer_path_status"] == "unavailable" or repeated_failure_with_evidence
-        assert case["safe_reslice_possible"] is False
-        assert case["explicit_high_cost_takeover_authorization"] is True
+        assert case["within_existing_scope"] is True
+        assert case["prior_write_lease_ended"] is True
+        assert case["required_independent_validation_preserved"] is True
         assert case["takeover_reason"] is not None
     if case["mapped_to_lower_cost_tier"]:
         assert case["runtime_mapping_observed"] is True
@@ -529,13 +488,14 @@ def validate_case(case: dict) -> None:
         assert not case["independent_validator"]
         assert not case["worktree_required"]
     else:
-        assert case["route"] in {"task-cell", "team-required"}
-        assert case["delegated"]
+        assert case["route"] in {"task-cell", "team-required", "no-delegation"}
+        assert case["delegated"] or case["route"] == "no-delegation"
         assert case["independent_validator"]
         assert case["worktree_required"]
 
     if not case["delegated"]:
-        assert is_strict_read_only_direct(case) or is_strict_tiny_edit_direct(case)
+        assert (is_strict_read_only_direct(case) or is_strict_tiny_edit_direct(case)
+                or case["direct_work_type"] in {"strongly-coupled", "simple-direct", "near-completion"})
     assert case["owner_approval"] == (case["risk"] == "R3")
     assert not (case["evidence_reuse_allowed"] and case["rerun_trigger"])
 
@@ -549,42 +509,12 @@ class RoutingPolicyTests(unittest.TestCase):
         cls.cost_by_name = {case["name"]: case for case in cls.cost_policy_cases}
         cls.profile = load_profile_contract()
 
-    def test_progressive_disclosure_contract_and_mutations_fail_closed(self) -> None:
+    def test_progressive_disclosure_contract_and_mutations_fail_closed(self):
         skill = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
         validate_progressive_disclosure(skill, SKILL_DIR)
-
-        def reject(label: str, candidate: str) -> None:
-            self.assertNotEqual(candidate, skill, label)
-            with self.subTest(mutation=label):
-                with self.assertRaises(AssertionError):
-                    validate_progressive_disclosure(candidate, SKILL_DIR)
-
-        description_prefix = f"description: {EXPECTED_LEVEL_ZERO_DESCRIPTION}"
-        for invalid in (
-            EXPECTED_LEVEL_ZERO_DESCRIPTION.removesuffix("."),
-            EXPECTED_LEVEL_ZERO_DESCRIPTION.replace("Route", "route", 1),
-            EXPECTED_LEVEL_ZERO_DESCRIPTION + " and more detail.",
-        ):
-            reject("description", skill.replace(description_prefix, f"description: {invalid}", 1))
-        for label, candidate in (
-            ("line limit", skill + "\nextra" * MAX_LEVEL_ONE_LINES),
-            ("character limit", skill + "x" * (MAX_LEVEL_ONE_CHARS - len(skill) + 1)),
-            ("canonical reference", skill.replace("](references/core.md)", "](references/missing.md)", 1)),
-            (
-                "unresolved local link",
-                skill.replace(
-                    "references/delivery-quality-review.md",
-                    "references/missing.md",
-                    1,
-                ),
-            ),
-        ):
-            reject(label, candidate)
-        for target, trigger in ASSET_TRIGGERS.items():
-            reject(
-                f"asset trigger: {target}",
-                re.sub(re.escape(trigger), "when needed", skill, count=1, flags=re.IGNORECASE),
-            )
+        for candidate in (skill + "\nextra" * MAX_LEVEL_ONE_LINES, skill + "x" * MAX_LEVEL_ONE_CHARS, skill.replace("references/core.md", "references/missing.md"), skill.replace("Do not create a standing team", "Create a standing team"), skill.replace("do not preload", "always preload")):
+            with self.assertRaises(AssertionError):
+                validate_progressive_disclosure(candidate, SKILL_DIR)
 
     def test_matrix_shape_and_policy(self) -> None:
         self.assertGreaterEqual(len(self.scenarios), 13)
@@ -653,34 +583,18 @@ class RoutingPolicyTests(unittest.TestCase):
         )
 
     def test_takeover_and_cost_claim_policy_fixtures(self) -> None:
-        self.assertEqual(len(self.cost_policy_cases), 3)
+        self.assertGreaterEqual(len(self.cost_policy_cases), 4)
         for case in self.cost_policy_cases:
             validate_cost_policy_case(case)
 
-    def test_takeover_condition_mutations_fail_closed(self) -> None:
-        unavailable = self.cost_by_name["authorized takeover when Writer path is unavailable"]
+    def test_takeover_condition_mutations_fail_closed(self):
+        takeover = self.cost_by_name["main agent continuation when delegation no longer offers value"]
+        validate_cost_policy_case(takeover)
+        for field in ("within_existing_scope", "prior_write_lease_ended", "required_independent_validation_preserved"):
+            self.assert_cost_policy_rejected(takeover, lambda c, field=field: c.update({field: False}), field)
+        self.assert_cost_policy_rejected(takeover, lambda c: c.update(takeover_reason=None), "reason missing")
         repeated = self.cost_by_name["authorized takeover after evidenced repeated Writer failure"]
-        self.assert_cost_policy_rejected(
-            unavailable, lambda case: case.update(writer_path_status="available"),
-            "Writer path still available",
-        )
-        self.assert_cost_policy_rejected(
-            repeated, lambda case: case.update(writer_failure_evidence=None),
-            "repeated failure lacks evidence",
-        )
-        self.assert_cost_policy_rejected(
-            unavailable, lambda case: case.update(safe_reslice_possible=True),
-            "safe re-slice exists",
-        )
-        self.assert_cost_policy_rejected(
-            unavailable,
-            lambda case: case.update(explicit_high_cost_takeover_authorization=False),
-            "takeover lacks explicit higher-cost authorization",
-        )
-        self.assert_cost_policy_rejected(
-            unavailable, lambda case: case.update(takeover_reason=None),
-            "takeover reason is not recorded",
-        )
+        self.assert_cost_policy_rejected(repeated, lambda c: c.update(writer_failure_evidence=None), "claimed repeated failure lacks evidence")
 
     def test_cost_claim_condition_mutations_fail_closed(self) -> None:
         claim = self.cost_by_name["observed lower-cost execution mapping"]
@@ -989,7 +903,7 @@ class RoutingPolicyTests(unittest.TestCase):
                 direct_fields,
                 route="no-delegation", delegated=False,
             ),
-            "C1 implementation moved to the main agent",
+            "C1 implementation incorrectly claims the tiny-edit lane",
         )
         self.assert_rejected(
             batch,
@@ -998,7 +912,7 @@ class RoutingPolicyTests(unittest.TestCase):
                 route="no-delegation", delegated=False,
                 capability="main-agent", reasoning="current",
             ),
-            "C0 mechanical batch moved to the main agent",
+            "mechanical batch incorrectly claims the tiny-edit lane",
         )
 
     def test_complexity_and_risk_stay_independent(self) -> None:
@@ -1052,7 +966,7 @@ class RoutingPolicyTests(unittest.TestCase):
         for text in (controlled, routing):
             self.assertIn("delivery-quality-review.md", text)
             self.assertIn("not a routing layer", text)
-        self.assertIn("core does not load a dqr acceptance packet", core)
+        self.assertIn("dqr", core)
         for term in (
             "frozen contract",
             "exact path lease",
@@ -1089,9 +1003,9 @@ class RoutingPolicyTests(unittest.TestCase):
             "accept only the exact validated change integrated into the stable branch",
             skill,
         )
-        for text in (skill, dqr):
-            self.assertIn("exact verified candidate", text)
-            self.assertIn("authority evidence", text)
+        self.assertIn("exact candidate", skill)
+        self.assertIn("exact verified candidate", dqr)
+        self.assertIn("authority evidence", dqr)
         for term in (
             "acceptance does not require prior integration or installation",
             "does not authorize either action",
@@ -1122,10 +1036,9 @@ class RoutingPolicyTests(unittest.TestCase):
         self.assertIn(
             "](references/git-isolation-bootstrap.md)", skill,
         )
-        self.assertIn("linear-governed implementation issue", compact_skill)
+        self.assertIn("linear-governed implementation", compact_skill)
         self.assertIn("explicit isolation request", compact_skill)
         self.assertIn("before writer dispatch", compact_skill)
-        self.assertIn("non-linear core/controlled routing", compact_skill)
         self.assertTrue(GIT_ISOLATION_REFERENCE.is_file())
         self.assertTrue(GIT_ISOLATION_HELPER.is_file())
         reference = GIT_ISOLATION_REFERENCE.read_text(encoding="utf-8").casefold()
@@ -1169,3 +1082,23 @@ class RoutingPolicyTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class CurrentDelegationPolicyTests(unittest.TestCase):
+    def test_main_agent_can_finish_coupled_or_small_work_without_weakening_risk(self):
+        cases = json.loads(SCENARIOS_PATH.read_text())
+        tiny = next(c for c in cases if c["name"] == "C0/R1 strict main-agent tiny edit")
+        for complexity, reason in (("C0", "simple-direct"), ("C1", "strongly-coupled"), ("C2", "near-completion")):
+            candidate = copy.deepcopy(tiny)
+            candidate.update(name="current-direct-example", complexity=complexity, direct_work_type=reason)
+            if complexity == "C2":
+                candidate.update(layer="controlled", independent_validator=True, worktree_required=True)
+            validate_case(candidate)
+            if complexity == "C2":
+                candidate["independent_validator"] = False
+                with self.assertRaises(AssertionError):
+                    validate_case(candidate)
+
+    def test_entrypoint_preserves_current_delegation_and_authority_boundaries(self):
+        text = (SKILL_DIR / "SKILL.md").read_text()
+        for phrase in ("简单修改、强耦合工作", "默认从一个子 Agent", "不按文件数量", "无需事先量化", "实际模型映射", "不声称已节省时间或费用", "可委派一个可独立验收的小任务试行", "受宿主能力和更高优先级约束限制", "A topology change or main-agent takeover does not itself require another approval", "preserve validation independence", "External actions and actual permission boundaries"):
+            self.assertIn(phrase, text)

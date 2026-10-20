@@ -5,13 +5,13 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 README_PATHS = (ROOT / "README.md", ROOT / "README.zh-CN.md")
-SUITE_VERSION = "v3.1.1"
-TEAM_VERSION = "v3.0.1"
-ROUTER_VERSION = "v0.4.0"
-RELEASE_URL = "https://github.com/bzbaizhen/ai-native-dev-team-skill/releases/tag/v3.1.1"
+SUITE_VERSION = "v3.2.0"
+TEAM_VERSION = "v3.1.0"
+ROUTER_VERSION = "v0.5.1"
+RELEASE_URL = "https://github.com/bzbaizhen/ai-native-dev-team-skill/releases/tag/v3.2.0"
 LEGACY_NAME = "bootstrap" + "-ai-native-dev-team"
 ROUTER_PROFILE_IDS = (
-    "gpt5.6",
+    "gpt6",
 )
 
 
@@ -99,37 +99,26 @@ class ReadmeV3ContractTests(unittest.TestCase):
         self.assertIn("New authentication", english)
         self.assertIn("transport", english)
         self.assertIn("host injection", english)
-        self.assertIn("GLM-5.3", english)
-        self.assertIn("GLM-5.3 Flash", english)
-        self.assertIn("evidence-gated", english)
-        self.assertIn("not automated", english)
-        self.assertIn("R1: Luna Max -> Terra Max -> Sol High", english)
-        self.assertIn("R2: Terra Max -> Sol High", english)
-        self.assertIn("R3 requires strict Terra Max + Sol High", english)
-        self.assertIn("never degrades to one Validator", english)
-        self.assertIn("The bundled `gpt5.6` Profile uses the GPT-5.6 assurance matrix", english)
-        self.assertIn("The generic route/v1 contract remains available", english)
-        self.assertIn("the bundled Profile is not a default or auto-activated", english)
-        self.assertNotIn("The default validation profile", english)
+        for token in ("gpt-6-astra:medium", "gpt-6-luna:max", "gpt-6.1-sol", "R1/R2/R3", "one", "not independent validation"):
+            self.assertIn(token, english)
+        self.assertIn("generic route/v1", english)
+        self.assertIn("not a default or auto-activated", english)
         self.assertIn("Team 本身可以独立工作", chinese)
         self.assertIn("Team、Router、Writer、Validator、RouteDecision、route slot 和 Host Adapter 作为固定名称", chinese)
         self.assertIn("仅改配置", chinese)
         self.assertIn("新增认证", chinese)
-        self.assertIn("R1：Luna Max -> Terra Max -> Sol High", chinese)
-        self.assertIn("R2：Terra Max -> Sol High", chinese)
-        self.assertIn("R3：严格使用 Terra Max + Sol High", chinese)
-        self.assertIn("不会降级为一个 Validator", chinese)
-        self.assertIn("bundled `gpt5.6` Profile 使用上面的 GPT-5.6 assurance 矩阵", chinese)
-        self.assertIn("通用 route/v1 合同仍可用于安全的项目 Profile", chinese)
-        self.assertIn("bundled Profile 不是默认项，也不会自动启用", chinese)
+        for token in ("gpt-6-astra:medium", "gpt-6-luna:max", "gpt-6.1-sol", "R1/R2/R3", "一个", "独立验证"):
+            self.assertIn(token, chinese)
+        self.assertIn("通用 route/v1", chinese)
+        self.assertIn("不会自动启用", chinese)
         self.assertNotIn("默认路由配置", chinese)
 
     def test_router_example_is_exact_and_no_secrets_are_advertised(self) -> None:
         expected = (
             '"schema_version": 2',
             '"router_api_version": "route/v2"',
-            '"config_id": "project-router-v2-2026-08-31"',
-            '"active_profile": "gpt5.6"',
+            '"config_id": "project-router-v2-2026-09-23"',
+            '"active_profile": "gpt6"',
             '"project_profile_dirs": [".ai-native/profiles"]',
             '"updated_reason": "Explicit project profile selection for route/v2."',
         )
@@ -147,8 +136,8 @@ class ReadmeV3ContractTests(unittest.TestCase):
         self.assertIn("必须分别显式选择 Profile 和 Router API/配置版本", self.texts[1])
         self.assertIn("A Profile file's presence does not activate anything", self.texts[0])
         self.assertIn("仅有 Profile 文件不会启用任何路由", self.texts[1])
-        self.assertIn("removes the bundled route/v1 Profile", self.texts[0])
-        self.assertIn("移除了 bundled route/v1 Profile", self.texts[1])
+        self.assertIn("no bundled route/v1 Profile", self.texts[0])
+        self.assertIn("bundled route/v1 Profile", self.texts[1])
 
     def test_install_tables_and_commands_are_bilingual_contracts(self) -> None:
         english, chinese = self.texts

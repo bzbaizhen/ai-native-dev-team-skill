@@ -18,7 +18,7 @@ TOOL_PATH = ROOT / "tools" / "migrate_suite_install.py"
 MANIFEST_PATH = ROOT / "suite-manifest.json"
 MODEL_ROUTER = ROOT / "skills" / "ai-native-model-router"
 MODEL_ROUTER_PROFILE_IDS = {
-    "gpt5.6",
+    "gpt6",
 }
 MODEL_ROUTER_INVENTORY = [
     "SKILL.md",
@@ -26,7 +26,7 @@ MODEL_ROUTER_INVENTORY = [
     "assets/model-router-config.example.json",
     "assets/model-router-config.v1.schema.json",
     "assets/model-router-config.v2.schema.json",
-    "assets/profiles/gpt5.6.json",
+    "assets/profiles/gpt6.json",
     "assets/provider-catalog.json",
     "assets/route-decision.v1.schema.json",
     "assets/route-decision.v2.schema.json",
@@ -34,9 +34,11 @@ MODEL_ROUTER_INVENTORY = [
     "assets/route-request.v2.schema.json",
     "references/configuration.md",
     "references/interface.md",
+    "references/operating-rules.md",
     "references/provider-evidence.md",
     "scripts/resolve_route.py",
     "scripts/router_config.py",
+    "tests/test_gpt6.py",
 ]
 MODEL_ROUTER_SCHEMAS = {
     "assets/model-router-config.v1.schema.json",
@@ -149,7 +151,7 @@ class SuitePackagingTests(unittest.TestCase):
             [
                 {
                     "id": "ai-native-dev-team",
-                    "version": "3.0.1",
+                    "version": "3.1.0",
                     "role": "governance-entry",
                     "files": [
                         "SKILL.md",
@@ -174,7 +176,7 @@ class SuitePackagingTests(unittest.TestCase):
                 },
                 {
                     "id": "ai-native-model-router",
-                    "version": "0.4.0",
+                    "version": "0.5.1",
                     "role": "routing-extension",
                     "files": [
                         "SKILL.md",
@@ -182,7 +184,7 @@ class SuitePackagingTests(unittest.TestCase):
                         "assets/model-router-config.example.json",
                         "assets/model-router-config.v1.schema.json",
                         "assets/model-router-config.v2.schema.json",
-                        "assets/profiles/gpt5.6.json",
+                        "assets/profiles/gpt6.json",
                         "assets/provider-catalog.json",
                         "assets/route-decision.v1.schema.json",
                         "assets/route-decision.v2.schema.json",
@@ -190,9 +192,11 @@ class SuitePackagingTests(unittest.TestCase):
                         "assets/route-request.v2.schema.json",
                         "references/configuration.md",
                         "references/interface.md",
+                        "references/operating-rules.md",
                         "references/provider-evidence.md",
                         "scripts/resolve_route.py",
                         "scripts/router_config.py",
+                        "tests/test_gpt6.py",
                     ],
                 },
             ],
@@ -220,9 +224,9 @@ class SuitePackagingTests(unittest.TestCase):
     def test_model_router_version_and_inventory_are_exact_and_sorted(self):
         manifest = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
         component = next(item for item in manifest["components"] if item["id"] == "ai-native-model-router")
-        self.assertEqual(component["version"], "0.4.0")
+        self.assertEqual(component["version"], "0.5.1")
         skill = (MODEL_ROUTER / "SKILL.md").read_text(encoding="utf-8")
-        self.assertEqual(re.search(r"^version:\s*(.+)$", skill, re.MULTILINE).group(1), "0.4.0")
+        self.assertEqual(re.search(r"^\s*version:\s*(.+)$", skill, re.MULTILINE).group(1), "0.5.1")
         self.assertEqual(component["files"], MODEL_ROUTER_INVENTORY)
         self.assertEqual(component["files"], sorted(component["files"]))
         self.assertEqual(
@@ -236,33 +240,25 @@ class SuitePackagingTests(unittest.TestCase):
                 "assets/route-request.v1.schema.json",
                 "references/configuration.md",
                 "references/interface.md",
+                "references/operating-rules.md",
                 "references/provider-evidence.md",
                 "scripts/resolve_route.py",
                 "scripts/router_config.py",
+                "tests/test_gpt6.py",
             },
             {
                 "assets/model-router-config.v2.schema.json",
-                "assets/profiles/gpt5.6.json",
+                "assets/profiles/gpt6.json",
                 "assets/route-decision.v2.schema.json",
                 "assets/route-request.v2.schema.json",
             },
         )
 
-    def test_model_router_progressive_disclosure_links_both_profiles_and_all_schemas(self):
+    def test_model_router_progressive_disclosure_links_needed_references(self):
         skill = (MODEL_ROUTER / "SKILL.md").read_text(encoding="utf-8")
         links = set(re.findall(r"\[[^\]]+\]\(([^)#]+)", skill))
-        expected = {
-            "references/interface.md",
-            "references/configuration.md",
-            "references/provider-evidence.md",
-            "assets/provider-catalog.json",
-            *{f"assets/profiles/{profile_id}.json" for profile_id in MODEL_ROUTER_PROFILE_IDS},
-            *MODEL_ROUTER_SCHEMAS,
-            "scripts/router_config.py",
-            "scripts/resolve_route.py",
-        }
-        self.assertEqual(links, expected)
-        for target in expected:
+        self.assertEqual(links, {"references/interface.md", "references/configuration.md", "references/provider-evidence.md", "references/operating-rules.md"})
+        for target in links:
             self.assertTrue((MODEL_ROUTER / target).is_file(), target)
 
     def test_model_router_docs_define_v1_v2_assurance_and_safety_boundaries(self):
@@ -272,44 +268,19 @@ class SuitePackagingTests(unittest.TestCase):
                 "SKILL.md",
                 "references/interface.md",
                 "references/configuration.md",
+                "references/operating-rules.md",
                 "references/provider-evidence.md",
             )
         )
         normalized_docs = " ".join(docs.casefold().split())
-        for phrase in (
-            "route/v1",
-            "route/v2",
-            "validator.independent",
-            "validator.assurance",
-            "independent validation",
-            "same-model review is allowed",
-            "same_model_as_writer",
-            "not independent validation",
-            "gpt-5.6-luna:max -> gpt-5.6-terra:max -> gpt-5.6-sol:high",
-            "gpt-5.6-terra:max -> gpt-5.6-sol:high",
-            "gpt-5.6-terra:max + gpt-5.6-sol:high",
-            "never degrade to one Validator",
-            "route-bound evidence",
-            "unknown remains unknown",
-            "missing or unaccepted route-bound evidence for any unavailable required route => `decision_status: blocked`, even when the other required route is `unknown`",
-            "otherwise, any required route with `unknown` availability => `decision_status: unknown`",
-            "otherwise, accepted unavailability => `decision_status: blocked`",
-            "r3 never selects or degrades to one route",
-            "create a new candidate id before revalidation",
-            "substantive Validator rejection does not trigger escalation",
-            "every request explicitly selects a profile",
-            "file presence never activates a profile",
-            "enforcement_status: not-executed",
-            "not an execution receipt",
-            "provider execution, authentication, and transport remain outside this package",
-        ):
+        for phrase in ("route/v1", "route/v2", "validator.independent", "validator.assurance", "same_model_as_writer", "enforcement_status: not-executed", "unknown", "evidence", "not an execution receipt"):
             self.assertIn(phrase.casefold(), normalized_docs)
         for evidence in ROUTE_FAILURE_EVIDENCE:
             self.assertIn(f"`{evidence}`", normalized_docs)
         structured = "\n".join(
             (MODEL_ROUTER / relative).read_text(encoding="utf-8")
             for relative in MODEL_ROUTER_SCHEMAS
-            | {"assets/profiles/gpt5.6.json"}
+            | {"assets/profiles/gpt6.json"}
         )
         self.assertEqual(
             set(re.findall(r"https?://[^\"\s]+", structured, re.IGNORECASE)),

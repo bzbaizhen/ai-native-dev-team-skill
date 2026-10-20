@@ -22,9 +22,17 @@
     "limitations"
   ],
   "properties": {
-    "router_api_version": { "const": "route/v2" },
-    "request_id": { "type": "string", "minLength": 1 },
-    "profile_id": { "type": "string", "minLength": 1 },
+    "router_api_version": {
+      "const": "route/v2"
+    },
+    "request_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "profile_id": {
+      "type": "string",
+      "minLength": 1
+    },
     "route_slot": {
       "type": "string",
       "enum": [
@@ -33,17 +41,22 @@
         "writer.c1",
         "writer.c2",
         "writer.c3",
-        "validator.assurance",
-        "writer.high-volume-deterministic"
+        "validator.assurance"
       ]
     },
     "decision_status": {
       "type": "string",
-      "enum": ["selected", "blocked", "unknown"]
+      "enum": [
+        "selected",
+        "blocked",
+        "unknown"
+      ]
     },
     "enforcement_status": {
       "type": "string",
-      "enum": ["not-executed"]
+      "enum": [
+        "not-executed"
+      ]
     },
     "selected_routes": {
       "type": "array",
@@ -53,38 +66,84 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["provider", "runtime_provider", "model", "reasoning", "reasoning_delivery"],
+        "required": [
+          "provider",
+          "runtime_provider",
+          "model",
+          "reasoning",
+          "reasoning_delivery"
+        ],
         "properties": {
-          "provider": { "type": "string", "minLength": 1 },
-          "runtime_provider": { "type": "string", "minLength": 1 },
-          "model": { "type": "string", "minLength": 1 },
-          "reasoning": { "type": "string", "minLength": 1 },
-          "reasoning_delivery": { "type": "string", "minLength": 1 }
+          "provider": {
+            "type": "string",
+            "minLength": 1
+          },
+          "runtime_provider": {
+            "type": "string",
+            "minLength": 1
+          },
+          "model": {
+            "type": "string",
+            "minLength": 1
+          },
+          "reasoning": {
+            "type": "string",
+            "minLength": 1
+          },
+          "reasoning_delivery": {
+            "type": "string",
+            "minLength": 1
+          }
         }
       }
     },
     "validation_mode": {
       "type": "string",
-      "enum": ["not-applicable", "single", "dual"]
+      "enum": [
+        "not-applicable",
+        "single",
+        "dual"
+      ]
     },
     "risk_level": {
-      "type": ["string", "null"],
-      "enum": ["R1", "R2", "R3", null]
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "R1",
+        "R2",
+        "R3",
+        null
+      ]
     },
-    "escalation_used": { "type": "boolean" },
+    "escalation_used": {
+      "type": "boolean"
+    },
     "escalation_evidence": {
       "type": "object",
-      "propertyNames": { "type": "string", "pattern": "^[^/\\s]+/[^/\\s]+$" },
+      "propertyNames": {
+        "type": "string",
+        "pattern": "^[^/\\s]+/[^/\\s]+$"
+      },
       "additionalProperties": {
         "type": "array",
-        "items": { "type": "string", "minLength": 1 },
+        "items": {
+          "type": "string",
+          "minLength": 1
+        },
         "uniqueItems": true
       }
     },
-    "same_model_as_writer": { "type": "boolean" },
+    "same_model_as_writer": {
+      "type": "boolean"
+    },
     "validator_source": {
       "type": "string",
-      "enum": ["router-selected", "not-applicable"]
+      "enum": [
+        "router-selected",
+        "not-applicable"
+      ]
     },
     "config_digest": {
       "type": "string",
@@ -92,94 +151,161 @@
     },
     "limitations": {
       "type": "array",
-      "items": { "type": "string", "minLength": 1 }
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
     }
   },
   "allOf": [
     {
       "if": {
-        "properties": { "route_slot": { "const": "validator.assurance" } }
+        "properties": {
+          "route_slot": {
+            "const": "validator.assurance"
+          }
+        }
       },
       "then": {
         "properties": {
-          "risk_level": { "type": "string", "enum": ["R1", "R2", "R3"] },
-          "validator_source": { "const": "router-selected" }
+          "risk_level": {
+            "type": "string",
+            "enum": [
+              "R1",
+              "R2",
+              "R3"
+            ]
+          },
+          "validator_source": {
+            "const": "router-selected"
+          },
+          "validation_mode": {
+            "const": "single"
+          }
         }
       },
       "else": {
         "properties": {
-          "risk_level": { "const": null },
-          "validation_mode": { "const": "not-applicable" },
-          "same_model_as_writer": { "const": false },
-          "validator_source": { "const": "not-applicable" }
+          "risk_level": {
+            "const": null
+          },
+          "validation_mode": {
+            "const": "not-applicable"
+          },
+          "same_model_as_writer": {
+            "const": false
+          },
+          "validator_source": {
+            "const": "not-applicable"
+          }
         }
       }
     },
     {
       "if": {
-        "properties": { "risk_level": { "const": "R3" } }
-      },
-      "then": {
-        "properties": { "validation_mode": { "enum": ["dual"] } }
-      }
-    },
-    {
-      "if": {
-        "properties": { "route_slot": { "const": "validator.assurance" } }
+        "properties": {
+          "route_slot": {
+            "const": "validator.assurance"
+          }
+        }
       },
       "then": {
         "allOf": [
           {
             "if": {
-              "properties": { "risk_level": { "enum": ["R1", "R2"] } }
-            },
-            "then": {
-              "properties": { "validation_mode": { "const": "single" } }
-            }
-          },
-          {
-            "if": {
-              "properties": { "risk_level": { "const": "R3" } }
-            },
-            "then": {
-              "properties": { "validation_mode": { "const": "dual" } }
-            }
-          },
-          {
-            "if": {
               "properties": {
-                "decision_status": { "const": "selected" },
-                "risk_level": { "enum": ["R1", "R2"] }
+                "risk_level": {
+                  "enum": [
+                    "R1",
+                    "R2"
+                  ]
+                }
               }
             },
             "then": {
               "properties": {
-                "selected_routes": { "minItems": 1, "maxItems": 1 }
+                "validation_mode": {
+                  "const": "single"
+                }
               }
             }
           },
           {
             "if": {
               "properties": {
-                "decision_status": { "const": "selected" },
-                "risk_level": { "const": "R3" }
+                "risk_level": {
+                  "const": "R3"
+                }
               }
             },
             "then": {
               "properties": {
-                "selected_routes": { "minItems": 2, "maxItems": 2 }
+                "validation_mode": {
+                  "const": "single"
+                }
               }
             }
           },
           {
             "if": {
               "properties": {
-                "decision_status": { "enum": ["blocked", "unknown"] }
+                "decision_status": {
+                  "const": "selected"
+                },
+                "risk_level": {
+                  "enum": [
+                    "R1",
+                    "R2"
+                  ]
+                }
               }
             },
             "then": {
               "properties": {
-                "selected_routes": { "minItems": 0, "maxItems": 0 }
+                "selected_routes": {
+                  "minItems": 1,
+                  "maxItems": 1
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "decision_status": {
+                  "const": "selected"
+                },
+                "risk_level": {
+                  "const": "R3"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "selected_routes": {
+                  "minItems": 1,
+                  "maxItems": 1
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "decision_status": {
+                  "enum": [
+                    "blocked",
+                    "unknown"
+                  ]
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "selected_routes": {
+                  "minItems": 0,
+                  "maxItems": 0
+                }
               }
             }
           }
@@ -188,29 +314,59 @@
     },
     {
       "if": {
-        "properties": { "decision_status": { "const": "selected" } }
+        "properties": {
+          "decision_status": {
+            "const": "selected"
+          }
+        }
       },
       "then": {
-        "properties": { "selected_routes": { "minItems": 1 } }
-      }
-    },
-    {
-      "if": {
-        "properties": { "decision_status": { "enum": ["blocked", "unknown"] } }
-      },
-      "then": {
-        "properties": { "selected_routes": { "minItems": 0, "maxItems": 0 } }
+        "properties": {
+          "selected_routes": {
+            "minItems": 1
+          }
+        }
       }
     },
     {
       "if": {
         "properties": {
-          "route_slot": { "not": { "const": "validator.assurance" } },
-          "decision_status": { "const": "selected" }
+          "decision_status": {
+            "enum": [
+              "blocked",
+              "unknown"
+            ]
+          }
         }
       },
       "then": {
-        "properties": { "selected_routes": { "maxItems": 1 } }
+        "properties": {
+          "selected_routes": {
+            "minItems": 0,
+            "maxItems": 0
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "route_slot": {
+            "not": {
+              "const": "validator.assurance"
+            }
+          },
+          "decision_status": {
+            "const": "selected"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "selected_routes": {
+            "maxItems": 1
+          }
+        }
       }
     }
   ]

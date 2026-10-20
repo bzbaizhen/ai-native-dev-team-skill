@@ -1,22 +1,22 @@
-# AI Native Dev Team Suite v3.1.1
+# AI Native Dev Team Suite v3.2.0
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
 A two-Skill control plane for giving Coding Agents bounded ownership, evidence-based validation, and recoverable delivery decisions.
 
-For developers and technical leads using Codex, Hermes Agent, or another compatible Skill host. Current release: [v3.1.1](https://github.com/bzbaizhen/ai-native-dev-team-skill/releases/tag/v3.1.1).
+For developers and technical leads using Codex, Hermes Agent, or another compatible Skill host. Current release: [v3.2.0](https://github.com/bzbaizhen/ai-native-dev-team-skill/releases/tag/v3.2.0).
 
 One GitHub repository contains exactly two independently installable canonical Skills:
 
-- `skills/ai-native-dev-team/` v3.0.1 — the required governance-entry Skill.
-- `skills/ai-native-model-router/` v0.4.0 — the optional routing-extension Skill.
+- `skills/ai-native-dev-team/` v3.1.0 — the required governance-entry Skill.
+- `skills/ai-native-model-router/` v0.5.1 — the optional routing-extension Skill.
 
 ## What is in the Suite
 
 | Skill | Version | Role | Owns |
 |---|---:|---|---|
-| `ai-native-dev-team` | 3.0.1 | governance-entry | C/R classification, Core/Controlled, topology, permissions, DQR, Git isolation, candidate identity, integration, and recovery. |
-| `ai-native-model-router` | 0.4.0 | routing-extension | Deterministic provider/model resolution through `route/v1` and `route/v2` with `.ai-native/model-router.json`. It does not execute a host. |
+| `ai-native-dev-team` | 3.1.0 | governance-entry | C/R classification, Core/Controlled, topology, permissions, DQR, Git isolation, candidate identity, integration, and recovery. |
+| `ai-native-model-router` | 0.5.1 | routing-extension | Deterministic provider/model resolution through `route/v1` and `route/v2` with `.ai-native/model-router.json`. It does not execute a host. |
 
 The Team is complete on its own. Install the Router only when a project needs a local provider/model decision at the Host boundary.
 
@@ -65,8 +65,9 @@ Use $ai-native-dev-team with $ai-native-model-router. Inspect the task, emit the
 Create `.ai-native/model-router.json` with the matching versioned shape below. The
 `active_profile` is explicit. Both the Profile and Router API/configuration version
 are explicit. A Profile file's presence does not activate anything. No secrets
-belong in this file. Router v0.4.0 removes the bundled route/v1 Profile: the only
-bundled example is `gpt5.6` with route/v2. The generic route/v1 schemas and APIs
+belong in this file. Router v0.5.1 replaces the retired `gpt5.6` Profile with `gpt6` on route/v2.
+There is no bundled route/v1 Profile. Migrate existing `gpt5.6` configurations
+explicitly; the retired ID is rejected. The generic route/v1 schemas and APIs
 remain available for safe project-local Profiles; retired Profile IDs are rejected
 and are not aliases or supported discovery names.
 
@@ -74,14 +75,20 @@ and are not aliases or supported discovery names.
 {
   "schema_version": 2,
   "router_api_version": "route/v2",
-  "config_id": "project-router-v2-2026-08-31",
-  "active_profile": "gpt5.6",
+  "config_id": "project-router-v2-2026-09-23",
+  "active_profile": "gpt6",
   "project_profile_dirs": [".ai-native/profiles"],
   "updated_reason": "Explicit project profile selection for route/v2."
 }
 ```
 
-The assurance matrix is: R1: Luna Max -> Terra Max -> Sol High; R2: Terra Max -> Sol High; R3 requires strict Terra Max + Sol High and never degrades to one Validator. The API/config version and Profile must match; merely having a Profile file does not activate anything. See the [v1 configuration schema](skills/ai-native-model-router/assets/model-router-config.v1.schema.json), [v2 configuration schema](skills/ai-native-model-router/assets/model-router-config.v2.schema.json), and [bundled v2 example](skills/ai-native-model-router/assets/model-router-config.example.json). Configuration-only switching is limited to an existing Host Adapter contract. New authentication, transport, or host injection requires Adapter code; the Router does not add any of those capabilities.
+The bundled `gpt6` Profile uses `gpt-6-astra:medium` for the control plane,
+`gpt-6-luna:max` for C0 batches, and `gpt-6.1-sol` at low/medium/high for C1/C2/C3.
+R1/R2/R3 each use one `gpt-6.1-sol` review at low/medium/high respectively,
+including R3. Same-model review is reported and is not independent validation.
+Unknown availability stays unknown; an unavailable assurance route blocks.
+
+The API/config version and Profile must match; merely having a Profile file does not activate anything. See the [v1 configuration schema](skills/ai-native-model-router/assets/model-router-config.v1.schema.json), [v2 configuration schema](skills/ai-native-model-router/assets/model-router-config.v2.schema.json), and [bundled v2 example](skills/ai-native-model-router/assets/model-router-config.example.json). Configuration-only switching is limited to an existing Host Adapter contract. New authentication, transport, or host injection requires Adapter code; the Router does not add any of those capabilities.
 
 ## Workflow
 
@@ -93,6 +100,8 @@ Complexity and risk are separate inputs:
 | `R0-R3` risk | Permission level, independent review, approval, rollback, and recovery gates. |
 
 The Team selects `Core` for ordinary low-risk work and `Controlled` when material behavior, higher complexity/risk, interface or dependency change, concurrency, production, release, or public effect needs stronger gates. DQR is the per-task acceptance protocol inside `Controlled`, not a third layer.
+
+Delegate a bounded task when its goal, context, write ownership, and acceptance are clear and it has concrete parallel, model-routing, or necessary independent-review value. Keep simple or tightly coupled work with the main agent. Do not claim cost savings without runtime and pricing evidence.
 
 For material work, one path-bounded `Writer` writes the frozen scope and an independent `Validator` checks the exact candidate without silently fixing it. The Team owns the contract, permissions, topology, candidate identity, integration order, and recovery decision.
 
@@ -106,7 +115,7 @@ Acceptance, integration, installation, and release are different states. A green
 ## Safety boundaries
 
 - Permissions are layered: the Team controls task scope and authority; `Writer` receives only its path lease; `Validator` is independent; Owner approval remains required where risk calls for it.
-- The bundled `gpt5.6` Profile uses the GPT-5.6 assurance matrix above. Its explicitly selected high-volume `Writer` remains GLM-5.3 Flash with DeepSeek V4 Flash as an evidence-gated fallback. The generic route/v1 contract remains available for safe project-local Profiles. Profile/API selection is always explicit; the bundled Profile is not a default or auto-activated. Availability remains an input; it is not inferred.
+- The bundled `gpt6` Profile contains only OpenAI routes and no high-volume GLM/DeepSeek writer or fallback. The generic route/v1 contract remains available for safe project-local Profiles with legacy catalog identities. Profile/API selection is always explicit; the bundled Profile is not a default or auto-activated. Availability remains an input; it is not inferred.
 - Router output is advisory and not executed: every `RouteDecision` has `enforcement_status: not-executed`. The Host Adapter owns invocation, credentials, transport, and execution.
 - Fallback evidence must be explicit and accepted by the active profile. An unspecified error, subjective quality judgment, or missing availability is not enough.
 - For unattended non-interactive Coding CLI exec, Writer, or Validator invocations on Windows, use `pty=false`, `background=true`, and `notify_on_complete=true` by default. `pty=true` is reserved for an interactive TUI, login, or a command that genuinely requires terminal input; never apply it unconditionally to unattended exec. Final output text, a final-answer marker, or a tokens-used line is not process-exit evidence: accept only after registry status `exited` captures the exit code. Use one short bounded grace check, inspect fresh process status, terminate only the exact tracked process if necessary, never start a duplicate Writer, and never repeatedly wait/reconnect.
@@ -134,6 +143,7 @@ Start with the [Team Skill](skills/ai-native-dev-team/SKILL.md), [Router Skill](
 Run the public checks from the repository root:
 
 ```text
+python -m pip install "jsonschema>=4,<5"
 python -X utf8 tests/validate_skill.py
 python -X utf8 -m unittest discover -s tests -p "test_*.py" -v
 git diff --check
@@ -143,6 +153,6 @@ These checks validate source structure, routing policy, complete Skill packaging
 
 ## Release and license
 
-The current release is [v3.1.1 on GitHub](https://github.com/bzbaizhen/ai-native-dev-team-skill/releases/tag/v3.1.1). Both canonical Skills are released from this repository; no separate component repository or release is implied.
+The current release is [v3.2.0 on GitHub](https://github.com/bzbaizhen/ai-native-dev-team-skill/releases/tag/v3.2.0). Both canonical Skills are released from this repository; no separate component repository or release is implied.
 
 Licensed under [MIT](LICENSE).

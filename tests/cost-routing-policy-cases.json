@@ -5,11 +5,13 @@
     "writer_path_status": "unavailable",
     "writer_failure_evidence": null,
     "safe_reslice_possible": false,
-    "explicit_high_cost_takeover_authorization": true,
     "takeover_reason": "Configured Writer path is unavailable at runtime.",
     "runtime_mapping_observed": false,
     "mapped_to_lower_cost_tier": false,
-    "cost_saving_claim": false
+    "cost_saving_claim": false,
+    "within_existing_scope": true,
+    "prior_write_lease_ended": true,
+    "required_independent_validation_preserved": true
   },
   {
     "name": "authorized takeover after evidenced repeated Writer failure",
@@ -17,11 +19,13 @@
     "writer_path_status": "repeated-failure",
     "writer_failure_evidence": "Two bounded Writer attempts failed the same required check.",
     "safe_reslice_possible": false,
-    "explicit_high_cost_takeover_authorization": true,
     "takeover_reason": "No smaller safe implementation slice remains.",
     "runtime_mapping_observed": false,
     "mapped_to_lower_cost_tier": false,
-    "cost_saving_claim": false
+    "cost_saving_claim": false,
+    "within_existing_scope": true,
+    "prior_write_lease_ended": true,
+    "required_independent_validation_preserved": true
   },
   {
     "name": "observed lower-cost execution mapping",
@@ -29,10 +33,26 @@
     "writer_path_status": "available",
     "writer_failure_evidence": null,
     "safe_reslice_possible": true,
-    "explicit_high_cost_takeover_authorization": false,
     "takeover_reason": null,
     "runtime_mapping_observed": true,
     "mapped_to_lower_cost_tier": true,
-    "cost_saving_claim": true
+    "cost_saving_claim": true,
+    "within_existing_scope": true,
+    "prior_write_lease_ended": true,
+    "required_independent_validation_preserved": true
+  },
+  {
+    "name": "main agent continuation when delegation no longer offers value",
+    "main_agent_takeover": true,
+    "writer_path_status": "available",
+    "writer_failure_evidence": null,
+    "safe_reslice_possible": true,
+    "takeover_reason": "Remaining implementation shares one state machine and is near completion.",
+    "runtime_mapping_observed": false,
+    "mapped_to_lower_cost_tier": false,
+    "cost_saving_claim": false,
+    "within_existing_scope": true,
+    "prior_write_lease_ended": true,
+    "required_independent_validation_preserved": true
   }
 ]

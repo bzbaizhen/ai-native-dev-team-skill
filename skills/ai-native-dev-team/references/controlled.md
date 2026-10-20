@@ -12,8 +12,8 @@ delivery review; it is not a routing layer.
 
 - Keep the main agent as fact, scope, architecture-decision, routing, contract,
   permission, conflict, integration, evidence-review, stop, and acceptance owner. It
-  does not duplicate the Writer's repository exploration, implementation, or test/debug loop.
-- Use one path-bounded Writer on the configured lower-cost execution path and one
+  avoids repeating Writer work supported by reliable evidence; necessary independent review is preserved.
+- Use one path-bounded Writer on a configured suitable, available execution path and one
   independent Validator for material work.
 - Add a specialist only for a concrete architecture, security, privacy, data, operations, or Owner gate.
 - Freeze a bounded, independently acceptable user behavior and its interface boundary. Keep closely coupled changes to one state machine in one slice; split only for distinct authority, interface, ownership, or acceptance boundaries, not per file or UI micro-step. One file has one Writer.
@@ -31,14 +31,9 @@ delivery review; it is not a routing layer.
 
 Risk strengthens gates, not implementation capability. C1/R3 remains Standard/Medium
 implementation with R3 authority, security, rollback, and recovery controls. C3
-architecture may remain with the main agent, but frozen implementation slices go to
-Writers; C3/R1 does not automatically gain production authority.
+architecture may remain with the main agent, and delegates frozen implementation slices when the delegation conditions in SKILL.md hold; C3/R1 does not automatically gain production authority.
 
-Higher-cost main-agent implementation takeover is exceptional. Allow it only when the
-Writer path is unavailable or repeatedly fails with evidence, the task cannot be safely
-re-sliced, the user explicitly authorizes the takeover, and the reason is recorded. An
-orchestration subagent supports a cost-saving claim only when its observable runtime
-mapping is to a lower-cost tier; never infer that mapping.
+The main agent may take over implementation within existing scope when delegation no longer offers concrete value. End the prior write lease first and retain required independent validation; do not add another approval solely for changing implementers. Cost-saving claims require observable runtime evidence.
 
 For R3, obtain explicit Owner approval, least-privilege and sanitized-data review, exact
 candidate validation, executable rollback or recovery evidence, and stable-state

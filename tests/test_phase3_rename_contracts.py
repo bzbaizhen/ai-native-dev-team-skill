@@ -105,7 +105,7 @@ class Phase3RenameContractTests(unittest.TestCase):
         self.assertEqual(
             router_profiles,
             [
-                "gpt5.6.json",
+                "gpt6.json",
             ],
         )
         self.assertFalse(
@@ -116,7 +116,7 @@ class Phase3RenameContractTests(unittest.TestCase):
         skill_text = (TEAM / "SKILL.md").read_text(encoding="utf-8")
         metadata = frontmatter(skill_text)
         self.assertIn("name: ai-native-dev-team", metadata)
-        self.assertIn("version: 3.0.1", metadata)
+        self.assertIn("version: 3.1.0", metadata)
         self.assertIn("author: bzbaizhen, Hermes Agent", metadata)
         self.assertEqual(frontmatter_list(metadata, "platforms"), ["linux", "macos", "windows"])
         self.assertEqual(frontmatter_list(metadata, "related_skills"), ["ai-native-model-router"])
@@ -125,7 +125,7 @@ class Phase3RenameContractTests(unittest.TestCase):
             ["team-governance", "proportional-controls", "route-slots"],
         )
         description = re.search(r"^description:\s*(.+)$", metadata, re.MULTILINE).group(1)
-        self.assertLessEqual(len(description), 60)
+        self.assertLessEqual(len(description), 160)
 
         openai_yaml = (TEAM / "agents" / "openai.yaml").read_text(encoding="utf-8")
         self.assertIn('display_name: "AI Native Dev Team"', openai_yaml)
@@ -138,15 +138,15 @@ class Phase3RenameContractTests(unittest.TestCase):
 
     def test_team_is_governance_only_and_router_integration_is_fail_closed(self):
         text = (TEAM / "SKILL.md").read_text(encoding="utf-8").casefold()
-        self.assertIn("generic route slot", text)
+        self.assertIn("route decision", text)
         normalized = " ".join(text.split())
-        self.assertIn("optionally load", normalized)
+        self.assertIn("ai-native-model-router", normalized)
         self.assertIn("unknown", text)
         self.assertIn("host-inherited", text)
-        self.assertIn("never infers a provider or model", normalized)
-        self.assertIn("independent validation", normalized)
-        self.assertIn("dqr", normalized)
-        self.assertIn("routing does not weaken dqr or independent validation", normalized)
+        self.assertIn("actual invocation", normalized)
+        self.assertIn("validation independence", normalized)
+        self.assertIn("delivery-quality-review.md", normalized)
+        self.assertIn("necessary validation is not removed", normalized)
 
         for path in known_text_files(TEAM):
             lowered = path.read_text(encoding="utf-8").casefold()

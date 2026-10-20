@@ -38,7 +38,7 @@ def remove_test_owned_root(path: Path) -> None:
 
 @contextmanager
 def disposable_directory():
-    path = Path(tempfile.gettempdir()) / f"git-isolation-bootstrap-{uuid4().hex}"
+    path = Path(tempfile.gettempdir()).resolve() / f"git-isolation-bootstrap-{uuid4().hex}"
     path.mkdir()
     try:
         yield path
@@ -119,7 +119,7 @@ def repair_probe_environment(root: Path, target: Path, fail_repair: bool) -> tup
 def make_repo(root: Path, name: str = "isolation-repo") -> tuple[Path, str]:
     repo = root / name
     repo.mkdir()
-    git(repo, "init")
+    git(repo, "init", "--initial-branch=fixture-unborn")
     git(repo, "config", "user.name", "Isolation Test")
     git(repo, "config", "user.email", "isolation@example.invalid")
     (repo / "README.md").write_text("fixture\n", encoding="utf-8")
@@ -155,7 +155,7 @@ def make_remote_only_repo(root: Path, branch: str) -> tuple[Path, str]:
     )
     repo = root / "consumer"
     repo.mkdir()
-    git(repo, "init")
+    git(repo, "init", "--initial-branch=fixture-unborn")
     git(repo, "config", "user.name", "Isolation Test")
     git(repo, "config", "user.email", "isolation@example.invalid")
     git(repo, "fetch", str(bundle), "refs/heads/main:refs/heads/main")

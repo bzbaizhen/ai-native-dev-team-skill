@@ -7,7 +7,7 @@
   "components": [
     {
       "id": "ai-native-dev-team",
-      "version": "3.0.1",
+      "version": "3.1.0",
       "role": "governance-entry",
       "files": [
         "SKILL.md",
@@ -32,7 +32,7 @@
     },
     {
       "id": "ai-native-model-router",
-      "version": "0.4.0",
+      "version": "0.5.1",
       "role": "routing-extension",
       "files": [
         "SKILL.md",
@@ -40,7 +40,7 @@
         "assets/model-router-config.example.json",
         "assets/model-router-config.v1.schema.json",
         "assets/model-router-config.v2.schema.json",
-        "assets/profiles/gpt5.6.json",
+        "assets/profiles/gpt6.json",
         "assets/provider-catalog.json",
         "assets/route-decision.v1.schema.json",
         "assets/route-decision.v2.schema.json",
@@ -48,9 +48,11 @@
         "assets/route-request.v2.schema.json",
         "references/configuration.md",
         "references/interface.md",
+        "references/operating-rules.md",
         "references/provider-evidence.md",
         "scripts/resolve_route.py",
-        "scripts/router_config.py"
+        "scripts/router_config.py",
+        "tests/test_gpt6.py"
       ]
     }
   ],

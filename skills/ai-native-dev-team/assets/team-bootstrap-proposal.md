@@ -37,7 +37,7 @@
 - Route: `no-delegation / single-worker / task-cell / team-required`
 - Capability: `main-agent / economy / standard / advanced / frontier`
 - Reasoning: `current / low / medium / high / max`
-- Implementation executor: `main-agent-strict-c0 / task-scoped-writer`
+- Implementation executor: `main-agent / task-scoped-writer`
 - Active routing profile: `none / <explicitly-selected-profile-id>`
 - Profile selection authority/evidence:
 - Configured lower-cost execution path:
@@ -46,7 +46,7 @@
 - Observable lower-cost runtime mapping evidence:
 - Fallback or escalation reason:
 - Optional task-local observations: input tokens `unknown`; output tokens `unknown`; steps `unknown`; first-pass result `unknown`; reopens `unknown`; escalation reason `none / unknown / <reason>`
-- Main-agent takeover evidence, re-slice analysis, explicit authorization, and reason:
+- Main-agent takeover reason, write-lease transfer, and retained validation:
 - Environment fingerprint:
 - DQR for material acceptance: `not-applicable / required`
 - Optional prospective metrics: `not-selected / selected; main-agent ledger writer only`

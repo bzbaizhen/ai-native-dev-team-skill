@@ -23,9 +23,10 @@ SCHEMA_VERSION = 1
 ROUTER_API_VERSION = "route/v1"
 SCHEMA_VERSION_V2 = 2
 ROUTER_API_VERSION_V2 = "route/v2"
-CURRENT_BUNDLED_PROFILE_ID = "gpt5.6"
+CURRENT_BUNDLED_PROFILE_ID = "gpt6"
 RETIRED_PROFILE_IDS = frozenset(
     {
+        "gpt5.6",
         "glm+deepseek",
         "openai-glm5.3-deepseek-fallback-2026-08-28",
         "openai-gpt5.6-validator-assurance-2026-08-31",

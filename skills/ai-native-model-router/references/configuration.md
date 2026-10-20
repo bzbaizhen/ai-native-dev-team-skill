@@ -4,7 +4,7 @@ The mutable project document is `.ai-native/model-router.json`. Its exact v1 and
 v2 fields are defined by their bundled config schemas. The profile and
 `router_api_version` must use the same version; mixed versions fail closed. Every
 request explicitly selects a profile; file presence alone never activates a
-profile. The bundled `gpt5.6` Profile uses route/v2 and is inactive by default;
+profile. The bundled `gpt6` Profile uses route/v2 and is inactive by default;
 it requires `explicit-owner-selection`. The route/v1 contract remains available
 for safe project-local Profiles, but there is no bundled route/v1 Profile.
 
@@ -35,3 +35,6 @@ profile. A profile file being present or listed never activates it.
 Provider execution, authentication, and transport remain outside this package.
 Configuration contains no secret, endpoint, credential, transport command, or
 price values.
+
+The retired `gpt5.6` profile is rejected; explicitly migrate an old project config
+to `gpt6` before resolving it. Creating a profile does not rewrite other projects.

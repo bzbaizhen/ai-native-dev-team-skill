@@ -28,7 +28,7 @@ ROOT = Path(__file__).resolve().parents[1]
 ASSET_DIR = ROOT / "assets"
 PROFILE_DIR = ASSET_DIR / "profiles"
 CATALOG_PATH = ASSET_DIR / "provider-catalog.json"
-V2_PROFILE_ID = "gpt5.6"
+V2_PROFILE_ID = "gpt6"
 ROUTE_SLOTS = (
     "control-plane",
     "writer.c0-batch",
@@ -51,7 +51,6 @@ ROUTE_SLOTS_V2 = (
     "writer.c2",
     "writer.c3",
     "validator.assurance",
-    "writer.high-volume-deterministic",
 )
 PROFILE_IDS = (V2_PROFILE_ID,)
 EVIDENCE = (
@@ -68,10 +67,6 @@ FORBIDDEN_KEYS = {
 }
 SAFE_RELATIVE = re.compile(r"^[^\\/:*?\"<>|\x00-\x1f\x7f]+(?:[/\\][^\\/:*?\"<>|\x00-\x1f\x7f]+)*$")
 V2_ROUTE_KEY = re.compile(r"^[^/\s]+/[^/\s]+$")
-OWNER_R3_LIMITATION = (
-    "Owner boundary: R3 dual assurance cannot proceed without both required "
-    "Validator routes; single-validator degradation is forbidden."
-)
 
 
 def _fail(message: str) -> None:
@@ -134,7 +129,9 @@ def validate_catalog(catalog: Any) -> dict[str, Any]:
         "openai": ("custom", {
             "gpt-5.6-luna": (["max"], "explicit"),
             "gpt-5.6-terra": (["max"], "explicit"),
-            "gpt-5.6-sol": (["high"], "explicit"),
+            "gpt-6-astra": (["medium"], "explicit"),
+            "gpt-6-luna": (["max"], "explicit"),
+            "gpt-6.1-sol": (["low", "medium", "high"], "explicit"),
         }),
         "zai": ("zai", {
             "glm-5.3": (["low", "high", "max"], "provider-default"),
@@ -253,7 +250,7 @@ def validate_profile_v2(profile: Any, catalog: dict[str, Any] | None = None) -> 
     _string(profile["profile_id"], "profile_id")
     if profile["default_active"] is not False or profile["activation"] != "explicit-owner-selection":
         _fail("profile identity or activation drifted")
-    if profile["evidence_date"] != "2026-08-31":
+    if profile["evidence_date"] != "2026-10-02":
         _fail("profile evidence date drifted")
 
     slots = profile["slots"]
@@ -279,21 +276,18 @@ def validate_profile_v2(profile: Any, catalog: dict[str, Any] | None = None) -> 
         _fail("assurance validator evidence contract drifted")
     if assurance["exhaustion_action"] != "blocked-owner":
         _fail("assurance validator exhaustion action drifted")
-    expected_routes = {
-        "R1": [
-            {"provider": "openai", "model": "gpt-5.6-luna", "reasoning": "max", "reasoning_delivery": "explicit"},
-            {"provider": "openai", "model": "gpt-5.6-terra", "reasoning": "max", "reasoning_delivery": "explicit"},
-            {"provider": "openai", "model": "gpt-5.6-sol", "reasoning": "high", "reasoning_delivery": "explicit"},
-        ],
-        "R2": [
-            {"provider": "openai", "model": "gpt-5.6-terra", "reasoning": "max", "reasoning_delivery": "explicit"},
-            {"provider": "openai", "model": "gpt-5.6-sol", "reasoning": "high", "reasoning_delivery": "explicit"},
-        ],
-        "R3": [
-            {"provider": "openai", "model": "gpt-5.6-terra", "reasoning": "max", "reasoning_delivery": "explicit"},
-            {"provider": "openai", "model": "gpt-5.6-sol", "reasoning": "high", "reasoning_delivery": "explicit"},
-        ],
-    }
+    expected_routes = {'R1': [{'provider': 'openai',
+             'model': 'gpt-6.1-sol',
+             'reasoning': 'low',
+             'reasoning_delivery': 'explicit'}],
+     'R2': [{'provider': 'openai',
+             'model': 'gpt-6.1-sol',
+             'reasoning': 'medium',
+             'reasoning_delivery': 'explicit'}],
+     'R3': [{'provider': 'openai',
+             'model': 'gpt-6.1-sol',
+             'reasoning': 'high',
+             'reasoning_delivery': 'explicit'}]}
     routes_by_risk = assurance["routes_by_risk"]
     if not isinstance(routes_by_risk, dict) or set(routes_by_risk) != set(expected_routes):
         _fail("assurance validator risk routes are invalid")
@@ -306,29 +300,9 @@ def validate_profile_v2(profile: Any, catalog: dict[str, Any] | None = None) -> 
             if actual != expected_route:
                 _fail(f"assurance validator {risk} route chain drifted")
 
-    expected_forbidden = [
-        "gpt-5.6-sol:xhigh", "gpt-5.6-sol:max", "gpt-5.6-sol:ultra",
-        "gpt-5.6-luna:low", "gpt-5.6-luna:medium", "gpt-5.6-luna:high", "gpt-5.6-luna:xhigh",
-        "gpt-5.6-terra:low", "gpt-5.6-terra:medium", "gpt-5.6-terra:high", "gpt-5.6-terra:xhigh",
-        "gpt-5.5:*", "gpt-5.4:*",
-    ]
+    expected_forbidden = ['gpt-5.6:*', 'gpt-5.5:*', 'gpt-5.4:*']
     if profile["forbidden_defaults"] != expected_forbidden:
         _fail("forbidden defaults drifted")
-    high = slots["writer.high-volume-deterministic"]
-    if not isinstance(high, dict) or set(high) != {
-        "primary", "fallback", "accepted_primary_unavailable_evidence", "independent_validator_source",
-        "default", "requires_explicit_task_selection"
-    }:
-        _fail("high-volume slot shape is invalid")
-    _validate_route(high["primary"], catalog, "high-volume.primary")
-    _validate_route(high["fallback"], catalog, "high-volume.fallback")
-    if (
-        high["accepted_primary_unavailable_evidence"] != list(EVIDENCE)
-        or high["independent_validator_source"] != "openai-complexity-map"
-        or high["default"] is not False
-        or high["requires_explicit_task_selection"] is not True
-    ):
-        _fail("high-volume fallback contract drifted")
     return json.loads(json.dumps(profile))
 
 
@@ -558,8 +532,7 @@ def validate_route_request_v2(request: Any) -> dict[str, Any]:
         _fail("profile selection must be explicit")
     if type(request["explicit_high_volume_selection"]) is not bool:
         _fail("explicit_high_volume_selection must be boolean")
-    if request["route_slot"] == "writer.high-volume-deterministic" and not request["explicit_high_volume_selection"]:
-        _fail("high-volume selection must be explicit")
+
 
     availability = request["availability"]
     if not isinstance(availability, dict):
@@ -858,82 +831,6 @@ def _resolve_assurance_single(
     raise AssertionError("assurance route chain must not be empty")
 
 
-def _resolve_assurance_dual(
-    request: dict[str, Any],
-    digest: str,
-    catalog: dict[str, Any],
-    routes: list[dict[str, str]],
-    accepted: list[str],
-) -> dict[str, Any]:
-    evidence_by_route: dict[str, list[str]] = {}
-    unknown_seen = False
-    unavailable_seen = False
-    invalid_unavailable = False
-    for route in routes:
-        key = _logical_route_key(route)
-        state = _availability_v2(request["availability"], route)
-        if state == "unknown":
-            unknown_seen = True
-        elif state == "unavailable":
-            unavailable_seen = True
-            route_evidence, accepted_evidence = _route_failure_evidence_v2(
-                request, route, accepted
-            )
-            evidence_by_route[key] = route_evidence
-            if not accepted_evidence:
-                invalid_unavailable = True
-
-    if invalid_unavailable:
-        return _decision_v2(
-            request,
-            digest,
-            status="blocked",
-            selected=[],
-            validation_mode="dual",
-            escalation_used=False,
-            evidence=evidence_by_route,
-            limitations=[
-                OWNER_R3_LIMITATION,
-                "one or more unavailable required routes has missing or unaccepted route-bound failure evidence",
-            ],
-        )
-    if unknown_seen:
-        return _decision_v2(
-            request,
-            digest,
-            status="unknown",
-            selected=[],
-            validation_mode="dual",
-            escalation_used=False,
-            evidence=evidence_by_route,
-            limitations=[OWNER_R3_LIMITATION, "one or more required routes has unknown availability"],
-        )
-    if unavailable_seen:
-        return _decision_v2(
-            request,
-            digest,
-            status="blocked",
-            selected=[],
-            validation_mode="dual",
-            escalation_used=False,
-            evidence=evidence_by_route,
-            limitations=[
-                OWNER_R3_LIMITATION,
-                "one or more required routes is unavailable even with accepted failure evidence",
-            ],
-        )
-    return _decision_v2(
-        request,
-        digest,
-        status="selected",
-        selected=[_expand_route(route, catalog) for route in routes],
-        validation_mode="dual",
-        escalation_used=False,
-        evidence={},
-        limitations=[],
-    )
-
-
 def _resolve_v2_common_slot(
     request: dict[str, Any],
     digest: str,
@@ -1064,8 +961,6 @@ def _resolve_route_v2(
         assurance = profile["slots"]["validator.assurance"]
         routes = assurance["routes_by_risk"][request["risk_level"]]
         accepted = assurance["accepted_route_failure_evidence"]
-        if request["risk_level"] == "R3":
-            return _resolve_assurance_dual(request, digest, catalog, routes, accepted)
         return _resolve_assurance_single(request, digest, catalog, routes, accepted)
     return _resolve_v2_common_slot(
         request,
