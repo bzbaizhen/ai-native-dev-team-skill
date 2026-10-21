@@ -6,7 +6,7 @@ Use this reference only in the main control plane. Do not send it to ordinary Wo
 
 | Level | Evidence | Capability and reasoning |
 |---|---|---|
-| C0 | Query, tiny edit, deterministic transform, or mechanical batch | Main agent/Current only for strict micro work; Economy/Low Writer for a batch |
+| C0 | Query, tiny edit, deterministic transform, or mechanical batch | Main agent/Current by default; Economy/Low Writer for a bounded batch meeting the SKILL.md delegation conditions |
 | C1 | Narrow scope, known path, and easy verification | Standard/Medium |
 | C2 | Cross-file or cross-module work, meaningful design choice, or uncertain integration | Advanced/High |
 | C3 | Architecture, cross-system change, unknown root cause, or difficult migration | Frontier/Max Writer for frozen implementation slices; main agent may retain architecture |
@@ -46,13 +46,8 @@ after routing, not a routing layer.
 
 ## Choose the smallest topology
 
-1. `no-delegation` only for read-only control-plane work or one tiny deterministic,
-   low-risk, single-file C0 edit with no material behavior, interface, dependency, data,
-   security, concurrency, production, or public effect; no debugging loop or test
-   authoring; and exactly one deterministic verification. Missing or uncertain evidence
-   fails closed to delegation.
-2. `single-worker` for every C0 mechanical batch and every non-material C1+
-   implementation, refactor, bug fix, test-writing, or debugging slice.
+1. `no-delegation` for simple edits, tightly coupled decisions, unclear ownership, excessive handoff cost, or nearly completed work without a suitable independent slice. Preserve the actual task's validation requirements.
+2. `single-worker` by default for a bounded, independently acceptable slice with concrete parallel, confirmed model-routing, or necessary independent-validation value and manageable overhead. A small low-cost trial is allowed when benefit is uncertain; add workers only for additional independent work.
 3. `task-cell` for material behavior or meaningful regression risk: one Writer and one independent Validator.
 4. `team-required` only for independent contract-frozen slices, multiple repositories, or concrete specialist gates.
 
@@ -93,7 +88,7 @@ validation record.
 
 | Work | Capability | Reasoning | Escalate when |
 |---|---|---|---|
-| Strict C0 micro work | Main agent | Current | Delegate if any eligibility condition is absent or uncertain |
+| Direct work | Main agent | Current | Check for bounded work meeting the SKILL.md delegation conditions |
 | C0 deterministic batch | Economy | Low | Ambiguity, exceptions, or failed deterministic checks |
 | C1 | Standard | Medium | Repeated failure, hidden dependency, or inadequate verification |
 | C2 | Advanced | High | Architecture or root cause remains unresolved |
@@ -105,19 +100,15 @@ rework and validation, not the cheapest single call. Never claim a model was use
 the runtime did not expose it.
 
 The main agent owns scope, architecture decisions, contracts, permissions, integration,
-evidence review, stop decisions, and final acceptance; it does not duplicate the
-Writer's repository exploration, implementation, or test/debug loop. C3 architecture
-may stay in the control plane, but frozen implementation slices go to Writers.
+evidence review, stop decisions, and final acceptance; it avoids repeating
+Writer work supported by reliable evidence; necessary independent review is preserved. C3 architecture
+may stay in the control plane, and delegates frozen implementation slices when the delegation conditions in SKILL.md hold.
 
-Higher-cost main-agent implementation takeover requires all of: the Writer path is
-unavailable or repeatedly failed with evidence; safe re-slicing is impossible; the user
-explicitly authorizes the takeover; and the reason is recorded. Otherwise use a declared
-fallback or stop. An orchestration subagent supports a cost-saving claim only when its
-observable runtime mapping is to a lower-cost tier; never infer that mapping.
+Main-agent takeover within existing scope does not require a new approval. Reassign the write lease, preserve required validation independence and candidate evidence, and avoid parallel edits. Claim cost savings only from an observable runtime mapping and defensible total-work estimate.
 
 ## Delegation packet
 
-Give a delegated agent only the task-local packet:
+For simple Core work, use the brief packet in [core.md](core.md); add stop and recovery details only when relevant. For Controlled work, give a delegated agent only the task-local packet:
 
 - objective and user value;
 - confirmed facts, task baseline Commit, repository, native environment, and allowed paths;

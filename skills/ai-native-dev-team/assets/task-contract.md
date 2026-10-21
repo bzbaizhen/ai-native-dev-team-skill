@@ -15,15 +15,15 @@
 - Layer: `core / controlled`
 - Route: `no-delegation / single-worker / task-cell / team-required`
 - Capability/reasoning:
-- Implementation executor: `main-agent-strict-c0 / task-scoped-writer`
+- Implementation executor: `main-agent / task-scoped-writer`
 - Active routing profile: `none / <explicitly-selected-profile-id>`
 - Configured lower-cost execution path:
 - Actual runtime model/provider, only if observable: `unknown / <observed value>`
 - Actual reasoning effort, only if observable: `unknown / <observed value>`
 - Observable lower-cost runtime mapping evidence:
 - Fallback or escalation reason:
-- Main-agent takeover: `not-applicable / requested / explicitly-authorized`
-- Takeover unavailability/failure evidence, re-slice analysis, authorization, and reason:
+- Main-agent takeover: `not-applicable / reassigned-within-scope / blocked-by-actual-authority`
+- Takeover reason, write-lease transfer, and retained validation:
 - Material behavior change: `true / false`
 - DQR for material acceptance: `not-applicable / required`
 - Optional prospective metrics: `not-selected / selected`

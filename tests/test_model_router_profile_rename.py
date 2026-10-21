@@ -14,13 +14,13 @@ ROOT = Path(__file__).resolve().parents[1]
 ROUTER = ROOT / "skills" / "ai-native-model-router"
 PROFILE_DIR = ROUTER / "assets" / "profiles"
 SCRIPT = ROUTER / "scripts" / "resolve_route.py"
-BUNDLED_PROFILE_ID = "gpt5.6"
+BUNDLED_PROFILE_ID = "gpt6"
 RETIRED_PROFILE_ID = "glm+deepseek"
 OLDER_RETIRED_PROFILE_IDS = (
     "openai-glm5.3-deepseek-fallback-2026-08-28",
     "openai-gpt5.6-validator-assurance-2026-08-31",
 )
-RETIRED_PROFILE_IDS = (RETIRED_PROFILE_ID, *OLDER_RETIRED_PROFILE_IDS)
+RETIRED_PROFILE_IDS = ("gpt5.6", RETIRED_PROFILE_ID, *OLDER_RETIRED_PROFILE_IDS)
 EVIDENCE = [
     "model-not-found",
     "authenticated-provider-outage",
@@ -65,7 +65,7 @@ def route_request(profile_id, router_api_version):
             "profile_id": profile_id,
             "explicit_profile_selection": True,
             "explicit_high_volume_selection": False,
-            "availability": {"openai/gpt-5.6-luna": "available"},
+            "availability": {"openai/gpt-5.6-luna": "available", "openai/gpt-6.1-sol": "available"},
             "route_failure_evidence": {},
             "risk_level": None,
             "writer_identity": None,
@@ -79,7 +79,7 @@ def route_request(profile_id, router_api_version):
         "profile_id": profile_id,
         "explicit_profile_selection": True,
         "explicit_high_volume_selection": False,
-        "availability": {"openai/gpt-5.6-luna": "available"},
+        "availability": {"openai/gpt-5.6-luna": "available", "openai/gpt-6.1-sol": "available"},
         "primary_failure_evidence": [],
         "writer_identity": None,
         "candidate_id": "candidate-profile-removal-v1",
@@ -98,31 +98,9 @@ def project_config(profile_id, router_api_version, project_profile_dirs=None):
 
 
 def custom_v1_profile(profile_id="custom-v1"):
-    """Build a bounded project-only v1 fixture from the preserved v2 slots."""
-
-    profile = json.loads(
-        (PROFILE_DIR / f"{BUNDLED_PROFILE_ID}.json").read_text(encoding="utf-8")
-    )
-    profile["schema_version"] = 1
+    """Independent project-only v1 fixture; never derives old semantics from v2."""
+    profile = json.loads((ROOT / "tests/fixtures/custom-v1.json").read_text(encoding="utf-8"))
     profile["profile_id"] = profile_id
-    profile["evidence_date"] = "2026-08-28"
-    del profile["slots"]["validator.assurance"]
-    profile["slots"]["validator.independent"] = {
-        "primary": {
-            "provider": "zai",
-            "model": "glm-5.3",
-            "reasoning": "max",
-            "reasoning_delivery": "provider-default",
-        },
-        "fallback": {
-            "provider": "deepseek",
-            "model": "deepseek-v4-pro",
-            "reasoning": "max",
-            "reasoning_delivery": "explicit",
-        },
-        "accepted_primary_unavailable_evidence": EVIDENCE,
-        "independent_validator_source": "openai-complexity-map",
-    }
     return profile
 
 
@@ -177,7 +155,7 @@ class ModelRouterProfileRemovalTests(unittest.TestCase):
     def test_bundled_profile_filenames_and_internal_ids_are_exact(self):
         self.assertEqual(
             sorted(path.name for path in PROFILE_DIR.glob("*.json")),
-            ["gpt5.6.json"],
+            ["gpt6.json"],
         )
         profile = json.loads(
             (PROFILE_DIR / f"{BUNDLED_PROFILE_ID}.json").read_text(encoding="utf-8")
@@ -190,7 +168,7 @@ class ModelRouterProfileRemovalTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(json.loads(result.stdout), {"profiles": [BUNDLED_PROFILE_ID]})
 
-    def test_gpt56_validates_and_resolves_through_route_v2(self):
+    def test_gpt6_validates_and_resolves_through_route_v2(self):
         validated = run_cli("validate-profile", "--profile", BUNDLED_PROFILE_ID)
         self.assertEqual(validated.returncode, 0, validated.stderr)
         self.assertEqual(json.loads(validated.stdout)["profile_id"], BUNDLED_PROFILE_ID)
@@ -206,30 +184,14 @@ class ModelRouterProfileRemovalTests(unittest.TestCase):
         self.assertEqual(decision["router_api_version"], "route/v2")
         self.assertEqual(decision["enforcement_status"], "not-executed")
 
-    def test_gpt56_preserves_explicit_high_volume_writer_routes(self):
-        profile = json.loads(
-            (PROFILE_DIR / f"{BUNDLED_PROFILE_ID}.json").read_text(encoding="utf-8")
-        )
-        high_volume = profile["slots"]["writer.high-volume-deterministic"]
-        self.assertEqual(
-            high_volume["primary"],
-            {
-                "provider": "zai",
-                "model": "glm-5.3-flash",
-                "reasoning": "max",
-                "reasoning_delivery": "provider-default",
-            },
-        )
-        self.assertEqual(
-            high_volume["fallback"],
-            {
-                "provider": "deepseek",
-                "model": "deepseek-v4-flash",
-                "reasoning": "max",
-                "reasoning_delivery": "explicit",
-            },
-        )
-        self.assertTrue(high_volume["requires_explicit_task_selection"])
+    def test_gpt6_removes_v2_external_high_volume_routes(self):
+        profile = load_profile(BUNDLED_PROFILE_ID)
+        self.assertNotIn("writer.high-volume-deterministic", profile["slots"])
+        for explicit in (False, True):
+            request = route_request(BUNDLED_PROFILE_ID, "route/v2")
+            request.update(route_slot="writer.high-volume-deterministic", explicit_high_volume_selection=explicit)
+            with self.assertRaises(ValueError):
+                resolve_route(request)
 
     def test_retired_ids_are_rejected_by_valid_requests_before_resolution(self):
         for profile_id in RETIRED_PROFILE_IDS:
@@ -324,7 +286,7 @@ class ModelRouterProfileRemovalTests(unittest.TestCase):
                 "default_active": False,
                 "activation": "explicit-owner-selection",
                 "evidence_date": "2026-08-28",
-                "control_plane": {"model": "gpt-5.6-sol", "reasoning": "high"},
+                "control_plane": {"model": "gpt-6.1-sol", "reasoning": "high"},
                 "writers": {"C0_batch": {"model": "gpt-5.6-luna", "reasoning": "max"}},
                 "validators": {},
                 "high_volume_deterministic_fallback": {},
@@ -449,7 +411,7 @@ class ModelRouterProfileRemovalTests(unittest.TestCase):
                     cwd=project,
                 )
 
-    def test_config_example_is_only_the_v2_gpt56_selection(self):
+    def test_config_example_is_only_the_v2_gpt6_selection(self):
         example = json.loads(
             (ROUTER / "assets" / "model-router-config.example.json").read_text(
                 encoding="utf-8"
@@ -460,7 +422,7 @@ class ModelRouterProfileRemovalTests(unittest.TestCase):
             {
                 "schema_version": 2,
                 "router_api_version": "route/v2",
-                "config_id": "project-router-v2-2026-08-31",
+                "config_id": "project-router-v2-2026-09-23",
                 "active_profile": BUNDLED_PROFILE_ID,
                 "project_profile_dirs": [".ai-native/profiles"],
                 "updated_reason": "Explicit project profile selection for route/v2.",

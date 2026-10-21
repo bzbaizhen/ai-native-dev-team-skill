@@ -1,94 +1,40 @@
 ---
 name: ai-native-model-router
-description: Deterministic model routing with evidence-bound fallbacks.
-version: 0.4.0
-author: bzbaizhen, Hermes Agent
+description: 为已决定委派的任务解析模型路由与回退，或校验 Router 配置；不执行模型调用。
 license: MIT
-platforms:
-  - linux
-  - macos
-  - windows
 metadata:
   hermes:
     related_skills:
-      - ai-native-dev-team
+    - ai-native-dev-team
     tags:
-      - model-routing
-      - provider-selection
-      - deterministic
+    - model-routing
+    - provider-selection
+    - deterministic
     config:
-      - key: ai_native_model_router.config_path
-        description: Path to the project-local model router configuration.
-        default: .ai-native/model-router.json
-        prompt: Enter the project-local model router configuration path.
+    - key: ai_native_model_router.config_path
+      description: Path to the project-local model router configuration.
+      default: .ai-native/model-router.json
+      prompt: Enter the project-local model router configuration path.
+  version: 0.5.1
+  author: bzbaizhen, Hermes Agent
+  platforms:
+  - linux
+  - macos
+  - windows
 ---
 
 # AI Native Model Router
 
-Use this Skill as a deterministic `route/v1` resolver with additive `route/v2`
-assurance routing. It owns project-local selection and returns a machine-readable
-`RouteDecision`; it does not execute a host, call a provider, load credentials,
-or claim that a route was enforced.
+Resolve a project-local model selection into a machine-readable `RouteDecision`. This package does not call a provider, load credentials or prove execution. Use it when choosing models for already-justified delegation or when the user asks to configure or validate routing.
 
-Version 0.4.0 removes the bundled route/v1 Profile. The only bundled Profile is
-`gpt5.6`, and it uses route/v2. The route/v1 schemas and APIs remain available
-for explicitly selected safe project Profiles. Retired Profile IDs are rejected
-before configuration, discovery, or Profile loading; they are not aliases or
-supported discovery names.
+Use the owner's current selection and configured precedence; a profile file's presence alone is not authorization. The bundled profile is `gpt6` on `route/v2`. Preserve existing explicit-only invocation policy and task-specific role requirements.
 
-## Contract navigation
+## Resolve and validate
 
-- Read [interface](references/interface.md) for the v1 and v2 RouteRequest and
-  RouteDecision contracts.
-- Read [configuration](references/configuration.md) for selection precedence,
-  version pairing, digest checks, safe project profiles, and collision handling.
-- Read [provider evidence](references/provider-evidence.md) before relying on a
-  dated identity or fallback claim.
-- Use [resolve_route.py](scripts/resolve_route.py) for validation and resolution.
-  The Phase 1 config helper remains [router_config.py](scripts/router_config.py).
-- The package contract is in [provider-catalog.json](assets/provider-catalog.json),
-  the immutable bundled [gpt5.6 profile](assets/profiles/gpt5.6.json),
-  and the [v1 config](assets/model-router-config.v1.schema.json),
-  [v1 request](assets/route-request.v1.schema.json),
-  [v1 decision](assets/route-decision.v1.schema.json),
-  [v2 config](assets/model-router-config.v2.schema.json),
-  [v2 request](assets/route-request.v2.schema.json), and
-  [v2 decision](assets/route-decision.v2.schema.json) schemas.
-
-## Operating rules
-
-1. Every request explicitly selects a profile. The bundled `gpt5.6` profile is
-   `default_active: false` with `explicit-owner-selection`; file presence never
-   activates a profile. Require explicit task selection for
-   `writer.high-volume-deterministic`.
-2. Preserve `route/v1` and its `validator.independent` independent-validation
-   semantics. Mixed v1/v2 request, config, and profile versions fail closed.
-3. `route/v2` uses `validator.assurance`: same-model review is allowed and is
-   reported through `same_model_as_writer`; it is not independent validation.
-   R1 is `gpt-5.6-luna:max -> gpt-5.6-terra:max -> gpt-5.6-sol:high`.
-   R2 is `gpt-5.6-terra:max -> gpt-5.6-sol:high`. R3 requires
-   `gpt-5.6-terra:max + gpt-5.6-sol:high` and must never degrade to one Validator.
-   For R3, apply this precedence: missing or unaccepted route-bound evidence for
-   any unavailable required route => `decision_status: blocked`, even when the
-   other required route is `unknown`; otherwise, any required route with
-   `unknown` availability => `decision_status: unknown`; otherwise, accepted
-   unavailability => `decision_status: blocked`. R3 never selects or degrades to
-   one route.
-4. route-bound evidence may be only `model-not-found`,
-   `authenticated-provider-outage`, `quota-exhaustion`, or
-   `repeated-bounded-transport-failure`, keyed to the unavailable route.
-   Treat `unknown` as unknown; unknown remains unknown after the R3 precedence
-   above; never infer availability. A valid Validator rejection is not a route
-   failure. A substantive Validator rejection does not trigger escalation; create
-   a new candidate ID before revalidation.
-5. Resolve a fallback only for an unavailable route with complete accepted
-   evidence and an available next route. Return `enforcement_status:
-   not-executed` always; this is not an execution receipt.
-6. Keep provider execution, authentication, and transport outside this package.
-   No secret, endpoint, credential, transport command, or price value belongs in
-   configuration, profiles, catalog data, prompts, or evidence.
-
-## CLI
+- Read [configuration.md](references/configuration.md) when choosing or updating configuration: precedence, version pairing, profile digests and collisions.
+- Read [interface.md](references/interface.md) for request/decision fields, and [operating-rules.md](references/operating-rules.md) before resolving a request. Preserve route/v1 independence and route/v2 assurance semantics; mixed versions fail closed. The gpt6 profile uses one assurance validator at every risk level, including R3, as explicitly selected by the owner.
+- Read [provider-evidence.md](references/provider-evidence.md) only when relying on provider identity, availability or fallback evidence. Unknown availability stays unknown; a valid review rejection is not a transport failure.
+- Use `scripts/resolve_route.py` for deterministic validation/resolution and `scripts/router_config.py` for configuration. Keep execution, credentials and transport outside this package; return `enforcement_status: not-executed` until the host supplies its own separate receipt.
 
 ```text
 python scripts/resolve_route.py list-profiles
@@ -96,5 +42,4 @@ python scripts/resolve_route.py validate-profile --profile <id>
 python scripts/resolve_route.py resolve --request <json-path-or-json> [--config <path>] [--injected-config <path-or-json>]
 ```
 
-CLI success is JSON on stdout. Errors are JSON-free diagnostics on stderr with a
-nonzero exit code. Ordering is deterministic.
+Success is JSON on stdout; errors are diagnostics on stderr with nonzero exit. Use the existing `assets/` schemas and profile through the resolver rather than loading every schema into context.

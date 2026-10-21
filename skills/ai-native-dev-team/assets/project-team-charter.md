@@ -43,7 +43,7 @@
 
 | Complexity | Capability | Reasoning | Current model mapping | Fallback |
 |---|---|---|---|---|
-| Strict C0 micro | main-agent | current | | task-scoped Writer |
+| Simple, tightly coupled, or nearly completed work | main-agent | current | | check SKILL.md delegation conditions |
 | C0 batch | economy | low | | |
 | C1 | standard | medium | | |
 | C2 | advanced | high | | |
@@ -51,11 +51,8 @@
 
 - Risk `R0-R3` controls gates, not capability.
 - Never claim a model was used when the runtime did not expose it.
-- C0 batches and C1+ implementation/refactor/fix/test-writing/debugging use the
-  configured lower-cost execution path. An orchestration subagent alone is not evidence
-  of lower cost; record the observable runtime mapping.
-- Main-agent implementation takeover requires Writer-path unavailability or repeated
-  failure with evidence, no safe re-slice, explicit user authorization, and a recorded reason.
+- Prefer lightweight delegation under the SKILL.md conditions: clear boundaries and acceptance, concrete parallel work, confirmed suitable model routing, or necessary independent validation, with manageable overhead. Start with one delegate; no quantified net-gain proof is required. Record actual runtime mapping and applicable pricing evidence before claiming lower cost.
+- The main agent may take over within existing scope after settling write ownership; preserve required validation and actual authority boundaries.
 - Actual task runtime model/provider, only if observable: `unknown / task-local value`
 - Actual task reasoning effort, only if observable: `unknown / task-local value`
 - Input tokens, only if observable: `unknown / task-local count`
@@ -72,7 +69,7 @@
 | Role | Activation | Responsibility | Prohibited actions | Handoff |
 |---|---|---|---|---|
 | Business owner | always | | | |
-| Main agent | always | scope, architecture decisions, contracts, permissions, integration, evidence review, stop, acceptance | duplicate Writer exploration, implementation, or test/debug loop | |
+| Main agent | always | scope, architecture decisions, contracts, permissions, integration, evidence review, stop, acceptance | wasteful repetition of Writer work supported by reliable evidence; necessary independent review remains required | |
 | Writer | per approved task | | scope expansion | |
 | Independent validator | material behavior or risk | | silent product fix | |
 | Specialist | by domain/risk | | replacing Owner approval | |

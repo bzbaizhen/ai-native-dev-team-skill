@@ -46,9 +46,8 @@ V2_ROUTE_SLOTS = [
     "writer.c2",
     "writer.c3",
     "validator.assurance",
-    "writer.high-volume-deterministic",
 ]
-CURRENT_BUNDLED_PROFILE_ID = "gpt5.6"
+CURRENT_BUNDLED_PROFILE_ID = "gpt6"
 
 
 def valid_config(**overrides):
@@ -69,7 +68,7 @@ def valid_config_v2(**overrides):
         "schema_version": 2,
         "router_api_version": "route/v2",
         "config_id": "test-config-v2",
-        "active_profile": "gpt5.6",
+        "active_profile": "gpt6",
         "project_profile_dirs": [".ai-native/profiles"],
         "updated_reason": "test fixture",
     }
@@ -316,7 +315,7 @@ class SchemaContractTests(unittest.TestCase):
             ),
             (
                 {"properties": {"risk_level": {"const": "R3"}}},
-                {"properties": {"validation_mode": {"const": "dual"}}},
+                {"properties": {"validation_mode": {"const": "single"}}},
             ),
             (
                 {
@@ -334,7 +333,7 @@ class SchemaContractTests(unittest.TestCase):
                         "risk_level": {"const": "R3"},
                     }
                 },
-                {"properties": {"selected_routes": {"minItems": 2, "maxItems": 2}}},
+                {"properties": {"selected_routes": {"minItems": 1, "maxItems": 1}}},
             ),
             (
                 {"properties": {"decision_status": {"enum": ["blocked", "unknown"]}}},
@@ -351,7 +350,7 @@ class SchemaContractTests(unittest.TestCase):
         cases = (
             ("R1", "single", 1),
             ("R2", "single", 1),
-            ("R3", "dual", 2),
+            ("R3", "single", 1),
         )
         for risk_level, validation_mode, selected_count in cases:
             with self.subTest(risk_level=risk_level):
@@ -468,13 +467,13 @@ class SchemaContractTests(unittest.TestCase):
         self.assertEqual(schema["properties"]["schema_version"]["const"], 2)
         self.assertEqual(schema["properties"]["router_api_version"]["const"], "route/v2")
 
-    def test_only_gpt56_is_bundled_and_uses_route_v2(self):
+    def test_only_gpt6_is_bundled_and_uses_route_v2(self):
         profile_dir = ASSET_DIR / "profiles"
         self.assertEqual(
             sorted(path.name for path in profile_dir.glob("*.json")),
-            ["gpt5.6.json"],
+            ["gpt6.json"],
         )
-        profile = json.loads((profile_dir / "gpt5.6.json").read_text(encoding="utf-8"))
+        profile = json.loads((profile_dir / "gpt6.json").read_text(encoding="utf-8"))
         self.assertEqual(profile["profile_id"], CURRENT_BUNDLED_PROFILE_ID)
         self.assertEqual(profile["schema_version"], 2)
 
@@ -768,7 +767,7 @@ class LegacyMigrationTests(unittest.TestCase):
             "default_active": False,
             "activation": "explicit-owner-selection",
             "evidence_date": "2026-08-28",
-            "control_plane": {"model": "gpt-5.6-sol", "reasoning": "high"},
+            "control_plane": {"model": "gpt-6.1-sol", "reasoning": "high"},
             "writers": {"C0_batch": {"model": "gpt-5.6-luna", "reasoning": "max"}},
             "validators": {},
             "high_volume_deterministic_fallback": {},
@@ -783,7 +782,7 @@ class LegacyMigrationTests(unittest.TestCase):
             {
                 "schema_version": 2,
                 "router_api_version": "route/v2",
-                "config_id": "migrated-gpt5.6",
+                "config_id": "migrated-gpt6",
                 "active_profile": CURRENT_BUNDLED_PROFILE_ID,
                 "project_profile_dirs": [],
                 "updated_reason": "Migrated from legacy embedded profile; explicit profile selection remains required.",

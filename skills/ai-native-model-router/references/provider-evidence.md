@@ -5,22 +5,23 @@ names, runtime provider labels, exact model IDs, reasoning capabilities, and
 delivery semantics only. It contains no authentication material, endpoints,
 prices, or transport instructions.
 
-The bundled `gpt5.6` Profile maps the control plane to
-`openai/gpt-5.6-sol:high`, C0 batch and C1 Writers to
-`openai/gpt-5.6-luna:max`, C2 to `openai/gpt-5.6-terra:max`, and C3 to
-`openai/gpt-5.6-sol:high`. Its explicitly selected high-volume deterministic
-Writer uses `zai/glm-5.3-flash:max`, with
-`deepseek/deepseek-v4-flash:max` under the same evidence gate. The route/v1
-contract remains available for safe project-local Profiles; its independent
-validation slots use the catalog identities selected by that project Profile.
+The bundled `gpt6` profile was originally specified by the owner on 2026-09-23.
+On 2026-10-02 the owner replaced every Sol route with `gpt-6.1-sol`,
+keeping each reasoning level and the same profile ID; the previous profile is not retained.
+The current Codex host tool metadata lists the requested model/reasoning pairs:
+control-plane `gpt-6-astra:medium`, C0 `gpt-6-luna:max`, C1
+`gpt-6.1-sol:low`, C2 `gpt-6.1-sol:medium`, and C3 `gpt-6.1-sol:high`.
+R1/R2/R3 use one `gpt-6.1-sol` review at low/medium/high respectively.
+The owner explicitly selected single-review R3. No live provider calls were made.
+The catalog's runtime_provider label remains the existing `custom` adapter label;
+it does not prove host adapter availability or successful execution.
+Other legacy model identities remain in the catalog for route/v1 project compatibility;
+`gpt-5.6-sol` and `gpt-6-sol` are removed from selectable catalog identities;
+the old bundled `gpt5.6` profile itself is removed and rejected.
 
-The bundled Profile is `default_active: false` and explicitly selected. Its
-`validator.assurance` routes are exact: R1 is
-`gpt-5.6-luna:max -> gpt-5.6-terra:max -> gpt-5.6-sol:high`; R2 is
-`gpt-5.6-terra:max -> gpt-5.6-sol:high`; and R3 requires
-`gpt-5.6-terra:max + gpt-5.6-sol:high`, never degrading to one Validator.
-Same-model review is allowed in v2 and is reported through
-`same_model_as_writer`; it is not independent validation.
+The owner removed the GLM/DeepSeek high-volume writer from gpt6 on
+2026-09-23. No gpt6 route or fallback selects either provider. Legacy catalog
+identities remain for route/v1 compatibility only.
 
 The exact accepted evidence is, in order:
 
